@@ -1,0 +1,41 @@
+Arquitectura del Sistema y Stack Tecnológico: Valatino
+1. Filosofía Central
+El stack está basado en TypeScript Fullstack para garantizar seguridad de tipos de extremo a extremo, alto rendimiento y mantenibilidad a largo plazo. Sigue una arquitectura "Enterprise Moderna", priorizando la modularidad, la seguridad mediante RLS (Row Level Security) y una experiencia de usuario (UX) premium.
+
+2. Stack Tecnológico
+
+Runtime: Node.js (Arquitectura orientada a eventos para alta concurrencia).
+
+Frontend: Next.js (App Router, Server Components para alto rendimiento y SEO).
+
+Backend: NestJS (Arquitectura modular, Inyección de dependencias, ideal para microservicios escalables).
+
+Base de Datos y Auth: Supabase (PostgreSQL con RLS, Autenticación y Almacenamiento).
+
+Capa de Datos/ORM: Prisma (Gestión de esquemas tipados y acceso a base de datos).
+
+Estilos y UI: Tailwind CSS (Diseño utilitario) + Shadcn/UI (Sistema de componentes de alta calidad).
+
+Animaciones e Interacciones: Framer Motion (Transiciones fluidas tipo "Apple" y micro-interacciones avanzadas).
+
+Despliegue: Vercel (Frontend y funciones Edge) / Railway (Servicios de backend).
+
+3. Estrategia de Integración y Comunicación
+
+Monorepo: Organizado mediante Turborepo para compartir tipos entre /apps/web (Next.js) y /apps/api (NestJS).
+
+Seguridad de Tipos: Prisma actúa como puente entre la base de datos y la aplicación, asegurando que los cambios en el esquema se propaguen automáticamente a través de todo el stack mediante TypeScript.
+
+Seguridad: Basada en capas:
+
+Acceso Directo: Uso del cliente de Supabase + RLS para consultas de datos ligeras y seguras.
+
+Lógica de Servidor: NestJS gestiona la lógica de negocio compleja, integraciones con terceros (Stripe, APIs financieras) y tareas de alta prioridad.
+
+APIs de Terceros: Integradas mediante Services modulares en NestJS para asegurar el manejo centralizado de errores, logs y comunicación validada por tipos.
+
+4. Objetivos de Rendimiento y Diseño
+
+UX/UI: Enfoque en estética premium tipo "Apple": minimalismo, uso inteligente del espacio en blanco, micro-interacciones fluidas y sensación de carga instantánea mediante Server Components.
+
+Escalabilidad: Escalabilidad horizontal de servicios a través de la arquitectura de NestJS y descarga de carga de la base de datos mediante la infraestructura de Supabase.

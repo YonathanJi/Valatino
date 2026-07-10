@@ -1,0 +1,10 @@
+{
+  "name": "@valatino/config",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./eslint": "./eslint-config/index.js",
+    "./tsconfig/*": "./tsconfig/*.json",
+    "./prettier": "./prettier.json"
+  }
+}

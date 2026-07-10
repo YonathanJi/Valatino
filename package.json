@@ -1,0 +1,19 @@
+{
+  "name": "valatino",
+  "version": "0.0.1",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.5.0",
+    "prettier": "^3.3.0"
+  },
+  "packageManager": "pnpm@9.6.0"
+}

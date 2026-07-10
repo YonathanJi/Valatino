@@ -1,0 +1,22 @@
+# Dependencias
+node_modules/
+
+# Builds
+.next/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# Entornos y secretos
+.env
+.env.*
+!.env.example
+keys.txt
+Contraseñas.txt
+
+# Supabase CLI
+supabase/.temp/
+
+# Sistema
+.DS_Store
+Thumbs.db

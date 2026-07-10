@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PedidoEstado {
+  PENDIENTE_PAGO
+  PROCESANDO
+  ENVIADO
+  ENTREGADO
+  CANCELADO
+  REEMBOLSADO
+}
+
+model Profile {
+  id        String   @id @db.Uuid
+  email     String?  @unique
+  nombre    String?
+  telefono  String?
+  documento String?  @unique
+  avatarUrl String?  @map("avatar_url")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  @@map("profiles")
+}
+
+model Rol {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre      String      @unique @db.VarChar(50)
+  descripcion String?
+  userRoles   UserRol[]
+
+  @@map("roles")
+}
+
+model UserRol {
+  userId      String   @db.Uuid
+  roleId      String   @db.Uuid
+  asignadoPor String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz
+
+  rol Rol @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Producto {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nombre          String   @db.VarChar(200)
+  descripcion     String?
+  precio          Decimal  @db.Decimal(10, 2)
+  imagenes        String[]
+  categoria       String   @db.VarChar(100)
+  stockDisponible Int      @default(0) @map("stock_disponible")
+  stockReservado  Int      @default(0) @map("stock_reservado")
+  activo          Boolean  @default(true)
+  slug            String?  @unique @db.VarChar(250)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  stockReservas StockReserva[]
+  carritoItems  CarritoItem[]
+  pedidoItems   PedidoItem[]
+
+  @@map("productos")
+}
+
+model StockReserva {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productoId String   @db.Uuid @map("producto_id")
+  userId     String?  @db.Uuid @map("user_id")
+  sessionId  String   @db.Uuid @map("session_id")
+  cantidad   Int
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt  DateTime @default(dbgenerated("(now() + interval '15 minutes')")) @map("expires_at") @db.Timestamptz
+
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@map("stock_reservas")
+}
+
+model Carrito {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String?  @db.Uuid @unique @map("user_id")
+  sessionId String   @db.Uuid @map("session_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  items CarritoItem[]
+
+  @@map("carritos")
+}
+
+model CarritoItem {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  carritoId      String  @db.Uuid @map("carrito_id")
+  productoId     String  @db.Uuid @map("producto_id")
+  cantidad       Int
+  precioUnitario Decimal @db.Decimal(10, 2) @map("precio_unitario")
+
+  carrito  Carrito  @relation(fields: [carritoId], references: [id])
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@unique([carritoId, productoId])
+  @@map("carrito_items")
+}
+
+model DireccionEnvio {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @db.Uuid @map("user_id")
+  nombreDestinatario String   @db.VarChar(200) @map("nombre_destinatario")
+  linea1             String   @db.VarChar(300)
+  linea2             String?  @db.VarChar(200)
+  ciudad             String   @db.VarChar(100)
+  codigoPostal       String   @db.VarChar(10) @map("codigo_postal")
+  provincia          String   @db.VarChar(100)
+  pais               String   @default("ES") @db.Char(2)
+  esPredeterminada   Boolean  @default(false) @map("es_predeterminada")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  pedidos Pedido[]
+
+  @@map("direcciones_envio")
+}
+
+model Pedido {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String?       @db.Uuid @map("user_id")
+  estado            PedidoEstado  @default(PENDIENTE_PAGO)
+  total             Decimal       @db.Decimal(10, 2)
+  metodoPago        String        @db.VarChar(20) @map("metodo_pago")
+  referenciaPago    String?       @db.VarChar(200) @map("referencia_pago")
+  direccionEnvioId  String?       @db.Uuid @map("direccion_envio_id")
+  emailCliente      String?       @map("email_cliente")
+  documentoCliente  String?       @map("documento_cliente")
+  envioNombre       String?       @db.VarChar(200) @map("envio_nombre")
+  envioLinea1       String?       @db.VarChar(300) @map("envio_linea1")
+  envioLinea2       String?       @db.VarChar(200) @map("envio_linea2")
+  envioCiudad       String?       @db.VarChar(100) @map("envio_ciudad")
+  envioCodigoPostal String?       @db.VarChar(10) @map("envio_codigo_postal")
+  envioProvincia    String?       @db.VarChar(100) @map("envio_provincia")
+  envioPais         String?       @db.Char(2) @map("envio_pais")
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  direccionEnvio    DireccionEnvio?   @relation(fields: [direccionEnvioId], references: [id])
+  items             PedidoItem[]
+  transacciones     TransaccionPago[]
+
+  @@index([estado])
+  @@index([userId])
+  @@map("pedidos")
+}
+
+model PedidoItem {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pedidoId       String  @db.Uuid @map("pedido_id")
+  productoId     String  @db.Uuid @map("producto_id")
+  nombreProducto String  @db.VarChar(200) @map("nombre_producto")
+  cantidad       Int
+  precioUnitario Decimal @db.Decimal(10, 2) @map("precio_unitario")
+
+  pedido   Pedido   @relation(fields: [pedidoId], references: [id])
+  producto Producto @relation(fields: [productoId], references: [id])
+
+  @@map("pedido_items")
+}
+
+model TransaccionPago {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pedidoId    String   @db.Uuid @map("pedido_id")
+  proveedor   String   @db.VarChar(20)
+  eventoId    String   @unique @db.VarChar(200) @map("evento_id")
+  tipoEvento  String   @db.VarChar(100) @map("tipo_evento")
+  estado      String   @db.VarChar(50)
+  importe     Decimal  @db.Decimal(10, 2)
+  moneda      String   @default("EUR") @db.Char(3)
+  payloadRaw  Json     @map("payload_raw")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@map("transacciones_pago")
+}

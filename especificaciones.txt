@@ -1,0 +1,45 @@
+1. Descripción General del Proyecto
+Desarrollo de la plataforma e-commerce Valatino, especializada en la venta de productos latinoamericanos en españa (Chocoramos, Jugos Hit, Galletas Ducales, etc.). El sistema contará con un portal orientado al cliente (tienda virtual) y un portal de gestión interno (Back-Office) con control de acceso basado en roles.
+
+2. Módulo del Cliente (Storefront)
+El área pública donde los usuarios interactúan con la tienda.
+
+Catálogo de Productos: Visualización de productos con imágenes, descripciones, precios y disponibilidad en tiempo real.
+
+Carrito de Compras: Sistema persistente para añadir, eliminar y modificar la cantidad de los artículos deseados.
+
+Checkout Integrado: Flujo de pago seguro que soporte de manera nativa las pasarelas de Stripe (tarjetas de crédito/débito) y PayPal.
+
+Gestión de Usuarios cuando un cliente compra tener la opcion de Registro e inicio de sesión de clientes para ver su historial de pedidos y guardar direcciones de envío.
+
+Módulo de Administración (Back-Office)
+Sistema de gestión interno protegido por autenticación y control de roles (RBAC - Role-Based Access Control).
+
+Gestión de Roles y Permisos:
+
+Administrador: Acceso total al sistema (gestión de usuarios, roles, finanzas, inventario completo y configuración de la tienda).
+
+Asesor: Acceso restringido. Solo puede visualizar pedidos, cambiar estados de envío y brindar soporte operativo.
+
+Gestión de Pedidos (Order Management):
+
+Panel en tiempo real para visualizar los pedidos entrantes.
+
+Capacidad para actualizar el estado del pedido (Ej: Pendiente de Pago, Procesando, Enviado, Entregado, Cancelado).
+
+Gestión de Catálogo (CRUD de Productos):
+
+Interfaz para crear nuevos productos, modificar descripciones o precios, y eliminar/ocultar artículos descatalogados.
+
+Control manual de entrada de mercancía (sumar stock al inventario existente).
+
+4. Reglas de Negocio: Inventario y Concurrencia
+Esta es la parte más crítica para evitar vender productos que ya no existen (condiciones de carrera o race conditions).
+
+Deducción Automática de Inventario: El stock real ("Hard Stock") solo se debe descontar de la base de datos de forma definitiva en el momento en que Stripe o PayPal confirmen que el pago fue exitoso mediante un Webhook.
+
+Sistema de Reserva Temporal ("Soft Allocation"): * Cuando un cliente añade un producto a su carrito y avanza hacia la pantalla de pago, el sistema debe "bloquear" o reservar esa unidad.
+
+Implementación técnica sugerida: Crear una tabla o columna de stock_reservado en la base de datos que guarde el ID del usuario, el ID del producto y un Timestamp (marca de tiempo).
+
+Time-to-Live (TTL): Esta reserva tendrá un tiempo de expiración (por ejemplo, 15 minutos). Si el cliente no completa la compra en ese tiempo, un proceso en segundo plano libera el producto automáticamente, regresándolo al stock disponible para que otros usuarios puedan comprarlo.
