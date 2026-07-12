@@ -55,6 +55,12 @@ Ej.: `260712016478` → 12/07/26, `01` = Stripe, sufijo aleatorio. Códigos: **0
 - **Tipos compartidos**: las páginas de pedidos importan `Pedido`/`PaginatedResponse` de `@valatino/types` (eliminadas 3 interfaces locales duplicadas).
 - Verificado: type-checks API+web ✅ · Nest arranca con el nuevo cableado ✅ · webhook Stripe responde 200 con idempotencia ✅ · login admin y separación de áreas ✅.
 
+### ✅ Bug corregido: invitado con email de cuenta registrada → 422 al confirmar pago
+
+- **Síntoma**: pedido de invitado con un email que YA tiene cuenta → webhook 422 → "Generando tu número de pedido…" infinito.
+- **Causa**: el lookup de perfil por email asignaba ese user_id y el carrito se buscaba por user_id (carrito de la cuenta, vacío) en vez del carrito de invitado de la sesión (con los productos). Fallo de diseño previo al refactor: un solo campo mezclaba "dueño del pedido" y "usuario autenticado en el checkout".
+- **Fix**: `CrearPedidoDto` separa `userId` (dueño del pedido, puede venir del lookup por email) de `usuarioAutenticado` (localiza carrito y reservas). "Carrito vacío" ahora también se loguea. Verificado: pedido de invitado con email gmail se crea Y queda vinculado a la cuenta existente.
+
 ### Estado de pruebas
 
 - Flujo completo verificado hoy: pedido invitado (gmail) → login OTP → vinculación automática ✅ · pedidos logueado ✅ · pedido invitado con email nuevo (hotmail) ✅ (tras el fix) · login `/admin` ✅ (tras migración 022).

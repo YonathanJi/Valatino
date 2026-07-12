@@ -19,7 +19,18 @@ export interface DireccionSnapshotPedido {
 }
 
 export interface CrearPedidoDto {
+  /**
+   * Dueño del pedido. Puede venir de un lookup por email (invitado cuyo
+   * email pertenece a una cuenta registrada) — NO sirve para localizar el
+   * carrito, porque el invitado compró con el carrito de su sesión.
+   */
   userId?: string;
+  /**
+   * Usuario autenticado DURANTE el checkout (metadata del pago). Determina
+   * dónde viven el carrito y las reservas: con sesión iniciada → carrito de
+   * usuario; invitado → carrito de sesión (user_id IS NULL).
+   */
+  usuarioAutenticado?: string;
   sessionId: string;
   metodoPago: "stripe" | "paypal";
   referenciaPago: string;
@@ -71,12 +82,13 @@ export class InventarioService {
   }
 
   async confirmarVentaYCrearPedido(dto: CrearPedidoDto): Promise<string> {
-    // 1. Obtener ítems del carrito. El carrito de invitado se filtra con
-    //    user_id IS NULL: la misma sesión de navegador puede tener además un
-    //    carrito de usuario (de un login anterior) y sin el filtro habría
-    //    dos filas y la consulta fallaría.
-    const carritoQuery = dto.userId
-      ? this.supabase.from("carritos").select("id").eq("user_id", dto.userId).maybeSingle()
+    // 1. Obtener ítems del carrito. Se localiza por el usuario AUTENTICADO
+    //    en el checkout (no por el dueño final del pedido: un invitado cuyo
+    //    email pertenece a una cuenta compró con el carrito de su sesión).
+    //    El carrito de invitado se filtra con user_id IS NULL: la misma
+    //    sesión puede tener además un carrito de usuario de un login previo.
+    const carritoQuery = dto.usuarioAutenticado
+      ? this.supabase.from("carritos").select("id").eq("user_id", dto.usuarioAutenticado).maybeSingle()
       : this.supabase
           .from("carritos")
           .select("id")
@@ -87,7 +99,7 @@ export class InventarioService {
     const { data: carrito, error: carritoError } = await carritoQuery;
     if (!carrito) {
       this.logger.error(
-        `Carrito no encontrado al confirmar pago (session ${dto.sessionId}, user ${dto.userId ?? "-"})${carritoError ? `: ${carritoError.message}` : ""}`,
+        `Carrito no encontrado al confirmar pago (session ${dto.sessionId}, auth ${dto.usuarioAutenticado ?? "-"})${carritoError ? `: ${carritoError.message}` : ""}`,
       );
       throw new UnprocessableEntityException("Carrito no encontrado al confirmar pago");
     }
@@ -104,6 +116,9 @@ export class InventarioService {
       .eq("carrito_id", carritoId);
 
     if (!items || (items as unknown[]).length === 0) {
+      this.logger.error(
+        `Carrito vacío al confirmar pago (carrito ${carritoId}, session ${dto.sessionId}, auth ${dto.usuarioAutenticado ?? "-"})`,
+      );
       throw new UnprocessableEntityException("Carrito vacío al confirmar pago");
     }
 
@@ -206,9 +221,11 @@ export class InventarioService {
     // 5. Confirmar stock: eliminar reservas SOLO de los productos de este
     //    pedido (no barrer toda la sesión: podría haber reservas de otros
     //    intentos de checkout aún vigentes)
+    // Las reservas se crearon en el checkout con el usuario autenticado (o
+    // la sesión de invitado), no con el dueño final del pedido.
     const { error: confirmarError } = await this.supabase.rpc("confirmar_stock", {
       p_session_id: dto.sessionId,
-      p_user_id: dto.userId ?? null,
+      p_user_id: dto.usuarioAutenticado ?? null,
       p_producto_ids: itemsFlatten.map((i) => i.producto.id),
     });
 

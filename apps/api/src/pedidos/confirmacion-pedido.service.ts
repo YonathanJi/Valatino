@@ -55,8 +55,12 @@ export class ConfirmacionPedidoService {
     const emailCliente = (checkoutDatos?.email ?? pago.emailCliente ?? "").toLowerCase();
     const documentoCliente = checkoutDatos?.documento ?? pago.documentoCliente ?? "";
 
-    // Invitado con email de un usuario registrado → asignar el pedido a su cuenta
-    let userId = pago.userId || checkoutDatos?.user_id || undefined;
+    // Usuario autenticado durante el checkout: localiza carrito y reservas
+    const usuarioAutenticado = pago.userId || checkoutDatos?.user_id || undefined;
+
+    // Dueño del pedido: el autenticado, o — invitado con email de una cuenta
+    // registrada — el perfil que corresponde a ese email
+    let userId = usuarioAutenticado;
     if (!userId && emailCliente) {
       const { data: profile } = await this.supabase
         .from("profiles")
@@ -69,6 +73,7 @@ export class ConfirmacionPedidoService {
 
     const pedidoId = await this.inventarioService.confirmarVentaYCrearPedido({
       userId,
+      usuarioAutenticado,
       sessionId: pago.sessionId,
       metodoPago: pago.proveedor,
       referenciaPago: pago.referenciaPago,
