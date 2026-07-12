@@ -42,14 +42,19 @@ export default function BackofficePedidosPage() {
   useEffect(() => {
     void loadPedidos();
 
-    // Suscripción a Supabase Realtime para actualizaciones en tiempo real
+    // Suscripción a Supabase Realtime para actualizaciones en tiempo real.
+    // La suscripción ocurre tras un await: si el efecto se limpia antes de
+    // que resuelva (doble montaje de React en dev), hay que abortar — y el
+    // nombre del canal lleva sufijo único porque el cliente reutiliza
+    // canales por nombre y re-suscribirse a uno ya suscrito lanza error.
     let channel: RealtimeChannel | null = null;
+    let cancelado = false;
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return;
+      if (!session || cancelado) return;
 
       channel = supabase
-        .channel("pedidos-backoffice")
+        .channel(`pedidos-backoffice-${Math.random().toString(36).slice(2)}`)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "pedidos" },
@@ -69,6 +74,7 @@ export default function BackofficePedidosPage() {
     });
 
     return () => {
+      cancelado = true;
       if (channel) void supabase.removeChannel(channel);
     };
   }, [supabase]);
