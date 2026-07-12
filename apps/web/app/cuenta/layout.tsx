@@ -1,18 +1,19 @@
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@lib/supabase/server";
 import Link from "next/link";
+import { getStaffAcceso, esStaff } from "@lib/auth/staff";
 
+// Área EXCLUSIVA de clientes: el staff (admin/asesor) tiene su propia área
+// en /backoffice (layout, visuales y guards separados) y se redirige allí.
 export default async function CuentaLayout({ children }: { children: React.ReactNode }) {
-  let user = null;
+  let acceso = null;
   try {
-    const supabase = createSupabaseServerClient();
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
+    acceso = await getStaffAcceso();
   } catch {
     redirect("/login");
   }
 
-  if (!user) redirect("/login");
+  if (!acceso) redirect("/login");
+  if (esStaff(acceso)) redirect("/backoffice/perfil");
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">

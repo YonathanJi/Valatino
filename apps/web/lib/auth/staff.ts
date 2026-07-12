@@ -4,6 +4,7 @@ import type { StaffModulo, UserRole } from "@valatino/types";
 export interface StaffAcceso {
   userId: string;
   email: string | null;
+  nombre: string | null;
   role: UserRole | null;
   /** Módulos otorgados (solo relevante para asesores; admin ve todo) */
   modulos: StaffModulo[];
@@ -40,7 +41,9 @@ export async function getStaffAcceso(): Promise<StaffAcceso | null> {
     modulos = ((modulosData as { modulo: StaffModulo }[] | null) ?? []).map((m) => m.modulo);
   }
 
-  return { userId: user.id, email: user.email ?? null, role, modulos };
+  const nombre = (user.user_metadata as { nombre?: string } | undefined)?.nombre ?? null;
+
+  return { userId: user.id, email: user.email ?? null, nombre, role, modulos };
 }
 
 export function esStaff(acceso: StaffAcceso | null): acceso is StaffAcceso {

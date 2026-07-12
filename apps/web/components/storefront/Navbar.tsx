@@ -117,7 +117,7 @@ export function Navbar() {
                       <p className="text-xs text-muted-foreground truncate">{userData.email}</p>
                     </div>
                     <Link
-                      href="/cuenta/perfil"
+                      href={esStaff ? "/backoffice/perfil" : "/cuenta/perfil"}
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
                     >

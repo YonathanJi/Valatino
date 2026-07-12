@@ -49,7 +49,13 @@ export default async function BackofficeLayout({ children }: { children: React.R
             </p>
           )}
         </nav>
-        <div className="p-3 border-t">
+        <div className="p-3 border-t space-y-1">
+          <Link
+            href="/backoffice/perfil"
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-muted transition-colors"
+          >
+            👤 Mi perfil
+          </Link>
           <p className="text-xs text-muted-foreground px-3">{acceso.email}</p>
           <p className="text-xs font-medium text-primary px-3 capitalize">{acceso.role}</p>
         </div>
