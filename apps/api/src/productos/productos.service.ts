@@ -1,11 +1,12 @@
 import {
+  Inject,
   Injectable,
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
 } from "@nestjs/common";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export interface QueryProductosDto {
@@ -18,14 +19,7 @@ export interface QueryProductosDto {
 
 @Injectable()
 export class ProductosService {
-  private readonly supabase: SupabaseClient;
-
-  constructor(private readonly config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async findAll(query: QueryProductosDto): Promise<PaginatedResponse<Producto>> {
     const page = Math.max(1, query.page ?? 1);

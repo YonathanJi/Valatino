@@ -5,8 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock3, XCircle, LogIn } from "lucide-react";
 import { Button } from "@components/ui/button";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { API_URL } from "@lib/api/client";
 
 type EstadoPago = "exitoso" | "procesando" | "fallido";
 

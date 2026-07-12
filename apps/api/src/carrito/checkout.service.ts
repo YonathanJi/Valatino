@@ -1,18 +1,11 @@
-import { Injectable, ConflictException } from "@nestjs/common";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
+import { Inject, Injectable, ConflictException } from "@nestjs/common";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { ReservaCheckoutResponse } from "@valatino/types";
 
 @Injectable()
 export class CheckoutService {
-  private readonly supabase: SupabaseClient;
-
-  constructor(private readonly config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async reservar(
     sessionId: string,

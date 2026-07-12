@@ -9,6 +9,7 @@ import {
   HttpStatus,
   BadRequestException,
   ForbiddenException,
+  Inject,
   Logger,
   UseGuards,
 } from "@nestjs/common";
@@ -17,33 +18,33 @@ import { StripeService } from "./stripe.service";
 import { PaypalService } from "./paypal.service";
 import { InventarioService } from "../inventario/inventario.service";
 import { CarritoService } from "../carrito/carrito.service";
+import { ConfirmacionPedidoService } from "../pedidos/confirmacion-pedido.service";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
 import { CrearPagoDto } from "./dto/crear-pago.dto";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
-import { EmailService } from "../email/email.service";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import Stripe from "stripe";
 
 type SessionRequest = RawBodyRequest<Request & { sessionId?: string; user?: { sub: string } }>;
 
+/**
+ * Endpoints de pago y webhooks. Los webhooks solo verifican la firma del
+ * proveedor y traducen su evento; la creación del pedido, la transacción y
+ * los emails viven en ConfirmacionPedidoService (flujo único para todos los
+ * proveedores).
+ */
 @Controller("pagos")
 export class PagosController {
   private readonly logger = new Logger(PagosController.name);
-  private readonly supabase: SupabaseClient;
 
   constructor(
     private readonly stripeService: StripeService,
     private readonly paypalService: PaypalService,
     private readonly inventarioService: InventarioService,
     private readonly carritoService: CarritoService,
-    private readonly emailService: EmailService,
-    private readonly config: ConfigService,
-  ) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+    private readonly confirmacionPedido: ConfirmacionPedidoService,
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
 
   // ──────────────────────────────────────────────
   // Validación común de datos de checkout
@@ -173,56 +174,19 @@ export class PagosController {
 
     if (event.type === "payment_intent.succeeded") {
       const intent = event.data.object as Stripe.PaymentIntent;
-      const sessionId = intent.metadata["session_id"] ?? "";
-      const userId = intent.metadata["user_id"] ?? "";
-      const emailMetadata = intent.metadata["email_cliente"] ?? "";
-      const documentoMetadata = intent.metadata["documento_cliente"] ?? "";
 
-      // Datos completos del checkout (dirección incluida) desde staging
-      const checkoutDatos = sessionId
-        ? await this.inventarioService.getCheckoutDatos(sessionId)
-        : null;
-
-      const emailCliente = (checkoutDatos?.email ?? emailMetadata).toLowerCase();
-      const documentoCliente = checkoutDatos?.documento ?? documentoMetadata;
-
-      let finalUserId = userId || checkoutDatos?.user_id || undefined;
-
-      if (!finalUserId && emailCliente) {
-        const { data: profile } = await this.supabase
-          .from("profiles")
-          .select("id")
-          .eq("email", emailCliente)
-          .maybeSingle();
-
-        if (profile) {
-          finalUserId = (profile as { id: string }).id;
-        }
-      }
-
-      const pedidoId = await this.inventarioService.confirmarVentaYCrearPedido({
-        userId: finalUserId || undefined,
-        sessionId,
-        metodoPago: "stripe",
+      await this.confirmacionPedido.confirmarPago({
+        proveedor: "stripe",
+        eventoId: event.id,
+        tipoEvento: event.type,
+        sessionId: intent.metadata["session_id"] ?? "",
+        userId: intent.metadata["user_id"] || undefined,
+        emailCliente: intent.metadata["email_cliente"] || undefined,
+        documentoCliente: intent.metadata["documento_cliente"] || undefined,
         referenciaPago: intent.id,
-        direccionEnvioId: checkoutDatos?.direccion_envio_id ?? undefined,
-        direccionSnapshot: checkoutDatos?.direccion ?? undefined,
-        emailCliente: emailCliente || undefined,
-        documentoCliente: documentoCliente || undefined,
+        importe: intent.amount / 100,
+        payloadRaw: event.data.object as object,
       });
-
-      await this.inventarioService.registrarTransaccion(
-        pedidoId,
-        "stripe",
-        event.id,
-        event.type,
-        "exitoso",
-        intent.amount / 100,
-        event.data.object as object,
-      );
-
-      // Email de confirmación de pedido (no bloqueante)
-      await this.enviarEmailConfirmacion(pedidoId);
     }
 
     if (
@@ -234,7 +198,7 @@ export class PagosController {
       const userId = intent.metadata["user_id"];
 
       if (sessionId || userId) {
-        await this.liberarReservasBySession(sessionId ?? "", userId || undefined);
+        await this.inventarioService.liberarReservas(sessionId ?? "", userId || undefined);
       }
     }
 
@@ -246,45 +210,18 @@ export class PagosController {
           : charge.payment_intent?.id;
 
       if (paymentIntentId) {
-        const pedidoId = await this.inventarioService.actualizarEstadoPorReferencia(
-          paymentIntentId,
-          "REEMBOLSADO",
-        );
-
-        if (pedidoId) {
-          await this.inventarioService.registrarTransaccion(
-            pedidoId,
-            "stripe",
-            event.id,
-            event.type,
-            "reembolsado",
-            (charge.amount_refunded ?? 0) / 100,
-            event.data.object as object,
-          );
-
-          // Email de reembolso (no bloqueante)
-          await this.enviarEmailReembolso(pedidoId);
-        }
+        await this.confirmacionPedido.procesarReembolso({
+          proveedor: "stripe",
+          eventoId: event.id,
+          tipoEvento: event.type,
+          referenciaPago: paymentIntentId,
+          importe: (charge.amount_refunded ?? 0) / 100,
+          payloadRaw: event.data.object as object,
+        });
       }
     }
 
     return { received: true };
-  }
-
-  private async liberarReservasBySession(sessionId: string, userId?: string): Promise<void> {
-    const filter = userId
-      ? this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("user_id", userId)
-      : this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("session_id", sessionId);
-
-    const { data: reservas } = await filter;
-
-    for (const r of (reservas as Array<{ id: string; producto_id: string; cantidad: number }>) ?? []) {
-      await this.supabase.rpc("liberar_reserva", {
-        p_producto_id: r.producto_id,
-        p_cantidad: r.cantidad,
-      });
-      await this.supabase.from("stock_reservas").delete().eq("id", r.id);
-    }
   }
 
   // ──────────────────────────────────────────────
@@ -329,57 +266,23 @@ export class PagosController {
           "0",
       );
 
-      const checkoutDatos = sessionId
-        ? await this.inventarioService.getCheckoutDatos(sessionId)
-        : null;
-
-      const emailCliente = checkoutDatos?.email?.toLowerCase() ?? "";
-      const documentoCliente = checkoutDatos?.documento ?? "";
-
-      let finalUserId = userId || checkoutDatos?.user_id || undefined;
-
-      if (!finalUserId && emailCliente) {
-        const { data: profile } = await this.supabase
-          .from("profiles")
-          .select("id")
-          .eq("email", emailCliente)
-          .maybeSingle();
-
-        if (profile) {
-          finalUserId = (profile as { id: string }).id;
-        }
-      }
-
-      const pedidoId = await this.inventarioService.confirmarVentaYCrearPedido({
-        userId: finalUserId || undefined,
+      await this.confirmacionPedido.confirmarPago({
+        proveedor: "paypal",
+        eventoId: event.id,
+        tipoEvento: event.event_type,
         sessionId: sessionId ?? "",
-        metodoPago: "paypal",
+        userId: userId || undefined,
         referenciaPago: event.resource.id ?? event.id,
-        direccionEnvioId: checkoutDatos?.direccion_envio_id ?? undefined,
-        direccionSnapshot: checkoutDatos?.direccion ?? undefined,
-        emailCliente: emailCliente || undefined,
-        documentoCliente: documentoCliente || undefined,
-      });
-
-      await this.inventarioService.registrarTransaccion(
-        pedidoId,
-        "paypal",
-        event.id,
-        event.event_type,
-        "exitoso",
         importe,
-        event,
-      );
-
-      // Email de confirmación de pedido (no bloqueante)
-      await this.enviarEmailConfirmacion(pedidoId);
+        payloadRaw: event,
+      });
     }
 
     if (event.event_type === "PAYMENT.CAPTURE.DENIED") {
       const customId = event.resource.purchase_units?.[0]?.custom_id ?? event.resource.custom_id ?? "";
       const [sessionId, userId] = customId.split("|");
       if (sessionId || userId) {
-        await this.liberarReservasBySession(sessionId ?? "", userId || undefined);
+        await this.inventarioService.liberarReservas(sessionId ?? "", userId || undefined);
       }
     }
 
@@ -389,105 +292,19 @@ export class PagosController {
       const captureId = upLink.split("/captures/")[1] ?? "";
 
       if (captureId) {
-        const pedidoId = await this.inventarioService.actualizarEstadoPorReferencia(
-          captureId,
-          "REEMBOLSADO",
-        );
-
-        if (pedidoId) {
-          await this.inventarioService.registrarTransaccion(
-            pedidoId,
-            "paypal",
-            event.id,
-            event.event_type,
-            "reembolsado",
-            parseFloat(event.resource.amount?.value ?? "0"),
-            event,
-          );
-
-          // Email de reembolso (no bloqueante)
-          await this.enviarEmailReembolso(pedidoId);
-        }
+        await this.confirmacionPedido.procesarReembolso({
+          proveedor: "paypal",
+          eventoId: event.id,
+          tipoEvento: event.event_type,
+          referenciaPago: captureId,
+          importe: parseFloat(event.resource.amount?.value ?? "0"),
+          payloadRaw: event,
+        });
       } else {
         this.logger.warn(`Refund PayPal ${event.id} sin link a la captura original`);
       }
     }
 
     return { received: true };
-  }
-
-  // ──────────────────────────────────────────────
-  // Helpers: envío de emails transaccionales
-  // ──────────────────────────────────────────────
-
-  private async enviarEmailConfirmacion(pedidoId: string): Promise<void> {
-    try {
-      const pedido = await this.inventarioService.getPedidoConItems(pedidoId);
-      if (!pedido || !pedido.email_cliente || pedido.items.length === 0) return;
-
-      await this.emailService.enviarConfirmacionPedido({
-        pedidoId: pedido.id,
-        numeroPedido: pedido.numero_pedido,
-        email: pedido.email_cliente,
-        items: pedido.items,
-        total: Number(pedido.total),
-        metodoPago: pedido.metodo_pago,
-        direccionEnvio: pedido.envio_nombre
-          ? {
-              nombre_destinatario: pedido.envio_nombre,
-              linea1: pedido.envio_linea1 ?? "",
-              linea2: pedido.envio_linea2,
-              ciudad: pedido.envio_ciudad ?? "",
-              codigo_postal: pedido.envio_codigo_postal ?? "",
-              provincia: pedido.envio_provincia ?? "",
-              pais: pedido.envio_pais ?? undefined,
-            }
-          : null,
-        estado: pedido.estado,
-        fecha: new Date(pedido.created_at).toLocaleDateString("es-ES", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }),
-      });
-    } catch (err) {
-      this.logger.warn(`No se pudo enviar email de confirmación (pedido ${pedidoId}): ${(err as Error).message}`);
-    }
-  }
-
-  private async enviarEmailReembolso(pedidoId: string): Promise<void> {
-    try {
-      const pedido = await this.inventarioService.getPedidoConItems(pedidoId);
-      if (!pedido || !pedido.email_cliente || pedido.items.length === 0) return;
-
-      await this.emailService.enviarReembolso({
-        pedidoId: pedido.id,
-        numeroPedido: pedido.numero_pedido,
-        email: pedido.email_cliente,
-        items: pedido.items,
-        total: Number(pedido.total),
-        metodoPago: pedido.metodo_pago,
-        direccionEnvio: pedido.envio_nombre
-          ? {
-              nombre_destinatario: pedido.envio_nombre,
-              linea1: pedido.envio_linea1 ?? "",
-              linea2: pedido.envio_linea2,
-              ciudad: pedido.envio_ciudad ?? "",
-              codigo_postal: pedido.envio_codigo_postal ?? "",
-              provincia: pedido.envio_provincia ?? "",
-              pais: pedido.envio_pais ?? undefined,
-            }
-          : null,
-        estado: pedido.estado,
-        fecha: new Date(pedido.created_at).toLocaleDateString("es-ES", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }),
-        esReembolso: true,
-      });
-    } catch (err) {
-      this.logger.warn(`No se pudo enviar email de reembolso (pedido ${pedidoId}): ${(err as Error).message}`);
-    }
   }
 }

@@ -12,9 +12,10 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  Inject,
 } from "@nestjs/common";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { JwtGuard } from "./guards/jwt.guard";
 import { RolesGuard } from "./guards/roles.guard";
 import { Roles } from "./decorators/roles.decorator";
@@ -37,14 +38,7 @@ interface StaffMiembro {
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("admin")
 export class UsuariosController {
-  private readonly supabase: SupabaseClient;
-
-  constructor(private readonly config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   @Get()
   async findAll(): Promise<StaffMiembro[]> {

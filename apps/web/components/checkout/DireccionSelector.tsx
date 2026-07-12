@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { apiFetch } from "@lib/api/client";
 
 interface Direccion {
   id: string;
@@ -35,20 +34,15 @@ export function DireccionSelector({ onSelect, selectedId, onLoaded }: DireccionS
         return;
       }
 
-      const res = await fetch(`${API_URL}/direcciones`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        credentials: "include",
-      });
-
-      if (res.ok) {
-        const data = (await res.json()) as Direccion[];
+      try {
+        const data = await apiFetch<Direccion[]>("/direcciones");
         setDirecciones(data);
         onLoaded?.(data.length);
         if (data.length > 0 && !selectedId) {
           const predeterminada = data.find((d) => d.es_predeterminada) ?? data[0];
           if (predeterminada) onSelect(predeterminada.id);
         }
-      } else {
+      } catch {
         onLoaded?.(0);
       }
     };

@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 interface Direccion {
   id: string;
@@ -41,25 +40,11 @@ export default function PerfilPage() {
   const [form, setForm] = useState(emptyDireccion());
   const [saving, setSaving] = useState(false);
 
-  const loadSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      router.push("/login");
-      return null;
-    }
-    return session;
-  };
-
   const loadDirecciones = async () => {
-    const session = await loadSession();
-    if (!session) return;
-
-    const res = await fetch(`${API_URL}/direcciones`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      credentials: "include",
-    });
-    if (res.ok) {
-      setDirecciones((await res.json()) as Direccion[]);
+    try {
+      setDirecciones(await apiFetch<Direccion[]>("/direcciones"));
+    } catch {
+      // sin sesión: el init ya redirige a /login
     }
   };
 
@@ -83,60 +68,35 @@ export default function PerfilPage() {
     e.preventDefault();
     setSaving(true);
 
-    const session = await loadSession();
-    if (!session) { setSaving(false); return; }
-
     const body = {
       ...form,
       linea2: form.linea2 || undefined,
     };
 
     try {
-      const url = editingId
-        ? `${API_URL}/direcciones/${editingId}`
-        : `${API_URL}/direcciones`;
-      const method = editingId ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        credentials: "include",
+      await apiFetch(editingId ? `/direcciones/${editingId}` : "/direcciones", {
+        method: editingId ? "PATCH" : "POST",
         body: JSON.stringify(body),
       });
 
-      if (res.ok) {
-        toast.success(editingId ? "Dirección actualizada" : "Dirección creada");
-        setShowForm(false);
-        setEditingId(null);
-        setForm(emptyDireccion());
-        void loadDirecciones();
-      } else {
-        throw new Error("Error al guardar");
-      }
-    } catch {
-      toast.error("No se pudo guardar la dirección");
+      toast.success(editingId ? "Dirección actualizada" : "Dirección creada");
+      setShowForm(false);
+      setEditingId(null);
+      setForm(emptyDireccion());
+      void loadDirecciones();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo guardar la dirección");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    const session = await loadSession();
-    if (!session) return;
-
-    const res = await fetch(`${API_URL}/direcciones/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      credentials: "include",
-    });
-
-    if (res.ok) {
+    try {
+      await apiFetch(`/direcciones/${id}`, { method: "DELETE" });
       setDirecciones((prev) => prev.filter((d) => d.id !== id));
       toast.success("Dirección eliminada");
-    } else {
+    } catch {
       toast.error("No se pudo eliminar la dirección");
     }
   };

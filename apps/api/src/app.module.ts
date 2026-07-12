@@ -2,6 +2,7 @@ import { Module, MiddlewareConsumer, NestModule, RequestMethod } from "@nestjs/c
 import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
+import { SupabaseModule } from "./supabase/supabase.module";
 import { AuthModule } from "./auth/auth.module";
 import { ProductosModule } from "./productos/productos.module";
 import { CarritoModule } from "./carrito/carrito.module";
@@ -16,6 +17,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    SupabaseModule,
     AuthModule,
     ProductosModule,
     CarritoModule,

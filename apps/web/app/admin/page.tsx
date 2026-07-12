@@ -3,6 +3,7 @@
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { obtenerRol, esRolStaff } from "@lib/auth/rol";
 
 function AdminLoginForm() {
   const supabase = createSupabaseBrowserClient();
@@ -32,16 +33,9 @@ function AdminLoginForm() {
     }
 
     // Solo staff: el rol se valida contra user_roles en BD (nunca metadata).
-    const { data: rolData } = await supabase
-      .from("user_roles")
-      .select("roles(nombre)")
-      .eq("user_id", data.session.user.id)
-      .limit(1)
-      .maybeSingle();
+    const role = await obtenerRol(supabase, data.session.user.id);
 
-    const role = (rolData as { roles?: { nombre?: string } } | null)?.roles?.nombre;
-
-    if (role !== "admin" && role !== "asesor") {
+    if (!esRolStaff(role)) {
       await supabase.auth.signOut();
       setIsLoading(false);
       setError("Esta cuenta no tiene acceso al panel de administración.");

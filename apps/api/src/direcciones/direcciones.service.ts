@@ -1,18 +1,11 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
+import { Inject, Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { CreateDireccionDto } from "./dto/direccion.dto";
 
 @Injectable()
 export class DireccionesService {
-  private readonly supabase: SupabaseClient;
-
-  constructor(private readonly config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async findByUser(userId: string) {
     const { data, error } = await this.supabase
@@ -21,7 +14,7 @@ export class DireccionesService {
       .eq("user_id", userId)
       .order("es_predeterminada", { ascending: false });
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la dirección");
+    if (error) throw new InternalServerErrorException("Error al gestionar la direcciï¿½n");
     return data;
   }
 
@@ -49,7 +42,7 @@ export class DireccionesService {
       .select()
       .single();
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la dirección");
+    if (error) throw new InternalServerErrorException("Error al gestionar la direcciï¿½n");
     return data;
   }
 
@@ -90,6 +83,6 @@ export class DireccionesService {
       .eq("id", id)
       .eq("user_id", userId);
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la dirección");
+    if (error) throw new InternalServerErrorException("Error al gestionar la direcciï¿½n");
   }
 }

@@ -46,6 +46,15 @@ Ej.: `260712016478` → 12/07/26, `01` = Stripe, sufijo aleatorio. Códigos: **0
 - **Causa**: la migración 016 revocó EXECUTE de `get_user_role` a anon/authenticated, pero las policies RLS de `user_roles`/`roles` la invocan con los permisos del usuario que consulta → cualquier lectura del rol fallaba con `42501 permission denied for function get_user_role` y el login trataba al admin como cliente. (Mismo fallo silencioso en `AuthForms` al decidir la redirección staff post-OTP.)
 - **Fix**: migración **022** (`GRANT EXECUTE ON FUNCTION get_user_role(uuid) TO authenticated, anon`), aplicada al remoto y verificada reproduciendo el login completo con supabase-js: rol resuelve `admin`.
 
+### ✅ Refactor de modularización (escalabilidad)
+
+- **`SupabaseModule` global** (`apps/api/src/supabase/`): un único `SupabaseClient` service_role inyectable con `@Inject(SUPABASE_CLIENT)` — antes 9 servicios creaban el suyo propio. Punto único de config y mockeable en tests.
+- **`ConfirmacionPedidoService`** (`pedidos/confirmacion-pedido.service.ts`): orquestación única post-pago (checkout_datos → lookup de profile → crear pedido → transacción → email). Los webhooks de Stripe/PayPal quedaron finos: verifican firma + idempotencia y traducen su evento a `PagoConfirmado`/`ReembolsoNotificado`. **Añadir un método de pago nuevo = escribir solo su webhook-traductor y llamar a este servicio.** `liberarReservas` movido a `InventarioService`.
+- **Web — capa de datos unificada**: todos los fetch con auth pasan por `lib/api/client.ts` (`apiFetch`); eliminados los `fetch` manuales con header Authorization repetido en 9 archivos. Quedan `fetch` directos SOLO en server components (ProductoGrid, productos/[slug] — usan el caché de Next) y en el polling público de la confirmación.
+- **Web — rol único**: `lib/auth/rol.ts` (`obtenerRol`/`esRolStaff`) reemplaza las 3 copias de la consulta a `user_roles` (Navbar, AuthForms, /admin). El equivalente server-side sigue siendo `lib/auth/staff.ts`.
+- **Tipos compartidos**: las páginas de pedidos importan `Pedido`/`PaginatedResponse` de `@valatino/types` (eliminadas 3 interfaces locales duplicadas).
+- Verificado: type-checks API+web ✅ · Nest arranca con el nuevo cableado ✅ · webhook Stripe responde 200 con idempotencia ✅ · login admin y separación de áreas ✅.
+
 ### Estado de pruebas
 
 - Flujo completo verificado hoy: pedido invitado (gmail) → login OTP → vinculación automática ✅ · pedidos logueado ✅ · pedido invitado con email nuevo (hotmail) ✅ (tras el fix) · login `/admin` ✅ (tras migración 022).

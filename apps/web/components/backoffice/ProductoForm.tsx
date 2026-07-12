@@ -2,13 +2,11 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import type { Producto } from "@valatino/types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 interface ProductoFormProps {
   producto: Producto | null;
@@ -17,19 +15,11 @@ interface ProductoFormProps {
 }
 
 export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) {
-  const supabase = createSupabaseBrowserClient();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      setIsLoading(false);
-      toast.error("Tu sesión expiró. Vuelve a iniciar sesión.");
-      return;
-    }
 
     const form = e.currentTarget;
     const formData = new FormData(form);
@@ -44,25 +34,15 @@ export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) 
       activo: formData.get("activo") === "on",
     };
 
-    const url = producto ? `${API_URL}/productos/${producto.id}` : `${API_URL}/productos`;
-    const method = producto ? "PATCH" : "POST";
-
-    const res = await fetch(url, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
+    try {
+      await apiFetch(producto ? `/productos/${producto.id}` : "/productos", {
+        method: producto ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
       toast.success(producto ? "Producto actualizado" : "Producto creado");
       onSaved();
-    } else {
-      const err = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
-      const msg = Array.isArray(err?.message) ? err.message.join(". ") : err?.message;
-      toast.error(msg ?? "Error al guardar el producto");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al guardar el producto");
     }
 
     setIsLoading(false);

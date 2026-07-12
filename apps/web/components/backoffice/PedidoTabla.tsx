@@ -2,15 +2,7 @@ import { EstadoBadge } from "./EstadoBadge";
 import { EstadoSelector } from "./EstadoSelector";
 import { Skeleton } from "@components/ui/Skeleton";
 import { formatEUR } from "@lib/utils";
-
-interface Pedido {
-  id: string;
-  numero_pedido: string | null;
-  estado: string;
-  total: number;
-  metodo_pago: string;
-  created_at: string;
-}
+import type { Pedido } from "@valatino/types";
 
 interface PedidoTablaProps {
   pedidos: Pedido[];

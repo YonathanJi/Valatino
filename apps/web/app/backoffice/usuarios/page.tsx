@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch, ApiError } from "@lib/api/client";
 import { toast } from "sonner";
 import { Button } from "@components/ui/button";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const MODULO_LABELS: Record<StaffModulo, string> = {
   pedidos: "📦 Pedidos",
@@ -26,7 +24,6 @@ interface StaffMiembro {
 export default function BackofficeUsuariosPage() {
   const [staff, setStaff] = useState<StaffMiembro[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const supabase = createSupabaseBrowserClient();
 
   // Formulario de nuevo asesor
   const [nombre, setNombre] = useState("");
@@ -40,24 +37,11 @@ export default function BackofficeUsuariosPage() {
   const [editModulos, setEditModulos] = useState<StaffModulo[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  const authFetch = async (path: string, init?: RequestInit) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error("Sesión expirada");
-    return fetch(`${API_URL}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-        ...init?.headers,
-      },
-      credentials: "include",
-    });
-  };
-
   const loadStaff = async () => {
     try {
-      const res = await authFetch("/admin/usuarios");
-      if (res.ok) setStaff((await res.json()) as StaffMiembro[]);
+      setStaff(await apiFetch<StaffMiembro[]>("/admin/usuarios"));
+    } catch {
+      // el layout ya protege la ruta
     } finally {
       setIsLoading(false);
     }
@@ -74,15 +58,10 @@ export default function BackofficeUsuariosPage() {
     e.preventDefault();
     setIsCreating(true);
     try {
-      const res = await authFetch("/admin/usuarios", {
+      await apiFetch("/admin/usuarios", {
         method: "POST",
         body: JSON.stringify({ nombre, email, password, modulos }),
       });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { message?: string | string[] } | null;
-        const msg = Array.isArray(err?.message) ? err.message.join(", ") : err?.message;
-        throw new Error(msg ?? "Error al crear el asesor");
-      }
       toast.success(`Asesor ${nombre} creado. Comparte sus credenciales de acceso a /admin.`);
       setNombre("");
       setEmail("");
@@ -90,7 +69,7 @@ export default function BackofficeUsuariosPage() {
       setModulos(["pedidos"]);
       void loadStaff();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al crear el asesor");
+      toast.error(err instanceof ApiError ? err.message : "Error al crear el asesor");
     } finally {
       setIsCreating(false);
     }
@@ -99,16 +78,15 @@ export default function BackofficeUsuariosPage() {
   const guardarModulos = async (userId: string) => {
     setIsSaving(true);
     try {
-      const res = await authFetch(`/admin/usuarios/${userId}/modulos`, {
+      await apiFetch(`/admin/usuarios/${userId}/modulos`, {
         method: "PATCH",
         body: JSON.stringify({ modulos: editModulos }),
       });
-      if (!res.ok) throw new Error("No se pudieron guardar los módulos");
       toast.success("Módulos actualizados");
       setEditing(null);
       void loadStaff();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al guardar");
+      toast.error(err instanceof ApiError ? err.message : "Error al guardar");
     } finally {
       setIsSaving(false);
     }
@@ -117,12 +95,11 @@ export default function BackofficeUsuariosPage() {
   const eliminarAsesor = async (miembro: StaffMiembro) => {
     if (!window.confirm(`¿Eliminar la cuenta de asesor de ${miembro.email}?`)) return;
     try {
-      const res = await authFetch(`/admin/usuarios/${miembro.user_id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("No se pudo eliminar el asesor");
+      await apiFetch(`/admin/usuarios/${miembro.user_id}`, { method: "DELETE" });
       toast.success("Asesor eliminado");
       void loadStaff();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al eliminar");
+      toast.error(err instanceof ApiError ? err.message : "Error al eliminar");
     }
   };
 

@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { obtenerRol, esRolStaff } from "@lib/auth/rol";
+import { apiFetch } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 type Step = "request" | "verify";
 
@@ -68,36 +68,16 @@ export function AuthForm({
 
     toast.success("Sesión iniciada");
 
-    // Vincular pedidos huérfanos y fusionar carrito en paralelo
-    try {
-      await Promise.allSettled([
-        fetch(`${API_URL}/pedidos/vincular`, {
-          method: "POST",
-          credentials: "include",
-          headers: { Authorization: `Bearer ${data.session.access_token}` },
-        }),
-        fetch(`${API_URL}/carrito/fusionar`, {
-          method: "POST",
-          credentials: "include",
-          headers: { Authorization: `Bearer ${data.session.access_token}` },
-        }),
-      ]);
-    } catch {
-      // no bloqueante
-    }
+    // Vincular pedidos huérfanos y fusionar carrito en paralelo (no bloqueante)
+    await Promise.allSettled([
+      apiFetch("/pedidos/vincular", { method: "POST" }),
+      apiFetch("/carrito/fusionar", { method: "POST" }),
+    ]);
 
     // Determinar destino por rol real en BD (user_roles)
     const { data: { user } } = await supabase.auth.getUser();
-    const { data: rolData } = await supabase
-      .from("user_roles")
-      .select("roles(nombre)")
-      .eq("user_id", user?.id ?? "")
-      .limit(1)
-      .maybeSingle();
-
-    const role = (rolData as { roles?: { nombre?: string } } | null)?.roles?.nombre;
-
-    const isStaff = role === "admin" || role === "asesor";
+    const role = user ? await obtenerRol(supabase, user.id) : undefined;
+    const isStaff = esRolStaff(role);
     router.push(isStaff ? "/backoffice/pedidos" : redirectTo);
     router.refresh();
   };

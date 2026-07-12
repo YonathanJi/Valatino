@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShoppingCart, User, LogOut, Package, Settings, LayoutDashboard } from "lucide-react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { obtenerRol, esRolStaff } from "@lib/auth/rol";
 import { useCarrito } from "@lib/hooks/useCarrito";
 import { Button } from "@components/ui/button";
 import { toast } from "sonner";
@@ -19,23 +20,11 @@ export function Navbar() {
   const itemCount = carrito?.items.reduce((sum, i) => sum + i.cantidad, 0) ?? 0;
 
   useEffect(() => {
-    // Rol desde la tabla user_roles (fuente de verdad en BD), nunca desde
-    // user_metadata (mutable por el propio usuario).
-    const fetchRole = async (userId: string): Promise<string | undefined> => {
-      const { data } = await supabase
-        .from("user_roles")
-        .select("roles(nombre)")
-        .eq("user_id", userId)
-        .limit(1)
-        .maybeSingle();
-      return (data as { roles?: { nombre?: string } } | null)?.roles?.nombre;
-    };
-
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         const meta = user.user_metadata as { nombre?: string } | undefined;
-        const role = await fetchRole(user.id);
+        const role = await obtenerRol(supabase, user.id);
         setUserData({ email: user.email, nombre: meta?.nombre, role });
       }
     };
@@ -46,7 +35,7 @@ export function Navbar() {
         const meta = session.user.user_metadata as { nombre?: string } | undefined;
         // setState inmediato con datos básicos; rol en cuanto responda la BD
         setUserData({ email: session.user.email, nombre: meta?.nombre });
-        void fetchRole(session.user.id).then((role) => {
+        void obtenerRol(supabase, session.user.id).then((role) => {
           setUserData((prev) => (prev ? { ...prev, role } : prev));
         });
       } else {
@@ -79,7 +68,7 @@ export function Navbar() {
     ?? userData?.email?.[0]?.toUpperCase()
     ?? "?";
 
-  const esStaff = userData?.role === "admin" || userData?.role === "asesor";
+  const esStaff = esRolStaff(userData?.role);
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">

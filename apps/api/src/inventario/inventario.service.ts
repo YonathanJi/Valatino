@@ -1,10 +1,11 @@
 import {
+  Inject,
   Injectable,
   Logger,
   UnprocessableEntityException,
 } from "@nestjs/common";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { ConfigService } from "@nestjs/config";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { PedidoEstado } from "@valatino/types";
 
 export interface DireccionSnapshotPedido {
@@ -38,14 +39,8 @@ const CODIGOS_METODO_PAGO: Record<string, string> = {
 @Injectable()
 export class InventarioService {
   private readonly logger = new Logger(InventarioService.name);
-  private readonly supabase: SupabaseClient;
 
-  constructor(private readonly config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow("SUPABASE_URL"),
-      config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
-    );
-  }
+  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   /**
    * Número de pedido legible: AAMMDD + código de método de pago + 4 dígitos
@@ -225,6 +220,26 @@ export class InventarioService {
     await this.supabase.from("carrito_items").delete().eq("carrito_id", carritoId);
 
     return pedidoId;
+  }
+
+  /**
+   * Libera las reservas de stock de una sesión o usuario (pago fallido o
+   * cancelado): devuelve las unidades al stock y borra las reservas.
+   */
+  async liberarReservas(sessionId: string, userId?: string): Promise<void> {
+    const filter = userId
+      ? this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("user_id", userId)
+      : this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("session_id", sessionId);
+
+    const { data: reservas } = await filter;
+
+    for (const r of (reservas as Array<{ id: string; producto_id: string; cantidad: number }>) ?? []) {
+      await this.supabase.rpc("liberar_reserva", {
+        p_producto_id: r.producto_id,
+        p_cantidad: r.cantidad,
+      });
+      await this.supabase.from("stock_reservas").delete().eq("id", r.id);
+    }
   }
 
   /**

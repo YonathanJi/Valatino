@@ -1,9 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { ConfigService } from "@nestjs/config";
 import { passportJwtSecret } from "jwks-rsa";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_CLIENT } from "../../supabase/supabase.module";
 import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
 
 interface SupabaseJwt {
@@ -17,27 +18,21 @@ interface SupabaseJwt {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  private readonly supabase: SupabaseClient;
-
-  constructor(config: ConfigService) {
-    const supabaseUrl = config.getOrThrow<string>("SUPABASE_URL");
-
+  constructor(
+    config: ConfigService,
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+  ) {
     super({
       secretOrKeyProvider: passportJwtSecret({
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
-        jwksUri: `${supabaseUrl}/auth/v1/.well-known/jwks.json`,
+        jwksUri: `${config.getOrThrow<string>("SUPABASE_URL")}/auth/v1/.well-known/jwks.json`,
       }),
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       algorithms: ["RS256", "ES256"],
     });
-
-    this.supabase = createClient(
-      supabaseUrl,
-      config.getOrThrow<string>("SUPABASE_SERVICE_ROLE_KEY"),
-    );
   }
 
   async validate(payload: SupabaseJwt): Promise<JwtPayload> {

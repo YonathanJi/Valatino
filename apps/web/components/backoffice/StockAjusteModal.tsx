@@ -2,12 +2,10 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 interface StockAjusteModalProps {
   productoId: string;
@@ -19,37 +17,23 @@ export function StockAjusteModal({ productoId, nombreProducto, onAjustado }: Sto
   const [open, setOpen] = useState(false);
   const [cantidad, setCantidad] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = createSupabaseBrowserClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cantidad <= 0) return;
 
     setIsLoading(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      setIsLoading(false);
-      toast.error("Tu sesión expiró. Vuelve a iniciar sesión.");
-      return;
-    }
-
-    const res = await fetch(`${API_URL}/productos/${productoId}/stock`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ cantidad }),
-    });
-
-    if (res.ok) {
+    try {
+      await apiFetch(`/productos/${productoId}/stock`, {
+        method: "POST",
+        body: JSON.stringify({ cantidad }),
+      });
       toast.success(`+${cantidad} unidades añadidas`);
       setOpen(false);
       setCantidad(0);
       onAjustado();
-    } else {
-      const err = (await res.json().catch(() => null)) as { message?: string } | null;
-      toast.error(err?.message ?? "Error al ajustar el stock");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al ajustar el stock");
     }
     setIsLoading(false);
   };

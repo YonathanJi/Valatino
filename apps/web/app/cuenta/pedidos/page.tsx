@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import Link from "next/link";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import type { Pedido, PaginatedResponse } from "@valatino/types";
 
 const ESTADO_LABELS: Record<string, string> = {
   PENDIENTE_PAGO: "Pendiente de pago",
@@ -24,20 +24,6 @@ const ESTADO_COLORS: Record<string, string> = {
   CANCELADO: "bg-red-100 text-red-800",
 };
 
-interface PedidoItem {
-  nombre_producto: string;
-  cantidad: number;
-}
-
-interface Pedido {
-  id: string;
-  numero_pedido: string | null;
-  estado: string;
-  total: number;
-  created_at: string;
-  pedido_items: PedidoItem[];
-}
-
 export default function MisPedidosPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
@@ -53,15 +39,8 @@ export default function MisPedidosPage() {
       }
 
       try {
-        const res = await fetch(`${API_URL}/pedidos?limit=50`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          credentials: "include",
-        });
-
-        if (res.ok) {
-          const json = (await res.json()) as { data: Pedido[] };
-          setPedidos(json.data ?? []);
-        }
+        const json = await apiFetch<PaginatedResponse<Pedido>>("/pedidos?limit=50");
+        setPedidos(json.data ?? []);
       } catch {
         // Mostrar lista vacía
       } finally {
@@ -114,7 +93,7 @@ export default function MisPedidosPage() {
               </div>
 
               <div className="space-y-1">
-                {pedido.pedido_items.map((item, i) => (
+                {(pedido.pedido_items ?? []).map((item, i) => (
                   <p key={i} className="text-sm text-muted-foreground">
                     {item.nombre_producto} × {item.cantidad}
                   </p>

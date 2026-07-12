@@ -2,21 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
+import { apiFetch } from "@lib/api/client";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
-interface Pedido {
-  id: string;
-  numero_pedido: string | null;
-  estado: string;
-  total: number;
-  metodo_pago: string;
-  created_at: string;
-  updated_at: string;
-  pedido_items?: Array<{ nombre_producto: string; cantidad: number }>;
-}
+import type { Pedido, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficePedidosPage() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
@@ -24,17 +13,11 @@ export default function BackofficePedidosPage() {
   const supabase = createSupabaseBrowserClient();
 
   const loadPedidos = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const res = await fetch(`${API_URL}/admin/pedidos?limit=100`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-      credentials: "include",
-    });
-
-    if (res.ok) {
-      const json = (await res.json()) as { data: Pedido[] };
-      setPedidos(json.data);
+    try {
+      const json = await apiFetch<PaginatedResponse<Pedido>>("/admin/pedidos?limit=100");
+      setPedidos(json.data ?? []);
+    } catch {
+      // sin sesión o sin permisos: el layout ya protege la ruta
     }
     setIsLoading(false);
   };
@@ -80,19 +63,15 @@ export default function BackofficePedidosPage() {
   }, [supabase]);
 
   const handleEstadoChange = async (pedidoId: string, nuevoEstado: string) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    await fetch(`${API_URL}/admin/pedidos/${pedidoId}/estado`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      credentials: "include",
-      body: JSON.stringify({ estado: nuevoEstado }),
-    });
-    // La actualización llega por Realtime
+    try {
+      await apiFetch(`/admin/pedidos/${pedidoId}/estado`, {
+        method: "PATCH",
+        body: JSON.stringify({ estado: nuevoEstado }),
+      });
+      // La actualización llega por Realtime
+    } catch {
+      // transición no permitida o sin permisos
+    }
   };
 
   return (
