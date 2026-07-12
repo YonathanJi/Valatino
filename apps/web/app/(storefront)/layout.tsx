@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { PageTransition } from "@components/ui/PageTransition";
+import { StorefrontShell } from "@components/storefront/StorefrontShell";
 
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
+    <StorefrontShell>
     <div className="flex min-h-screen flex-col">
       <PageTransition>
         <div className="flex-1">{children}</div>
@@ -19,5 +21,6 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
         </div>
       </footer>
     </div>
+    </StorefrontShell>
   );
 }

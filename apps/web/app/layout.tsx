@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
-import { AppShell } from "@components/AppShell";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -18,7 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body>
-        <AppShell>{children}</AppShell>
+        {/* El shell de tienda (navbar + carrito) vive en los layouts de
+            (storefront) y /cuenta — las áreas internas no lo cargan */}
+        {children}
+        <Toaster position="top-right" richColors />
       </body>
     </html>
   );
