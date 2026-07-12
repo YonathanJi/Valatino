@@ -79,6 +79,8 @@ export function Navbar() {
     ?? userData?.email?.[0]?.toUpperCase()
     ?? "?";
 
+  const esStaff = userData?.role === "admin" || userData?.role === "asesor";
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
       <nav className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -89,7 +91,7 @@ export function Navbar() {
         <div className="flex items-center gap-3">
           {userData ? (
             <div className="flex items-center gap-3">
-              {userData.role === "admin" || userData.role === "asesor" ? (
+              {esStaff ? (
                 <Link href="/backoffice/pedidos" className="text-sm font-medium text-primary hover:text-primary/80 transition-colors">
                   Panel de control
                 </Link>
@@ -122,7 +124,7 @@ export function Navbar() {
                       <Settings className="h-4 w-4" />
                       Mi perfil
                     </Link>
-                    {(userData.role === "admin" || userData.role === "asesor") && (
+                    {esStaff && (
                       <Link
                         href="/backoffice/pedidos"
                         onClick={() => setMenuOpen(false)}
@@ -132,14 +134,16 @@ export function Navbar() {
                         Panel de control
                       </Link>
                     )}
-                    <Link
-                      href="/cuenta/pedidos"
-                      onClick={() => setMenuOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
-                    >
-                      <Package className="h-4 w-4" />
-                      Mis pedidos
-                    </Link>
+                    {!esStaff && (
+                      <Link
+                        href="/cuenta/pedidos"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                      >
+                        <Package className="h-4 w-4" />
+                        Mis pedidos
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive"
@@ -160,16 +164,18 @@ export function Navbar() {
             </Button>
           )}
 
-          <Button variant="ghost" size="icon" asChild className="relative">
-            <Link href="/carrito">
-              <ShoppingCart className="h-5 w-5" />
-              {itemCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                  {itemCount > 9 ? "9+" : itemCount}
-                </span>
-              )}
-            </Link>
-          </Button>
+          {!esStaff && (
+            <Button variant="ghost" size="icon" asChild className="relative">
+              <Link href="/carrito">
+                <ShoppingCart className="h-5 w-5" />
+                {itemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                    {itemCount > 9 ? "9+" : itemCount}
+                  </span>
+                )}
+              </Link>
+            </Button>
+          )}
         </div>
       </nav>
     </header>
