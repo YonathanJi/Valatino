@@ -1,7 +1,8 @@
 // packages/types/index.ts
 // Tipos compartidos del dominio — match con respuestas de Supabase (snake_case)
-
-export { PrismaClient, Prisma } from "@prisma/client";
+// NOTA: no re-exportar nada de @prisma/client aquí — la web importa VALORES de
+// este paquete (p.ej. STAFF_MODULOS) y arrastraría @prisma/client al bundle,
+// rompiendo el build de Next (@prisma/client no está instalado en apps/web).
 
 // ============================================================
 // Tipos de dominio (snake_case = formato de respuesta de API)
