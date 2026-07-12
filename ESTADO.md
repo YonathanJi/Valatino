@@ -41,9 +41,14 @@ Ej.: `260712016478` → 12/07/26, `01` = Stripe, sufijo aleatorio. Códigos: **0
 - **Causa**: la misma sesión de navegador tenía DOS carritos (el de un usuario logueado antes + el del invitado). `confirmarVentaYCrearPedido` buscaba el carrito de invitado solo por `session_id` sin `user_id IS NULL` (el único sitio del código donde faltaba) → 2 filas → `.single()` fallaba → "Carrito no encontrado".
 - **Fix**: filtro `user_id IS NULL` añadido + `logger.error` con sesión/usuario (el 422 ya no es silencioso). Pedido perdido recuperado con `events resend`.
 
+### ✅ Bug corregido: login del panel `/admin` rechazaba al admin ("no tiene acceso")
+
+- **Causa**: la migración 016 revocó EXECUTE de `get_user_role` a anon/authenticated, pero las policies RLS de `user_roles`/`roles` la invocan con los permisos del usuario que consulta → cualquier lectura del rol fallaba con `42501 permission denied for function get_user_role` y el login trataba al admin como cliente. (Mismo fallo silencioso en `AuthForms` al decidir la redirección staff post-OTP.)
+- **Fix**: migración **022** (`GRANT EXECUTE ON FUNCTION get_user_role(uuid) TO authenticated, anon`), aplicada al remoto y verificada reproduciendo el login completo con supabase-js: rol resuelve `admin`.
+
 ### Estado de pruebas
 
-- Flujo completo verificado hoy: pedido invitado (gmail) → login OTP → vinculación automática ✅ · pedidos logueado ✅ · pedido invitado con email nuevo (hotmail) ✅ (tras el fix).
+- Flujo completo verificado hoy: pedido invitado (gmail) → login OTP → vinculación automática ✅ · pedidos logueado ✅ · pedido invitado con email nuevo (hotmail) ✅ (tras el fix) · login `/admin` ✅ (tras migración 022).
 - BD: 4 pedidos de prueba (3 de jonathanduqee@gmail.com vinculados al usuario, 1 de jonathanduqee@hotmail.com como invitado, pendiente de vincular si algún día inicia sesión).
 
 ---
