@@ -30,10 +30,23 @@ const emptyDireccion = (): Omit<Direccion, "id" | "es_predeterminada"> => ({
   provincia: "",
 });
 
+interface StaffInfo {
+  role: "admin" | "asesor";
+  nombre?: string;
+  modulos: string[];
+}
+
+const MODULO_LABELS: Record<string, string> = {
+  pedidos: "Pedidos",
+  catalogo: "Catálogo",
+  inventario: "Inventario",
+};
+
 export default function PerfilPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
   const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [staffInfo, setStaffInfo] = useState<StaffInfo | null>(null);
   const [direcciones, setDirecciones] = useState<Direccion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -71,7 +84,31 @@ export default function PerfilPage() {
         return;
       }
       setUser(supabaseUser);
-      await loadDirecciones();
+
+      // Staff (admin/asesor): perfil de empleado, sin direcciones de envío
+      const { data: rolData } = await supabase
+        .from("user_roles")
+        .select("roles(nombre)")
+        .eq("user_id", supabaseUser.id)
+        .limit(1)
+        .maybeSingle();
+      const role = (rolData as { roles?: { nombre?: string } } | null)?.roles?.nombre;
+
+      if (role === "admin" || role === "asesor") {
+        let modulos: string[] = [];
+        if (role === "asesor") {
+          const { data: modData } = await supabase
+            .from("staff_modulos")
+            .select("modulo")
+            .eq("user_id", supabaseUser.id);
+          modulos = ((modData as Array<{ modulo: string }> | null) ?? []).map((m) => m.modulo);
+        }
+        const meta = supabaseUser.user_metadata as { nombre?: string } | undefined;
+        setStaffInfo({ role, nombre: meta?.nombre, modulos });
+      } else {
+        await loadDirecciones();
+      }
+
       setIsLoading(false);
     };
     void init();
@@ -158,6 +195,52 @@ export default function PerfilPage() {
         {[1, 2, 3].map((i) => (
           <div key={i} className="h-16 bg-muted rounded-xl animate-pulse" />
         ))}
+      </main>
+    );
+  }
+
+  // Perfil de empleado (staff): sin direcciones de envío
+  if (staffInfo) {
+    return (
+      <main className="space-y-8">
+        <section>
+          <h1 className="text-2xl font-bold mb-4">Mi perfil</h1>
+          <div className="rounded-xl border bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="font-medium truncate">{staffInfo.nombre ?? "Empleado de Valatino"}</p>
+                <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
+              </div>
+              <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary shrink-0">
+                {staffInfo.role === "admin" ? "Administrador" : "Asesor"}
+              </span>
+            </div>
+
+            <div className="border-t pt-4">
+              <p className="text-sm text-muted-foreground mb-2">Acceso al panel</p>
+              {staffInfo.role === "admin" ? (
+                <p className="text-sm">Acceso completo a todos los módulos</p>
+              ) : staffInfo.modulos.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {staffInfo.modulos.map((m) => (
+                    <span
+                      key={m}
+                      className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs font-medium"
+                    >
+                      {MODULO_LABELS[m] ?? m}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Sin módulos asignados</p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <Button asChild>
+          <a href="/backoffice">Ir al panel de control</a>
+        </Button>
       </main>
     );
   }
