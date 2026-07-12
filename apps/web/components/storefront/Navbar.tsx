@@ -60,7 +60,8 @@ export function Navbar() {
     await supabase.auth.signOut();
     setMenuOpen(false);
     toast.success("Sesión cerrada");
-    router.push("/");
+    // El staff vuelve a su login (/admin); el cliente, a la tienda
+    router.push(esRolStaff(userData?.role) ? "/admin" : "/");
     router.refresh();
   };
 

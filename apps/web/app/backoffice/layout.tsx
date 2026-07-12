@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getStaffAcceso, esStaff, puedeVerModulo } from "@lib/auth/staff";
+import { LogoutButton } from "@components/backoffice/LogoutButton";
 import type { StaffModulo } from "@valatino/types";
 
 const NAV_ITEMS: { modulo: StaffModulo; href: string; label: string }[] = [
@@ -56,6 +57,7 @@ export default async function BackofficeLayout({ children }: { children: React.R
           >
             👤 Mi perfil
           </Link>
+          <LogoutButton />
           <p className="text-xs text-muted-foreground px-3">{acceso.email}</p>
           <p className="text-xs font-medium text-primary px-3 capitalize">{acceso.role}</p>
         </div>
