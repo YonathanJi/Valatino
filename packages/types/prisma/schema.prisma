@@ -131,6 +131,7 @@ model DireccionEnvio {
 
 model Pedido {
   id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  numeroPedido      String        @unique @db.VarChar(12) @map("numero_pedido")
   userId            String?       @db.Uuid @map("user_id")
   estado            PedidoEstado  @default(PENDIENTE_PAGO)
   total             Decimal       @db.Decimal(10, 2)

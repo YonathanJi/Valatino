@@ -7,6 +7,7 @@ import {
   UseGuards,
   ParseIntPipe,
   DefaultValuePipe,
+  NotFoundException,
 } from "@nestjs/common";
 import { PedidosService } from "./pedidos.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
@@ -35,5 +36,22 @@ export class PedidosController {
   @Post("vincular")
   vincular(@CurrentUser() user: JwtPayload) {
     return this.pedidosService.vincularPorEmail(user.sub);
+  }
+}
+
+/**
+ * Consulta pública del número de pedido tras el pago. Sin JWT: la referencia
+ * de pago (payment_intent de Stripe / capture_id de PayPal) solo la conoce
+ * quien pagó, y la respuesta se limita a número de pedido y estado.
+ */
+@Controller("pedidos")
+export class PedidosPublicController {
+  constructor(private readonly pedidosService: PedidosService) {}
+
+  @Get("por-referencia/:referencia")
+  async porReferencia(@Param("referencia") referencia: string) {
+    const resumen = await this.pedidosService.findResumenPorReferencia(referencia);
+    if (!resumen) throw new NotFoundException("Pedido no encontrado");
+    return resumen;
   }
 }

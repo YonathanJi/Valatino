@@ -28,6 +28,13 @@ export interface CrearPedidoDto {
   direccionSnapshot?: DireccionSnapshotPedido;
 }
 
+// Códigos de método de pago para el número de pedido (01 stripe, 02 paypal;
+// reservados 03+ para futuros métodos). "00" = desconocido.
+const CODIGOS_METODO_PAGO: Record<string, string> = {
+  stripe: "01",
+  paypal: "02",
+};
+
 @Injectable()
 export class InventarioService {
   private readonly logger = new Logger(InventarioService.name);
@@ -38,6 +45,20 @@ export class InventarioService {
       config.getOrThrow("SUPABASE_URL"),
       config.getOrThrow("SUPABASE_SERVICE_ROLE_KEY"),
     );
+  }
+
+  /**
+   * Número de pedido legible: AAMMDD + código de método de pago + 4 dígitos
+   * aleatorios. Ej.: 260712016478 → 12/07/2026, stripe (01), sufijo 6478.
+   */
+  private generarNumeroPedido(metodoPago: string): string {
+    const ahora = new Date();
+    const aa = String(ahora.getFullYear() % 100).padStart(2, "0");
+    const mm = String(ahora.getMonth() + 1).padStart(2, "0");
+    const dd = String(ahora.getDate()).padStart(2, "0");
+    const codigo = CODIGOS_METODO_PAGO[metodoPago] ?? "00";
+    const sufijo = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
+    return `${aa}${mm}${dd}${codigo}${sufijo}`;
   }
 
   /**
@@ -55,13 +76,24 @@ export class InventarioService {
   }
 
   async confirmarVentaYCrearPedido(dto: CrearPedidoDto): Promise<string> {
-    // 1. Obtener ítems del carrito
+    // 1. Obtener ítems del carrito. El carrito de invitado se filtra con
+    //    user_id IS NULL: la misma sesión de navegador puede tener además un
+    //    carrito de usuario (de un login anterior) y sin el filtro habría
+    //    dos filas y la consulta fallaría.
     const carritoQuery = dto.userId
-      ? this.supabase.from("carritos").select("id").eq("user_id", dto.userId).single()
-      : this.supabase.from("carritos").select("id").eq("session_id", dto.sessionId).single();
+      ? this.supabase.from("carritos").select("id").eq("user_id", dto.userId).maybeSingle()
+      : this.supabase
+          .from("carritos")
+          .select("id")
+          .eq("session_id", dto.sessionId)
+          .is("user_id", null)
+          .maybeSingle();
 
-    const { data: carrito } = await carritoQuery;
+    const { data: carrito, error: carritoError } = await carritoQuery;
     if (!carrito) {
+      this.logger.error(
+        `Carrito no encontrado al confirmar pago (session ${dto.sessionId}, user ${dto.userId ?? "-"})${carritoError ? `: ${carritoError.message}` : ""}`,
+      );
       throw new UnprocessableEntityException("Carrito no encontrado al confirmar pago");
     }
 
@@ -113,35 +145,53 @@ export class InventarioService {
       if (direccion) snapshot = direccion as DireccionSnapshotPedido;
     }
 
-    // 3. Crear el pedido
-    const { data: pedido, error: pedidoError } = await this.supabase
-      .from("pedidos")
-      .insert({
-        user_id: dto.userId || null,
-        estado: "PROCESANDO",
-        total,
-        metodo_pago: dto.metodoPago,
-        referencia_pago: dto.referenciaPago,
-        direccion_envio_id: dto.direccionEnvioId || null,
-        email_cliente: dto.emailCliente?.toLowerCase() || null,
-        documento_cliente: dto.documentoCliente || null,
-        envio_nombre: snapshot?.nombre_destinatario ?? null,
-        envio_linea1: snapshot?.linea1 ?? null,
-        envio_linea2: snapshot?.linea2 ?? null,
-        envio_ciudad: snapshot?.ciudad ?? null,
-        envio_codigo_postal: snapshot?.codigo_postal ?? null,
-        envio_provincia: snapshot?.provincia ?? null,
-        envio_pais: snapshot?.pais ?? null,
-      })
-      .select("id")
-      .single();
+    // 3. Crear el pedido. El numero_pedido lleva un sufijo aleatorio de 4
+    //    dígitos con índice único: ante una colisión (23505) se reintenta
+    //    con un sufijo nuevo.
+    let pedidoId: string | null = null;
 
-    if (pedidoError || !pedido) {
+    for (let intento = 0; intento < 5; intento++) {
+      const { data: pedido, error: pedidoError } = await this.supabase
+        .from("pedidos")
+        .insert({
+          numero_pedido: this.generarNumeroPedido(dto.metodoPago),
+          user_id: dto.userId || null,
+          estado: "PROCESANDO",
+          total,
+          metodo_pago: dto.metodoPago,
+          referencia_pago: dto.referenciaPago,
+          direccion_envio_id: dto.direccionEnvioId || null,
+          email_cliente: dto.emailCliente?.toLowerCase() || null,
+          documento_cliente: dto.documentoCliente || null,
+          envio_nombre: snapshot?.nombre_destinatario ?? null,
+          envio_linea1: snapshot?.linea1 ?? null,
+          envio_linea2: snapshot?.linea2 ?? null,
+          envio_ciudad: snapshot?.ciudad ?? null,
+          envio_codigo_postal: snapshot?.codigo_postal ?? null,
+          envio_provincia: snapshot?.provincia ?? null,
+          envio_pais: snapshot?.pais ?? null,
+        })
+        .select("id")
+        .single();
+
+      if (pedido) {
+        pedidoId = (pedido as { id: string }).id;
+        break;
+      }
+
+      if (pedidoError?.code === "23505" && pedidoError.message.includes("numero_pedido")) {
+        this.logger.warn(`Colisión de numero_pedido (intento ${intento + 1}); se reintenta`);
+        continue;
+      }
+
       this.logger.error(`Error al crear pedido (ref ${dto.referenciaPago}): ${pedidoError?.message}`);
       throw new UnprocessableEntityException("Error al crear el pedido");
     }
 
-    const pedidoId = (pedido as { id: string }).id;
+    if (!pedidoId) {
+      this.logger.error(`No se pudo generar numero_pedido único (ref ${dto.referenciaPago})`);
+      throw new UnprocessableEntityException("Error al crear el pedido");
+    }
 
     // 4. Crear pedido_items (snapshot histórico)
     const pedidoItems = itemsFlatten.map((i) => ({
@@ -310,6 +360,7 @@ export class InventarioService {
     pedidoId: string,
   ): Promise<{
     id: string;
+    numero_pedido: string | null;
     estado: string;
     total: number;
     metodo_pago: "stripe" | "paypal";
@@ -327,7 +378,7 @@ export class InventarioService {
     const { data: pedido } = await this.supabase
       .from("pedidos")
       .select(
-        "id, estado, total, metodo_pago, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
+        "id, numero_pedido, estado, total, metodo_pago, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
       )
       .eq("id", pedidoId)
       .maybeSingle();
@@ -342,6 +393,7 @@ export class InventarioService {
     return {
       ...(pedido as {
         id: string;
+        numero_pedido: string | null;
         estado: string;
         total: number;
         metodo_pago: "stripe" | "paypal";

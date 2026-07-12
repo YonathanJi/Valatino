@@ -41,6 +41,7 @@ export default async function ProductoPage({ params }: Props) {
           <Image
             src={producto.imagenes[0] ?? "/placeholder.png"}
             alt={producto.nombre}
+            unoptimized={(producto.imagenes[0] ?? "").endsWith(".svg")}
             fill
             className="object-cover"
             priority

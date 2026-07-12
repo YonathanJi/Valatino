@@ -1,14 +1,14 @@
--- supabase/seed.sql
+﻿-- supabase/seed.sql
 -- Datos iniciales de prueba: roles, usuario admin, productos latinoamericanos
 --
--- NOTA: Los roles base (admin, asesor, cliente) se insertan automáticamente
--- desde la migración 002_schema.sql si no existen.
+-- NOTA: Los roles base (admin, asesor, cliente) se insertan automÃ¡ticamente
+-- desde la migraciÃ³n 002_schema.sql si no existen.
 --
 -- Para crear el primer usuario administrador, ejecuta este comando:
 --   npx supabase functions new create-admin
 -- O manualmente desde Supabase Dashboard:
 --   1. Ve a Authentication > Users > Add user
---   2. Crea un usuario con email y contraseña
+--   2. Crea un usuario con email y contraseÃ±a
 --   3. Ejecuta en SQL Editor:
 --      SELECT id FROM roles WHERE nombre = 'admin';
 --      INSERT INTO user_roles (user_id, role_id) VALUES ('<UUID-del-usuario>', '<UUID-del-rol-admin>');
@@ -21,18 +21,18 @@
 INSERT INTO productos (nombre, descripcion, precio, imagenes, categoria, stock_disponible, slug) VALUES
 (
   'Chocoramo',
-  'El ponqué colombiano cubierto de chocolate más famoso de Colombia. Tamaño individual.',
+  'El ponquÃ© colombiano cubierto de chocolate mÃ¡s famoso de Colombia. TamaÃ±o individual.',
   2.50,
-  ARRAY['https://cdn.valatino.es/productos/chocoramo.jpg'],
+  ARRAY['/productos/chocoramo.svg'],
   'Dulces',
   150,
   'chocoramo'
 ),
 (
-  'Jugos Hit Maracuyá 250ml',
-  'Jugo de maracuyá colombiano, elaborado con frutas tropicales seleccionadas.',
+  'Jugos Hit MaracuyÃ¡ 250ml',
+  'Jugo de maracuyÃ¡ colombiano, elaborado con frutas tropicales seleccionadas.',
   1.80,
-  ARRAY['https://cdn.valatino.es/productos/jugos-hit-maracuya.jpg'],
+  ARRAY['/productos/jugos-hit-maracuya.svg'],
   'Bebidas',
   200,
   'jugos-hit-maracuya-250ml'
@@ -41,16 +41,16 @@ INSERT INTO productos (nombre, descripcion, precio, imagenes, categoria, stock_d
   'Jugos Hit Mora 250ml',
   'Jugo de mora colombiano, sabor intenso y natural.',
   1.80,
-  ARRAY['https://cdn.valatino.es/productos/jugos-hit-mora.jpg'],
+  ARRAY['/productos/jugos-hit-mora.svg'],
   'Bebidas',
   180,
   'jugos-hit-mora-250ml'
 ),
 (
   'Galletas Ducales x12',
-  'Las clásicas galletas de soda colombianas, crujientes y levemente saladas. Pack de 12 unidades.',
+  'Las clÃ¡sicas galletas de soda colombianas, crujientes y levemente saladas. Pack de 12 unidades.',
   3.20,
-  ARRAY['https://cdn.valatino.es/productos/galletas-ducales.jpg'],
+  ARRAY['/productos/galletas-ducales.svg'],
   'Galletas',
   120,
   'galletas-ducales-x12'
@@ -59,52 +59,52 @@ INSERT INTO productos (nombre, descripcion, precio, imagenes, categoria, stock_d
   'Chocolate Santander 70% 80g',
   'Chocolate negro colombiano premium con 70% de cacao de origen.',
   4.50,
-  ARRAY['https://cdn.valatino.es/productos/chocolate-santander.jpg'],
+  ARRAY['/productos/chocolate-santander.svg'],
   'Dulces',
   80,
   'chocolate-santander-70-80g'
 ),
 (
-  'Maní La Rosa 200g',
-  'Maní tostado y salado, el snack favorito de Colombia.',
+  'ManÃ­ La Rosa 200g',
+  'ManÃ­ tostado y salado, el snack favorito de Colombia.',
   2.20,
-  ARRAY['https://cdn.valatino.es/productos/mani-la-rosa.jpg'],
+  ARRAY['/productos/mani-la-rosa.svg'],
   'Snacks',
   250,
   'mani-la-rosa-200g'
 ),
 (
-  'Café Sello Rojo 500g',
-  'Café colombiano molido, sabor suave y aromático. El más vendido en Colombia.',
+  'CafÃ© Sello Rojo 500g',
+  'CafÃ© colombiano molido, sabor suave y aromÃ¡tico. El mÃ¡s vendido en Colombia.',
   8.90,
-  ARRAY['https://cdn.valatino.es/productos/cafe-sello-rojo.jpg'],
+  ARRAY['/productos/cafe-sello-rojo.svg'],
   'Bebidas',
   60,
   'cafe-sello-rojo-500g'
 ),
 (
-  'Salsa de Ají Tostao 200ml',
-  'Salsa picante colombiana hecha con ají dulce y especias. Perfecta para acompañar cualquier plato.',
+  'Salsa de AjÃ­ Tostao 200ml',
+  'Salsa picante colombiana hecha con ajÃ­ dulce y especias. Perfecta para acompaÃ±ar cualquier plato.',
   3.50,
-  ARRAY['https://cdn.valatino.es/productos/salsa-aji.jpg'],
+  ARRAY['/productos/salsa-aji.svg'],
   'Salsas',
   90,
   'salsa-aji-tostao-200ml'
 ),
 (
-  'Bon Bon Bum Sandía x24',
-  'Chupetes colombianos rellenos de chicle sabor sandía. Pack familiar de 24 unidades.',
+  'Bon Bon Bum SandÃ­a x24',
+  'Chupetes colombianos rellenos de chicle sabor sandÃ­a. Pack familiar de 24 unidades.',
   5.60,
-  ARRAY['https://cdn.valatino.es/productos/bon-bon-bum.jpg'],
+  ARRAY['/productos/bon-bon-bum.svg'],
   'Dulces',
   300,
   'bon-bon-bum-sandia-x24'
 ),
 (
-  'Aguardiente Antioqueño Miniatura 50ml',
-  'Aguardiente colombiano en tamaño miniatura, anisado y suave.',
+  'Aguardiente AntioqueÃ±o Miniatura 50ml',
+  'Aguardiente colombiano en tamaÃ±o miniatura, anisado y suave.',
   4.20,
-  ARRAY['https://cdn.valatino.es/productos/aguardiente-antioqueno.jpg'],
+  ARRAY['/productos/aguardiente-antioqueno.svg'],
   'Licores',
   70,
   'aguardiente-antioqueno-50ml'

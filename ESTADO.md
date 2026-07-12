@@ -1,6 +1,50 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-10
+**Última actualización**: 2026-07-12
+
+---
+
+## Sesión 2026-07-12 — Webhooks Stripe en local, números de pedido legibles, placeholders de imágenes y fix de carrito invitado
+
+### ✅ Webhooks de Stripe funcionando en local (causa del "pedido pagado pero invisible")
+
+- **Descubierto**: los pedidos solo se crean cuando llega el webhook `payment_intent.succeeded`; en local nunca llegaba porque `stripe listen` no estaba corriendo → Stripe cobraba, la web decía OK, pero la BD quedaba vacía.
+- ⚠️ **El Stripe CLI está logueado en OTRA cuenta** (no la del proyecto). Hay que lanzarlo siempre con la key del proyecto:
+  ```powershell
+  stripe listen --api-key <STRIPE_SECRET_KEY del apps/api/.env> --forward-to localhost:4000/pagos/stripe/webhook
+  ```
+  Con esa key, el signing secret es el `whsec_2c0d...` que ya está en `apps/api/.env` (no cambiarlo).
+- Eventos perdidos se recuperan con `stripe events resend <evt_id> --api-key <key>` (idempotencia OK: los ya procesados se ignoran).
+
+### ✅ Números de pedido legibles (formato `AAMMDD` + método pago + 4 aleatorios)
+
+Ej.: `260712016478` → 12/07/26, `01` = Stripe, sufijo aleatorio. Códigos: **01 stripe, 02 paypal, 00 desconocido** (03+ reservados para futuros métodos, mapa `CODIGOS_METODO_PAGO` en `inventario.service.ts`).
+
+- **Migración 021** (`numero_pedido varchar(12) NOT NULL UNIQUE` + backfill de pedidos existentes). Aplicada al remoto **por conexión Postgres directa** (pooler `aws-0-eu-west-1.pooler.supabase.com:5432`, user `postgres.lxnphjwsypnjrulotiph`, password en `Contraseñas.txt`) — recordar que `supabase db push` no sirve en este proyecto.
+- **API**: generación al crear el pedido con reintento ante colisión del sufijo (23505). `numero_pedido` en `getPedidoConItems`.
+- **Emails**: asunto y cuerpo usan el número nuevo. **Web**: "Mis pedidos" y tabla del backoffice (columna "Nº pedido") lo muestran. **Tipos**: `Pedido.numero_pedido` + schema.prisma.
+
+### ✅ Confirmación de checkout muestra el número de pedido (no la referencia de pago)
+
+- **Nuevo endpoint público** `GET /pedidos/por-referencia/:referencia` (`PedidosPublicController`, sin JWT: la referencia solo la conoce quien pagó; responde solo `numero_pedido` + `estado`, 404 si no existe).
+- `/checkout/confirmacion` hace polling cada 2s (máx. 30s) hasta que el webhook crea el pedido; mientras muestra "Generando tu número de pedido…". Sirve para Stripe (`payment_intent`) y PayPal (`referencia` = capture_id).
+
+### ✅ Imágenes de producto: placeholders locales (adiós errores `cdn.valatino.es`)
+
+- El seed apuntaba a `https://cdn.valatino.es/...` (dominio inexistente) → cada página con productos llenaba el log de 500/ENOTFOUND del optimizador de imágenes.
+- **10 SVG generados** en `apps/web/public/productos/` (nombre + categoría + color por categoría). BD y `seed.sql` actualizados a `/productos/<slug>.svg`. Los `<Image>` llevan `unoptimized` cuando el src es `.svg` (el optimizador de Next con Turbopack no los procesa). `cdn.valatino.es` eliminado de `next.config.mjs`.
+- Fotos reales en el futuro: subir a Supabase Storage (`**.supabase.co` ya está permitido) y actualizar URL desde el backoffice.
+
+### ✅ Bug corregido: pago de invitado fallaba si la sesión tenía carrito de un login anterior
+
+- **Síntoma**: cliente nuevo (invitado) pagaba y la confirmación se quedaba en "Generando…" para siempre; el webhook devolvía **422 silencioso**.
+- **Causa**: la misma sesión de navegador tenía DOS carritos (el de un usuario logueado antes + el del invitado). `confirmarVentaYCrearPedido` buscaba el carrito de invitado solo por `session_id` sin `user_id IS NULL` (el único sitio del código donde faltaba) → 2 filas → `.single()` fallaba → "Carrito no encontrado".
+- **Fix**: filtro `user_id IS NULL` añadido + `logger.error` con sesión/usuario (el 422 ya no es silencioso). Pedido perdido recuperado con `events resend`.
+
+### Estado de pruebas
+
+- Flujo completo verificado hoy: pedido invitado (gmail) → login OTP → vinculación automática ✅ · pedidos logueado ✅ · pedido invitado con email nuevo (hotmail) ✅ (tras el fix).
+- BD: 4 pedidos de prueba (3 de jonathanduqee@gmail.com vinculados al usuario, 1 de jonathanduqee@hotmail.com como invitado, pendiente de vincular si algún día inicia sesión).
 
 ---
 

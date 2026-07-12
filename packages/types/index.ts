@@ -77,6 +77,8 @@ export interface DireccionEnvio {
 
 export interface Pedido {
   id: string;
+  /** Número legible: AAMMDD + código método de pago (01 stripe, 02 paypal) + 4 dígitos aleatorios */
+  numero_pedido: string;
   user_id: string | null;
   estado: PedidoEstado;
   total: number;

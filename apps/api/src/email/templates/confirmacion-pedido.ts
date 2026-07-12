@@ -6,6 +6,7 @@ export interface ItemPedidoEmail {
 
 export interface DatosEmailPedido {
   pedidoId: string;
+  numeroPedido?: string | null;
   email: string;
   items: ItemPedidoEmail[];
   total: number;
@@ -73,6 +74,7 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
   const bannerColor = esReembolso ? "#ff9500" : "#34c759";
   const bannerText = esReembolso ? "REEMBOLSADO" : "PAGADO";
   const metodoPagoLabel = datos.metodoPago === "stripe" ? "Tarjeta (Stripe)" : "PayPal";
+  const numeroPedido = datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -106,7 +108,7 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
           <tr>
             <td style="padding:16px 40px 8px;">
               <h2 style="font-size:24px;font-weight:700;color:#1d1d1f;margin:0;letter-spacing:-0.3px;">${escapeHtml(titulo)}</h2>
-              <p style="font-size:15px;color:#86868b;margin:8px 0 0;">Tu pedido <strong style="color:#1d1d1f;">#${datos.pedidoId.slice(0, 8).toUpperCase()}</strong> — ${escapeHtml(datos.fecha)}</p>
+              <p style="font-size:15px;color:#86868b;margin:8px 0 0;">Tu pedido <strong style="color:#1d1d1f;">#${escapeHtml(numeroPedido)}</strong> — ${escapeHtml(datos.fecha)}</p>
             </td>
           </tr>
 

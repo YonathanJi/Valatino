@@ -1,12 +1,59 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock3, XCircle, LogIn } from "lucide-react";
 import { Button } from "@components/ui/button";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
 type EstadoPago = "exitoso" | "procesando" | "fallido";
+
+/**
+ * El pedido lo crea el webhook del proveedor de pago unos segundos después
+ * de la redirección, así que se consulta con reintentos hasta obtener el
+ * número de pedido.
+ */
+function useNumeroPedido(referencia: string, activo: boolean): string | null {
+  const [numeroPedido, setNumeroPedido] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!referencia || !activo) return;
+
+    let cancelado = false;
+    let intentos = 0;
+
+    const consultar = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/pedidos/por-referencia/${encodeURIComponent(referencia)}`,
+        );
+        if (res.ok) {
+          const json = (await res.json()) as { numero_pedido: string | null };
+          if (!cancelado && json.numero_pedido) {
+            setNumeroPedido(json.numero_pedido);
+            return;
+          }
+        }
+      } catch {
+        // reintentar
+      }
+
+      intentos += 1;
+      if (!cancelado && intentos < 15) {
+        setTimeout(() => void consultar(), 2000);
+      }
+    };
+
+    void consultar();
+    return () => {
+      cancelado = true;
+    };
+  }, [referencia, activo]);
+
+  return numeroPedido;
+}
 
 function resolverEstado(redirectStatus: string | null): EstadoPago {
   // Stripe: succeeded | processing | requires_payment_method | failed
@@ -25,6 +72,7 @@ function ConfirmacionContent() {
     searchParams.get("payment_intent") ?? searchParams.get("referencia") ?? "";
 
   const estado = resolverEstado(redirectStatus);
+  const numeroPedido = useNumeroPedido(referencia, estado === "exitoso");
 
   if (estado === "fallido") {
     return (
@@ -83,12 +131,18 @@ function ConfirmacionContent() {
         los detalles de tu pedido y el seguimiento del envío.
       </p>
 
-      {referencia && (
-        <p className="text-xs text-muted-foreground">
-          Referencia de pago: <span className="font-mono">{referencia}</span>
+      {numeroPedido ? (
+        <p className="text-sm text-muted-foreground">
+          Número de pedido: <span className="font-mono font-semibold text-foreground">{numeroPedido}</span>
           <br />
-          Guárdala por si necesitas contactar con soporte.
+          <span className="text-xs">Guárdalo por si necesitas contactar con soporte.</span>
         </p>
+      ) : (
+        referencia && (
+          <p className="text-xs text-muted-foreground">
+            Generando tu número de pedido…
+          </p>
+        )
       )}
 
       {email && (

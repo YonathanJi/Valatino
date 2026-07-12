@@ -33,7 +33,7 @@ export class EmailService {
     const html = renderConfirmacionPedido(datos);
     await this.enviar({
       to: datos.email,
-      subject: `Confirmación de tu pedido #${datos.pedidoId.slice(0, 8).toUpperCase()}`,
+      subject: `Confirmación de tu pedido #${this.numeroVisible(datos)}`,
       html,
     });
   }
@@ -42,9 +42,13 @@ export class EmailService {
     const html = renderConfirmacionPedido({ ...datos, esReembolso: true });
     await this.enviar({
       to: datos.email,
-      subject: `Reembolso procesado — Pedido #${datos.pedidoId.slice(0, 8).toUpperCase()}`,
+      subject: `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`,
       html,
     });
+  }
+
+  private numeroVisible(datos: DatosEmailPedido): string {
+    return datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
   }
 
   private async enviar(params: { to: string; subject: string; html: string }): Promise<void> {

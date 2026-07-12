@@ -113,6 +113,23 @@ export class PedidosService {
     return { vinculados: count ?? 0 };
   }
 
+  /**
+   * Resumen mínimo del pedido por referencia de pago (payment_intent de
+   * Stripe o capture_id de PayPal). Público: la referencia solo la conoce
+   * quien realizó el pago, y solo se expone número de pedido y estado.
+   */
+  async findResumenPorReferencia(
+    referencia: string,
+  ): Promise<{ numero_pedido: string | null; estado: string } | null> {
+    const { data } = await this.supabase
+      .from("pedidos")
+      .select("numero_pedido, estado")
+      .eq("referencia_pago", referencia)
+      .maybeSingle();
+
+    return (data as { numero_pedido: string | null; estado: string } | null) ?? null;
+  }
+
   async updateEstado(
     pedidoId: string,
     nuevoEstado: PedidoEstado,

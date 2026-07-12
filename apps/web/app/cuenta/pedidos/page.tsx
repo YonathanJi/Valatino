@@ -31,6 +31,7 @@ interface PedidoItem {
 
 interface Pedido {
   id: string;
+  numero_pedido: string | null;
   estado: string;
   total: number;
   created_at: string;
@@ -101,7 +102,7 @@ export default function MisPedidosPage() {
             <article key={pedido.id} className="rounded-xl border bg-card p-5 space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-xs text-muted-foreground font-mono">
-                  #{pedido.id.slice(0, 8).toUpperCase()}
+                  #{pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}
                 </p>
                 <span
                   className={`text-xs font-semibold px-2 py-1 rounded-full ${

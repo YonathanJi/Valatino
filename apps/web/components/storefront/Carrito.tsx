@@ -49,6 +49,7 @@ export function Carrito() {
               <Image
                 src={item.imagenes[0] ?? "/placeholder.png"}
                 alt={item.nombre}
+                unoptimized={(item.imagenes[0] ?? "").endsWith(".svg")}
                 fill
                 className="object-cover"
               />

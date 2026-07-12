@@ -427,6 +427,7 @@ export class PagosController {
 
       await this.emailService.enviarConfirmacionPedido({
         pedidoId: pedido.id,
+        numeroPedido: pedido.numero_pedido,
         email: pedido.email_cliente,
         items: pedido.items,
         total: Number(pedido.total),
@@ -461,6 +462,7 @@ export class PagosController {
 
       await this.emailService.enviarReembolso({
         pedidoId: pedido.id,
+        numeroPedido: pedido.numero_pedido,
         email: pedido.email_cliente,
         items: pedido.items,
         total: Number(pedido.total),

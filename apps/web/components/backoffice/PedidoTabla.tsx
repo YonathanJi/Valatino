@@ -5,6 +5,7 @@ import { formatEUR } from "@lib/utils";
 
 interface Pedido {
   id: string;
+  numero_pedido: string | null;
   estado: string;
   total: number;
   metodo_pago: string;
@@ -41,7 +42,7 @@ export function PedidoTabla({ pedidos, isLoading, onEstadoChange }: PedidoTablaP
       <table className="w-full text-sm">
         <thead className="border-b bg-muted/50">
           <tr>
-            <th className="text-left p-3 font-medium text-muted-foreground">ID</th>
+            <th className="text-left p-3 font-medium text-muted-foreground">Nº pedido</th>
             <th className="text-left p-3 font-medium text-muted-foreground">Fecha</th>
             <th className="text-left p-3 font-medium text-muted-foreground">Total</th>
             <th className="text-left p-3 font-medium text-muted-foreground">Pago</th>
@@ -67,7 +68,7 @@ interface PedidoFilaProps {
 export function PedidoFila({ pedido, onEstadoChange }: PedidoFilaProps) {
   return (
     <tr className="hover:bg-muted/30 transition-colors">
-      <td className="p-3 font-mono text-xs">{pedido.id.slice(0, 8).toUpperCase()}</td>
+      <td className="p-3 font-mono text-xs">{pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}</td>
       <td className="p-3 text-muted-foreground">
         {new Date(pedido.created_at).toLocaleDateString("es-ES")}
       </td>
