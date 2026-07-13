@@ -10,6 +10,13 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { CarritoConItems, CarritoItemDetalle } from "@valatino/types";
 
+/** Límite comercial por producto y carrito; pedidos mayores se atienden por email.
+    El stock real nunca se comunica al cliente. */
+const MAX_UNIDADES_POR_PRODUCTO = 30;
+const EMAIL_PEDIDOS_GRANDES = "valatino@hotmail.com";
+const MSG_LIMITE_UNIDADES = `Máximo ${MAX_UNIDADES_POR_PRODUCTO} unidades por producto. Si necesitas más, escríbenos a ${EMAIL_PEDIDOS_GRANDES}`;
+const MSG_SIN_STOCK = "No hay unidades suficientes de este producto en este momento";
+
 @Injectable()
 export class CarritoService {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
@@ -94,6 +101,9 @@ export class CarritoService {
     if (!Number.isInteger(cantidad) || cantidad <= 0) {
       throw new BadRequestException("La cantidad debe ser un entero mayor que cero");
     }
+    if (cantidad > MAX_UNIDADES_POR_PRODUCTO) {
+      throw new ConflictException(MSG_LIMITE_UNIDADES);
+    }
 
     // Verificar stock
     const { data: producto, error: stockError } = await this.supabase
@@ -107,7 +117,9 @@ export class CarritoService {
 
     const p = producto as { precio: number; stock_disponible: number };
     if (p.stock_disponible < cantidad) {
-      throw new ConflictException("Stock insuficiente para la cantidad solicitada");
+      throw new ConflictException(
+        p.stock_disponible > 0 ? MSG_SIN_STOCK : "Este producto está agotado",
+      );
     }
 
     const carritoId = await this.getOrCreate(sessionId, userId);
@@ -121,9 +133,13 @@ export class CarritoService {
       .maybeSingle();
 
     if (existing) {
-      const nuevaCantidad = (existing as { id: string; cantidad: number }).cantidad + cantidad;
+      const enCarrito = (existing as { id: string; cantidad: number }).cantidad;
+      const nuevaCantidad = enCarrito + cantidad;
+      if (nuevaCantidad > MAX_UNIDADES_POR_PRODUCTO) {
+        throw new ConflictException(MSG_LIMITE_UNIDADES);
+      }
       if (nuevaCantidad > p.stock_disponible) {
-        throw new ConflictException("Stock insuficiente");
+        throw new ConflictException(MSG_SIN_STOCK);
       }
       const { error: updateError } = await this.supabase
         .from("carrito_items")
@@ -155,6 +171,9 @@ export class CarritoService {
     if (cantidad <= 0) {
       return this.removeItem(sessionId, itemId, userId);
     }
+    if (cantidad > MAX_UNIDADES_POR_PRODUCTO) {
+      throw new ConflictException(MSG_LIMITE_UNIDADES);
+    }
 
     // Verificar que el ítem pertenece al carrito del solicitante (anti-IDOR)
     const carritoId = await this.getOrCreate(sessionId, userId);
@@ -175,7 +194,7 @@ export class CarritoService {
       .single();
 
     if (producto && (producto as { stock_disponible: number }).stock_disponible < cantidad) {
-      throw new ConflictException("Stock insuficiente para la cantidad solicitada");
+      throw new ConflictException(MSG_SIN_STOCK);
     }
 
     const { error: updateError } = await this.supabase

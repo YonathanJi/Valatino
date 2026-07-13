@@ -64,9 +64,8 @@ export default async function ProductoPage({ params }: Props) {
             {agotado ? (
               <span className="text-destructive font-medium">Sin stock</span>
             ) : (
-              <span className="text-green-600 font-medium">
-                {producto.stock_disponible} disponibles
-              </span>
+              // El stock real no se muestra al cliente
+              <span className="text-neutral-600 font-medium">Disponible</span>
             )}
           </p>
 

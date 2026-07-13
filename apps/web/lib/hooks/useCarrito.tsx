@@ -44,7 +44,12 @@ export function CarritoProvider({ children }: { children: ReactNode }) {
       setCarrito(updated);
       toast.success("Añadido al carrito");
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Error al añadir al carrito");
+      // 409 = límite de stock: aviso informativo, no un error del sistema
+      if (e instanceof ApiError && e.status === 409) {
+        toast.warning(e.message);
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Error al añadir al carrito");
+      }
     }
   }, []);
 
@@ -56,7 +61,11 @@ export function CarritoProvider({ children }: { children: ReactNode }) {
       });
       setCarrito(updated);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Error al actualizar la cantidad");
+      if (e instanceof ApiError && e.status === 409) {
+        toast.warning(e.message);
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Error al actualizar la cantidad");
+      }
     }
   }, []);
 
