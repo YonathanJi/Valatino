@@ -16,12 +16,13 @@ const ESTADO_LABELS: Record<string, string> = {
   CANCELADO: "Cancelado",
 };
 
+// Escala de grises: cada estado se distingue por intensidad, no por tono
 const ESTADO_COLORS: Record<string, string> = {
-  PENDIENTE_PAGO: "bg-yellow-100 text-yellow-800",
-  PROCESANDO: "bg-blue-100 text-blue-800",
-  ENVIADO: "bg-purple-100 text-purple-800",
-  ENTREGADO: "bg-green-100 text-green-800",
-  CANCELADO: "bg-red-100 text-red-800",
+  PENDIENTE_PAGO: "bg-neutral-100 text-neutral-500",
+  PROCESANDO: "bg-neutral-200 text-neutral-700",
+  ENVIADO: "bg-neutral-300 text-neutral-800",
+  ENTREGADO: "bg-neutral-900 text-neutral-50",
+  CANCELADO: "bg-neutral-100 text-neutral-400",
 };
 
 export default function MisPedidosPage() {

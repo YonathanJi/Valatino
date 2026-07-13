@@ -71,7 +71,21 @@ export function StripeCheckoutForm({ total, payload, documentoRegistrado, disabl
   }
 
   return (
-    <Elements stripe={stripePromise} options={{ clientSecret }}>
+    <Elements
+      stripe={stripePromise}
+      options={{
+        clientSecret,
+        // Paleta gris del área de clientes: sin el azul/morado por defecto
+        appearance: {
+          variables: {
+            colorPrimary: "#171717",
+            colorText: "#171717",
+            colorDanger: "#404040",
+            borderRadius: "12px",
+          },
+        },
+      }}
+    >
       <StripePaymentForm
         total={total}
         email={payload.email}

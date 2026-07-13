@@ -12,8 +12,12 @@ import { CarritoProvider } from "@lib/hooks/useCarrito";
 export function StorefrontShell({ children }: { children: ReactNode }) {
   return (
     <CarritoProvider>
-      <Navbar />
-      {children}
+      {/* display: contents — aplica las variables del tema gris sin crear
+          una caja que altere el layout de los hijos */}
+      <div className="theme-cliente contents">
+        <Navbar />
+        {children}
+      </div>
     </CarritoProvider>
   );
 }

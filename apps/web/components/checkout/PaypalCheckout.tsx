@@ -31,7 +31,7 @@ export function PaypalCheckoutButton({ payload, documentoRegistrado, disabled }:
   return (
     <div className="space-y-3">
       <PayPalButtons
-        style={{ layout: "vertical", color: "gold", shape: "rect", height: 48 }}
+        style={{ layout: "vertical", color: "black", shape: "rect", height: 48 }}
         createOrder={async () => {
           try {
             const data = await apiFetch<{ order_id: string }>("/pagos/paypal/create-order", {

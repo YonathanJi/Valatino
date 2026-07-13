@@ -100,7 +100,7 @@ function ConfirmacionContent() {
     return (
       <main className="max-w-xl mx-auto px-4 py-24 text-center space-y-6">
         <div className="flex justify-center">
-          <Clock3 className="h-20 w-20 text-amber-500" />
+          <Clock3 className="h-20 w-20 text-neutral-400" />
         </div>
         <h1 className="text-3xl font-bold">Pago en proceso</h1>
         <p className="text-muted-foreground leading-relaxed">
@@ -122,7 +122,7 @@ function ConfirmacionContent() {
   return (
     <main className="max-w-xl mx-auto px-4 py-24 text-center space-y-6">
       <div className="flex justify-center">
-        <CheckCircle2 className="h-20 w-20 text-green-500" />
+        <CheckCircle2 className="h-20 w-20 text-neutral-900" />
       </div>
       <h1 className="text-3xl font-bold">¡Pedido confirmado!</h1>
       <p className="text-muted-foreground leading-relaxed">
