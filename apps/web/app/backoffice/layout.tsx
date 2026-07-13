@@ -5,6 +5,7 @@ import { LogoutButton } from "@components/backoffice/LogoutButton";
 import type { StaffModulo } from "@valatino/types";
 
 const NAV_ITEMS: { modulo: StaffModulo; href: string; label: string }[] = [
+  { modulo: "dashboard", href: "/backoffice/dashboard", label: "📈 Dashboard" },
   { modulo: "pedidos", href: "/backoffice/pedidos", label: "📦 Pedidos" },
   { modulo: "catalogo", href: "/backoffice/catalogo", label: "🛍️ Catálogo" },
   { modulo: "inventario", href: "/backoffice/inventario", label: "📊 Inventario" },

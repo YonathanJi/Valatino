@@ -10,6 +10,7 @@ const MODULO_LABELS: Record<StaffModulo, string> = {
   pedidos: "📦 Pedidos",
   catalogo: "🛍️ Catálogo",
   inventario: "📊 Inventario",
+  dashboard: "📈 Dashboard",
 };
 
 interface StaffMiembro {

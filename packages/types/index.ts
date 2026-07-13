@@ -11,9 +11,14 @@
 export type UserRole = "admin" | "asesor" | "cliente";
 
 /** Módulos del backoffice asignables a asesores (admin tiene todos implícitamente) */
-export type StaffModulo = "pedidos" | "catalogo" | "inventario";
+export type StaffModulo = "pedidos" | "catalogo" | "inventario" | "dashboard";
 
-export const STAFF_MODULOS: readonly StaffModulo[] = ["pedidos", "catalogo", "inventario"];
+export const STAFF_MODULOS: readonly StaffModulo[] = [
+  "pedidos",
+  "catalogo",
+  "inventario",
+  "dashboard",
+];
 
 export type PedidoEstado =
   | "PENDIENTE_PAGO"
@@ -158,6 +163,51 @@ export interface CarritoItemDetalle {
   cantidad: number;
   precioUnitario: number;
   subtotal: number;
+}
+
+// ============================================================
+// Dashboard gerencial (backoffice, solo admin)
+// ============================================================
+
+export interface DashboardVentaDia {
+  /** Fecha en formato YYYY-MM-DD */
+  fecha: string;
+  ingresos: number;
+  pedidos: number;
+}
+
+export interface DashboardTopProducto {
+  nombre: string;
+  unidades: number;
+  ingresos: number;
+}
+
+export interface DashboardEstadoCount {
+  estado: PedidoEstado;
+  cantidad: number;
+}
+
+export interface DashboardStockBajo {
+  id: string;
+  nombre: string;
+  stock_disponible: number;
+  stock_reservado: number;
+}
+
+export interface DashboardGerencial {
+  /** Ingresos de pedidos pagados (PROCESANDO/ENVIADO/ENTREGADO) últimos 30 días */
+  ingresos30d: number;
+  pedidos30d: number;
+  ticketMedio30d: number;
+  clientesTotal: number;
+  /** Serie diaria de los últimos 30 días (incluye días a cero) */
+  ventasPorDia: DashboardVentaDia[];
+  /** Top 5 por unidades vendidas (últimos 30 días) */
+  topProductos: DashboardTopProducto[];
+  /** Recuento histórico de pedidos por estado */
+  pedidosPorEstado: DashboardEstadoCount[];
+  /** Productos activos con 5 o menos unidades disponibles */
+  stockBajo: DashboardStockBajo[];
 }
 
 export interface ReservaCheckout {

@@ -11,6 +11,7 @@ import { PedidosModule } from "./pedidos/pedidos.module";
 import { DireccionesModule } from "./direcciones/direcciones.module";
 import { InventarioModule } from "./inventario/inventario.module";
 import { EmailModule } from "./email/email.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { SessionMiddleware } from "./carrito/session.middleware";
 
 @Module({
@@ -26,6 +27,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
     DireccionesModule,
     InventarioModule,
     EmailModule,
+    DashboardModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
