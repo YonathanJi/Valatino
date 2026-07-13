@@ -1,6 +1,65 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-12
+**Última actualización**: 2026-07-13
+
+---
+
+## Sesión 2026-07-13 — Paleta gris clientes · límite 30 uds · fix reservas duplicadas · dashboard gerencial
+
+**Para reanudar mañana**: `pnpm dev` levanta web (3000) + API (4000). Todo lo de hoy está commiteado (4 commits temáticos + este archivo) y verificado en vivo. BD remota al día (migración 023 aplicada). Pendientes de fondo sin cambios: tests (0%), CI, accesibilidad, probar en navegador el flujo completo de asesores. Recordar: `stripe listen` con la key del proyecto si se prueban pagos.
+
+Petición: solo cambiar colores del área de clientes (storefront + `/cuenta`); sin tocar formas, figuras ni el backoffice.
+
+- **`globals.css`**: nuevo ámbito `.theme-cliente` que sobreescribe TODAS las variables del tema a grises puros (primary naranja → casi negro `0 0% 9%`, secondary/muted/accent/border sin el tinte azul, destructive → gris oscuro `0 0% 25%`, ring gris). `:root` queda intacto → backoffice y `/admin` conservan su paleta.
+- **`StorefrontShell`**: la clase se aplica ahí (envuelve exactamente storefront + `/cuenta`) con un `<div className="theme-cliente contents">` — `display: contents` no crea caja, el layout no cambia.
+- **Colores hardcodeados pasados a `neutral-*`**: badges de estado en `/cuenta/pedidos` (se distinguen por intensidad de gris, ENTREGADO invertido en negro), iconos de `/checkout/confirmacion` (amber/green → gris), "N disponibles" en ficha de producto (green-600 → neutral-600).
+- **Widgets de pago**: botón PayPal `color: "gold"` → `"black"`; Stripe Elements con `appearance.variables` grises (`colorPrimary/colorText #171717`, `colorDanger #404040`).
+- **Verificado**: typecheck web OK · home y `/carrito` renderizan con `theme-cliente` y la regla CSS compilada · `/admin` NO lleva la clase (paleta original).
+- Notas: los toasts de Sonner (`richColors`, globales en root layout) y los SVG placeholder de producto (figuras/imágenes) quedaron fuera a propósito — avisar si también se quieren en gris.
+
+### ✅ Límite de 30 unidades por producto + el stock real nunca se muestra al cliente
+
+- **Regla de negocio nueva**: máximo **30 unidades por producto y carrito** (`MAX_UNIDADES_POR_PRODUCTO` en `carrito.service.ts`). Al superarlo → 409 con "Máximo 30 unidades por producto. Si necesitas más, escríbenos a **valatino@hotmail.com**" (email confirmado por Jonathan — el mensaje original decía "valatatino", era errata). Se valida en `addItem` (cantidad directa y acumulada con lo que ya hay en el carrito) y en `updateItem` (botón + del carrito).
+- **El inventario ya no se filtra al cliente**: los mensajes de stock insuficiente son genéricos ("No hay unidades suficientes de este producto en este momento" / "Este producto está agotado") — sin cifras. La ficha de producto muestra "Disponible" en lugar de "N disponibles". El backoffice sigue viendo el stock real.
+- **Web** (`useCarrito.tsx`): los 409 de `addItem`/`updateItem` se muestran con `toast.warning` (aviso ámbar informativo), no como error del sistema; el resto de fallos sigue en `toast.error`.
+- **Nota**: el DTO mantiene `@Max(99)` como límite de sanidad; el límite comercial de 30 vive en el servicio (409 → toast de aviso, no 400).
+- **Verificado en vivo**: añadir 30 OK · +1 sobre 30, 31 de golpe y PATCH a 31 devuelven el 409 con el mensaje del email · carritos de prueba limpiados · typecheck API+web OK.
+
+### ✅ Bug corregido: productos "agotados" fantasma por reservas duplicadas del checkout
+
+- **Síntoma**: Café Sello Rojo aparecía agotado sin ventas. Causa: `disponible=0, reservado=60` — el checkout había creado DOS reservas idénticas de 30 unidades con 6 ms de diferencia (y 4 reservas de 1 para la salsa).
+- **Causa doble**:
+  1. `CheckoutService.reservar` no era idempotente: cada visita/recarga del checkout apilaba reservas nuevas sin liberar las previas de la sesión.
+  2. El doble montaje de React (StrictMode dev) dispara el `useEffect` del checkout dos veces; el guard `reservando` es estado asíncrono y no llega a tiempo → dos POST casi simultáneos. (Mismo patrón que el fix de Realtime del backoffice, commit 579e40e.)
+- **Fix API** (`checkout.service.ts`): antes de reservar, `DELETE ... WHERE session_id = X RETURNING` de las reservas previas de la sesión + `liberar_reserva` por cada una — reservar es ahora idempotente por sesión.
+- **Fix web** (`checkout/page.tsx`): guard síncrono con `useRef` en `reservarStock` (el estado no protege contra el doble efecto).
+- **Nota**: el pg_cron `liberar-reservas-expiradas` (004) funciona bien — liberó las 60 del café al caducar (TTL 15 min). El bug solo causaba "agotados" temporales de hasta 15 min, pero en producción real (sin StrictMode) seguiría pasando al recargar el checkout.
+- **Verificado en vivo**: carrito con 5 → dos POST `/checkout/reservar` seguidos → 1 sola fila de reserva y `reservado=5` (antes 10). Reserva y carrito de prueba liberados; café restaurado a 60/0. Typecheck API+web OK.
+
+### ✅ Segunda vuelta al bug de reservas: carrera entre peticiones PARALELAS + contadores fantasma reconciliados
+
+- **Reapareció** (ají 30 → descontó 60): dos POST con 32 ms de diferencia. El fix de idempotencia (borrar reservas previas) solo protege llamadas consecutivas — dos peticiones EN PARALELO no se ven entre sí (TOCTOU) y ambas reservan.
+- **Fix definitivo** (`checkout.service.ts`): **coalescing por sesión** — `Map<sessionId, Promise>`; si llega una reserva mientras otra de la misma sesión está en vuelo, se engancha a la misma promesa y ambas devuelven el mismo resultado. ⚠️ Válido con la API en una sola instancia; con réplicas horizontales habría que moverlo a una RPC transaccional en Postgres (anotado en el código).
+- **Verificado**: dos `curl` en paralelo (con `&`) → 1 sola fila de reserva.
+- **Daño histórico reconciliado**: 6 productos tenían `stock_reservado=3` sin filas de reserva que lo respaldaran (el bug de duplicados existía desde el principio: en los pedidos de prueba de ayer, el pago consumía una reserva y la duplicada quedaba atrapada en el contador — 3 unidades ni vendidas ni devueltas). Reconciliado vía REST service_role: `disponible += desvío, reservado = suma real de filas` — Jugos Mora 179, Ducales 119, Chocoramo 148, Chocolate 79, Maracuyá 199, Aguardiente 69; todos con reservado=0 (salvo reservas activas legítimas).
+- Con los duplicados imposibilitados (coalescing + idempotencia + guard del cliente), el desvío no puede reproducirse.
+
+### ✅ Dashboard gerencial en el backoffice (solo admin)
+
+- **API**: módulo nuevo `apps/api/src/dashboard/` — `GET /admin/dashboard` (`@Roles("admin")`, verificado 401 anónimo). Devuelve `DashboardGerencial` (tipo nuevo en `@valatino/types`): ingresos/pedidos/ticket medio de 30 días (solo estados pagados PROCESANDO/ENVIADO/ENTREGADO), serie diaria con días a cero, top 5 productos por unidades, recuento histórico por estado, clientes totales y stock bajo (≤5).
+- **Web**: `/backoffice/dashboard` (guard admin-only por layout, patrón usuarios). KPI row de 4 stat tiles + gráfico de línea de ingresos por día (SVG propio, sin dependencias: línea 2px, área al 10%, crosshair + tooltip al hover, tabla accesible en `<details>`) + barras horizontales top productos (un solo hue) + pedidos por estado (EstadoBadge) + tabla de alertas de stock.
+- **Diseño según skill dataviz**: azul `#2a78d6` validado con `validate_palette.js` sobre superficie blanca (todas las comprobaciones PASS); grid hairline, texto siempre en tokens de tinta, sin leyenda (serie única), `tabular-nums` solo en tablas/ejes.
+- **Navegación**: enlace "📈 Dashboard" en el sidebar (solo admin) y `/backoffice` ahora enruta al admin al dashboard (asesores siguen yendo a su primer módulo).
+- **Verificado en vivo** con login real del admin: métricas correctas contra la BD (14,80 € · 5 pedidos del 12/07 · 3 clientes · top 5 · 4 PROCESANDO/1 ENTREGADO/1 CANCELADO). Typecheck types+API+web OK.
+
+### ✅ Dashboard convertido en módulo asignable a asesores
+
+- Petición: poder habilitar/deshabilitar el dashboard por asesor desde /backoffice/usuarios, como los demás módulos.
+- **Migración 023** (`staff_modulo_dashboard.sql`): el CHECK de `staff_modulos.modulo` ahora admite `'dashboard'`. Aplicada al remoto por Management API (`database/query`) y verificada con `pg_get_constraintdef`. Token extraído del Credential Manager ("Supabase CLI:supabase", struct CREDENTIALW vía Add-Type — los offsets manuales NO funcionan en PS 5.1, usar la clase C# completa).
+- **Tipos**: `StaffModulo` + `STAFF_MODULOS` incluyen `"dashboard"` → los checkboxes de usuarios y la validación `IsIn` de los DTOs lo recogen automáticamente. `MODULO_LABELS` actualizado en usuarios y perfil.
+- **API**: `DashboardController` pasa de `@Roles("admin")` a `@Roles("admin","asesor")` + `@Modulo("dashboard")` + `ModulosGuard` (admin pasa siempre).
+- **Web**: guard del layout por `puedeVerModulo(acceso,"dashboard")`; el enlace del sidebar entra en `NAV_ITEMS` (primero); `/backoffice` enruta al dashboard a quien pueda verlo.
+- **Verificado E2E**: asesor de prueba creado sin el módulo → 403 · PATCH otorgando el módulo → 200 inmediato (JwtStrategy relee módulos de BD en cada request, sin re-login) · admin sigue 200 · asesor de prueba eliminado. Typecheck OK.
 
 ---
 
