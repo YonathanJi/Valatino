@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { PayPalScriptProvider } from "@paypal/react-paypal-js";
 import { toast } from "sonner";
@@ -62,7 +62,14 @@ export default function CheckoutPage() {
     });
   }, []);
 
+  // Ref síncrona: el doble montaje de React en dev dispara el efecto dos
+  // veces antes de que el estado `reservando` se actualice — sin este guard
+  // se creaban reservas duplicadas y el stock se "agotaba" solo.
+  const reservaEnCurso = useRef(false);
+
   const reservarStock = useCallback(async () => {
+    if (reservaEnCurso.current) return;
+    reservaEnCurso.current = true;
     setReservando(true);
     try {
       const data = await apiFetch<ReservaCheckoutResponse>("/checkout/reservar", {
@@ -74,6 +81,7 @@ export default function CheckoutPage() {
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "No se pudo reservar el stock");
     } finally {
+      reservaEnCurso.current = false;
       setReservando(false);
     }
   }, []);

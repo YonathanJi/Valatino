@@ -7,7 +7,28 @@ import type { ReservaCheckoutResponse } from "@valatino/types";
 export class CheckoutService {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
+  /** Reservas en vuelo por sesión: dos peticiones concurrentes (doble montaje
+      de React, doble clic) se resuelven con UNA sola reserva compartida.
+      El borrado de reservas previas solo protege llamadas consecutivas, no la
+      carrera entre paralelas. Válido mientras la API corra en una instancia;
+      con réplicas horizontales habría que mover esto a una RPC transaccional. */
+  private readonly reservasEnVuelo = new Map<string, Promise<ReservaCheckoutResponse>>();
+
   async reservar(
+    sessionId: string,
+    userId?: string,
+  ): Promise<ReservaCheckoutResponse> {
+    const enVuelo = this.reservasEnVuelo.get(sessionId);
+    if (enVuelo) return enVuelo;
+
+    const promesa = this.reservarInterno(sessionId, userId).finally(() => {
+      this.reservasEnVuelo.delete(sessionId);
+    });
+    this.reservasEnVuelo.set(sessionId, promesa);
+    return promesa;
+  }
+
+  private async reservarInterno(
     sessionId: string,
     userId?: string,
   ): Promise<ReservaCheckoutResponse> {
@@ -30,6 +51,22 @@ export class CheckoutService {
 
     if (itemsError || !items || (items as unknown[]).length === 0) {
       throw new ConflictException("El carrito está vacío");
+    }
+
+    // Idempotencia por sesión: recargar el checkout o reintentar NO debe
+    // apilar reservas — se liberan las previas de esta sesión antes de crear
+    // las nuevas (el delete devuelve las filas para restaurar su stock).
+    const { data: reservasPrevias } = await this.supabase
+      .from("stock_reservas")
+      .delete()
+      .eq("session_id", sessionId)
+      .select("producto_id, cantidad");
+
+    for (const r of (reservasPrevias ?? []) as Array<{ producto_id: string; cantidad: number }>) {
+      await this.supabase.rpc("liberar_reserva", {
+        p_producto_id: r.producto_id,
+        p_cantidad: r.cantidad,
+      });
     }
 
     const productosSinStock: string[] = [];
