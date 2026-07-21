@@ -15,6 +15,11 @@
   - **`render.yaml`** (Blueprint): build `pnpm install --prod=false && turbo run build --filter=@valatino/api`, start `node apps/api/dist/main.js`, healthCheckPath `/health`, env vars secretas como `sync:false`.
   - **`DEPLOY.md`**: guía paso a paso (Render primero → Vercel → conectar CORS/Supabase/webhooks).
 - Verificado: `turbo build --filter=@valatino/api` OK (types+api) · `GET /health` responde 200 en local.
+- **API DESPLEGADA Y VIVA en Render** (2026-07-21): servicio `Valatino` (`srv-d9ft2q7avr4c73dvqu90`), URL **https://valatino.onrender.com** (`/health` → 200, `/productos` → 200). Plan free (duerme tras ~15 min inactividad). Auto-deploy en cada commit a `main`. Variables de entorno cargadas en Render (Supabase, Stripe, SMTP, CORS). CORS permite `*.vercel.app` automáticamente, así que la web de Vercel funcionará sin tocar CORS_ORIGIN.
+  - **Fix crítico de arranque**: `nest build` dejaba el compilado en `packages/config/tsconfig/dist` (el `outDir` estaba en el tsconfig base → se resuelve relativo a ese archivo). Se fijó `outDir`/`rootDir` en `apps/api/tsconfig.json` → build correcto en `apps/api/dist/main.js`. En dev no se notaba (nest start en memoria).
+  - **Fix build Render**: quitado `corepack enable` del buildCommand (Render trae pnpm y el FS es de solo lectura); build con `pnpm --filter` explícito (types → api).
+  - Gestión del servicio hecha vía Render REST API (token de Jonathan). ⚠️ **Jonathan debe regenerar ese API token de Render** (quedó expuesto en el chat).
+  - **PENDIENTE**: desplegar la web en Vercel (Root Directory `apps/web`, `NEXT_PUBLIC_API_URL=https://valatino.onrender.com` + resto de NEXT_PUBLIC_*), y añadir el dominio Vercel a Supabase Auth → Redirect URLs.
 
 ---
 
