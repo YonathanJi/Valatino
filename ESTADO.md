@@ -1,6 +1,27 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-18
+**Última actualización**: 2026-07-21
+
+---
+
+## ▶️ Para reanudar (leer primero)
+
+**El proyecto está DESPLEGADO y funcionando en local y en línea** (con claves de test).
+
+- **En línea**: tienda **https://valatino-api-steel.vercel.app** (Vercel) · API **https://valatino.onrender.com** (Render) · Supabase (BD/Auth/Storage). Auto-deploy en cada push a `main`. Render free duerme tras ~15 min (1ª carga lenta al despertar, normal).
+- **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
+  - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
+- **Aplicar migraciones al remoto**: por Management API (script en scratchpad de la sesión / patrón `apply-migration.ps1`), NO `supabase db push`. Última aplicada: **029** (IVA en compras). Migraciones 024–029 nuevas esta racha.
+- **Tokens de despliegue**: la gestión de Render y Vercel se hizo por sus APIs REST. Si hace falta re-tocar, se necesita un token nuevo de cada uno (los usados quedaron expuestos y deben regenerarse — ver abajo).
+
+### ⚠️ Pendientes de Jonathan (acción manual)
+1. **Regenerar el token de Render** (`rnd_...`) — Account Settings → API Keys.
+2. **Regenerar el token de Vercel** (`vcp_...`) — Account Settings → Tokens.
+3. Producción real (futuro): dominio propio, claves Stripe `live`, webhook Stripe → `https://valatino.onrender.com/pagos/stripe/webhook`, y actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
+
+### Estado del negocio
+- Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
+- Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad.
 
 ---
 
