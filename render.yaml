@@ -9,9 +9,10 @@ services:
     runtime: node
     plan: free
     branch: main
-    # --prod=false garantiza que se instalen las devDependencies (nest cli, tsc)
-    # necesarias para compilar; turbo compila también @valatino/types (dependencia).
-    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm turbo run build --filter=@valatino/api
+    # --prod=false garantiza que se instalen las devDependencies (nest cli, tsc).
+    # No usar `corepack enable` (Render trae pnpm y el FS es de solo lectura).
+    # Se compila @valatino/types (dependencia) antes que la API.
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter @valatino/types build && pnpm --filter @valatino/api build
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /health
     envVars:

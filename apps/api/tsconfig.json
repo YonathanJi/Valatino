@@ -2,6 +2,10 @@
   "extends": "@valatino/config/tsconfig/nestjs",
   "compilerOptions": {
     "baseUrl": ".",
+    // outDir/rootDir aquí (no en el base) para que se resuelvan relativos a
+    // apps/api y el build quede en apps/api/dist/main.js
+    "outDir": "./dist",
+    "rootDir": "./src",
     "paths": {
       "@/*": ["./src/*"]
     }
