@@ -12,6 +12,7 @@ import { DireccionesModule } from "./direcciones/direcciones.module";
 import { InventarioModule } from "./inventario/inventario.module";
 import { EmailModule } from "./email/email.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
+import { ComprasModule } from "./compras/compras.module";
 import { SessionMiddleware } from "./carrito/session.middleware";
 
 @Module({
@@ -28,6 +29,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
     InventarioModule,
     EmailModule,
     DashboardModule,
+    ComprasModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

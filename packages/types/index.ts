@@ -11,14 +11,27 @@
 export type UserRole = "admin" | "asesor" | "cliente";
 
 /** Módulos del backoffice asignables a asesores (admin tiene todos implícitamente) */
-export type StaffModulo = "pedidos" | "catalogo" | "inventario" | "dashboard";
+export type StaffModulo = "pedidos" | "catalogo" | "inventario" | "dashboard" | "compras";
 
 export const STAFF_MODULOS: readonly StaffModulo[] = [
   "pedidos",
   "catalogo",
   "inventario",
   "dashboard",
+  "compras",
 ];
+
+/** Categorías fijas del catálogo (selector del backoffice + validación API) */
+export const CATEGORIAS_PRODUCTO = [
+  "Dulces",
+  "Galletas",
+  "Bebidas",
+  "Snacks",
+  "Café",
+  "Despensa",
+] as const;
+
+export type CategoriaProducto = (typeof CATEGORIAS_PRODUCTO)[number];
 
 export type PedidoEstado =
   | "PENDIENTE_PAGO"
@@ -208,6 +221,61 @@ export interface DashboardGerencial {
   pedidosPorEstado: DashboardEstadoCount[];
   /** Productos activos con 5 o menos unidades disponibles */
   stockBajo: DashboardStockBajo[];
+}
+
+// ============================================================
+// Compras de mercancía (entrada documentada con factura) y proveedores
+// ============================================================
+
+export interface Proveedor {
+  id: string;
+  /** CIF/NIF normalizado (mayúsculas, sin espacios ni guiones) */
+  cif: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Tipos de IVA admitidos en las líneas de compra */
+export const IVA_PORCENTAJES = [4, 10, 21] as const;
+export type IvaPorcentaje = (typeof IVA_PORCENTAJES)[number];
+
+export interface FacturaCompraItem {
+  id: string;
+  factura_id: string;
+  producto_id: string;
+  /** Snapshot del nombre en el momento de registrar la compra */
+  nombre_producto: string;
+  cantidad: number;
+  /** Costo unitario de compra sin IVA (null en compras anteriores a 2026-07-18) */
+  costo_unitario: number | null;
+  /** Tipo de IVA de la línea: 4, 10 o 21 (null en compras antiguas) */
+  iva_pct: number | null;
+}
+
+export interface FacturaCompra {
+  id: string;
+  numero_factura: string | null;
+  /** Snapshot del nombre del proveedor (histórico) */
+  proveedor: string | null;
+  proveedor_id: string | null;
+  notas: string | null;
+  /** Ruta del PDF en el bucket privado 'facturas' (se consulta vía URL firmada) */
+  pdf_path: string;
+  total_unidades: number;
+  /** Base imponible (sin IVA): Σ cantidad × costo_unitario, calculada en la transacción */
+  total: number | null;
+  /** Cuota de IVA calculada por línea (null en compras antiguas) */
+  total_iva: number | null;
+  /** Base + IVA (null en compras antiguas) */
+  total_con_iva: number | null;
+  creado_por: string | null;
+  created_at: string;
+  items?: FacturaCompraItem[];
 }
 
 export interface ReservaCheckout {

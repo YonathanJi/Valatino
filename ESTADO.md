@@ -1,6 +1,86 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-13
+**Última actualización**: 2026-07-18
+
+---
+
+## Sesión 2026-07-18 — Submódulo de facturas de compra (entrada de mercancía documentada)
+
+Petición: submódulo del backoffice para subir la factura del proveedor en PDF, registrar su contenido (producto + cantidad), que al enviar el inventario sume esas unidades, y poder consultar el histórico factura a factura.
+
+### ✅ Módulo `facturas` (asignable a asesores, patrón dashboard)
+
+- **Migración 024** (`024_facturas_compra.sql`), aplicada al remoto vía Management API y verificada:
+  - CHECK de `staff_modulos.modulo` admite `'facturas'`.
+  - Tablas `facturas_compra` (numero_factura, proveedor, notas, pdf_path, total_unidades, creado_por) y `factura_compra_items` (snapshot `nombre_producto` + cantidad, FK cascade). RLS sin policies (solo service_role). Índices por fecha y por factura.
+  - **RPC transaccional `registrar_factura_compra`**: inserta factura + líneas e incrementa `stock_disponible`, todo o nada (si una línea falla, no queda nada a medias). EXECUTE revocado de anon/authenticated.
+  - **Bucket privado `facturas`** en Storage (insert idempotente en `storage.buckets`); sin policies en storage.objects — solo la API sube y firma URLs.
+- ⚠️ El truco del Credential Manager para el token de la Management API sigue funcionando, pero en PS 5.1 `ConvertTo-Json` serializa mal algunos strings largos → usar `@{ query = "$sql" }` (interpolado) y enviar el body como bytes UTF-8. Script reutilizable en el scratchpad de la sesión.
+- **API** (`apps/api/src/facturas/`): `POST /admin/facturas` (multipart: `pdf` + campos + `items` como JSON string, validado con zod — máx. 10 MB, verifica mimetype y magic bytes `%PDF`; si la RPC falla borra el PDF subido para no dejar huérfanos), `GET /admin/facturas` (paginado), `GET /admin/facturas/:id` (detalle con líneas), `GET /admin/facturas/:id/pdf` (URL firmada 1 h). Guards `@Roles("admin","asesor")` + `@Modulo("facturas")`. Dependencia nueva: `@types/multer` (dev).
+- **Tipos**: `FacturaCompra`/`FacturaCompraItem` en `@valatino/types` (recompilado); `StaffModulo` incluye `"facturas"` → checkboxes de usuarios y validación IsIn lo recogen solos. Modelos añadidos a `schema.prisma`.
+- **Web**: `/backoffice/facturas` (histórico), `/backoffice/facturas/nueva` (PDF + líneas dinámicas producto/cantidad + total en vivo) y `/backoffice/facturas/[id]` (detalle + botón "Ver PDF" con URL firmada). Guard por módulo en layout; enlace "🧾 Facturas" en sidebar; MODULO_LABELS en usuarios y perfil; `/backoffice` enruta también a facturas.
+- **Fix `apiFetch`**: ya no fuerza `Content-Type: application/json` cuando el body es `FormData` (el navegador debe fijar el boundary).
+- **Verificado E2E en vivo** (login real del admin): 401 anónimo · factura con PDF → stock 250→257 · histórico/detalle/PDF firmado (200, devuelve el PDF) · producto inexistente → 400 con rollback total y PDF eliminado · archivo no-PDF → 400 · cantidad 0 → 400. Datos de prueba limpiados (factura borrada, stock restaurado, PDF eliminado del bucket). Typecheck types+API+web OK.
+- **Pendiente**: probar el flujo en navegador (formulario de alta y detalle); los cambios están sin commitear.
+
+### ✅ Imágenes de producto a la nube (catálogo)
+
+- Petición: el formulario de producto pedía una URL de imagen (local); ahora pide el archivo y lo sube a Supabase Storage, como las facturas — todo en nube.
+- **Migración 025** (`025_bucket_productos.sql`, aplicada al remoto): bucket **público** `productos` (lectura anónima por URL pública — el storefront la muestra a cualquiera; `**.supabase.co` ya estaba permitido en next.config). Escritura sin policies: solo service_role.
+- **API**: `POST /productos/imagen` (`@Modulo("catalogo")`, multipart `imagen`, máx. 5 MB, valida mimetype + magic bytes JPG/PNG/WebP) → sube al bucket con nombre UUID y devuelve `{ url }` pública. `ProductosService.subirImagen` + `EXTENSION_POR_MIME`.
+- **Web** (`ProductoForm`): input file con vista previa (object URL local + miniatura de la imagen actual al editar); al guardar sube primero la imagen y crea/actualiza el producto con la URL en `imagenes`. Si se edita sin elegir archivo, conserva la imagen actual; sin imagen → `/placeholder.png`.
+- **Verificado E2E**: 401 anónimo · PNG válido → URL pública responde 200 · archivo falso → 400. Imagen de prueba borrada del bucket. Typecheck API+web OK.
+- **Fix "File too large"**: las imágenes de IA/móvil superaban los 5 MB del endpoint. `ProductoForm` ahora redimensiona (máx. 1200px de lado) y comprime a WebP 0.85 **en el navegador** (`createImageBitmap` + canvas) antes de subir — cualquier imagen llega ligera y con las medidas de la spec. El límite de 5 MB del servidor queda como red de seguridad.
+- **Fix "property stock_disponible should not exist"** al editar: el form enviaba `stock_disponible` también en el PATCH y `UpdateProductoDto` no lo admite (forbidNonWhitelisted; por diseño el stock se gestiona desde Inventario/Facturas). Ahora solo se envía al crear; al editar el campo aparece deshabilitado con la nota "El stock se gestiona desde Inventario o Facturas".
+- **Eliminar producto** (petición de Jonathan): `DELETE /productos/:id` (`@Modulo("catalogo")`, 204) + botón "Eliminar" con confirm en `ProductoTabla`. Borrado físico solo si el producto no tiene histórico: con pedidos/facturas/carritos la FK (23503) → **409** "Desactívalo para ocultarlo del catálogo" (el histórico nunca se rompe). Al borrar, sus imágenes propias del bucket `productos` se eliminan también. Verificado E2E: crear+borrar → 204 y 404 después · producto con pedidos → 409 · anónimo → 401. Typecheck OK.
+- **Categorías fijas del catálogo**: `CATEGORIAS_PRODUCTO` en `@valatino/types` — **Dulces, Galletas, Bebidas, Snacks, Café, Despensa** (elegidas con Jonathan). El form usa `<select>` y los DTOs validan con `@IsIn` (categoría libre → 400 con la lista en el mensaje). Verificado E2E. Nota: el pendiente antiguo "normalizar categoria a tabla propia" sigue abierto; esta lista fija es el paso intermedio.
+- **Campo stock eliminado de ProductoForm** (petición de Jonathan): tampoco al crear — los productos nacen con stock 0 (default de BD) y las unidades entran solo por Inventario o Facturas. El DTO conserva `stock_disponible` opcional por API, pero la UI ya no lo envía nunca.
+- **ProductoTabla del catálogo**: fuera el botón +Stock (StockAjusteModal queda solo en Inventario) y las acciones ahora son botones con icono — "✏️ Editar" y "🗑️ Eliminar" (pill con borde, hover tintado).
+
+### ✅ Variantes de sabor agrupadas en el storefront + fix de slugs
+
+- **Decisión de modelado** (consultada por Jonathan): los sabores son productos independientes (inventario propio, línea propia en facturas) — NO sistema de variantes en BD (tocaría toda la ruta crítica de reservas/checkout con 0% tests). El agrupado es solo visual.
+- **Convención**: nombrar las variantes "Producto Sabor X" (ej. "Galleta Festival Sabor Fresa"). `lib/productos/sabores.ts` (`partirNombrePorSabor`, `agruparPorSabor`, `hermanosDeSabor`) agrupa por base+categoría cuando hay ≥2.
+- **Catálogo (home)**: `ProductoGrid` agrupa; `ProductoCardSabores` (nueva) muestra una sola tarjeta con nombre base, badge "N sabores", lista de sabores, "Desde X €" si varían precios y botón "Elegir sabor" → ficha del primer sabor con stock. Overlay "Agotado" solo si TODOS lo están.
+- **Ficha**: título = nombre base + selector de chips de sabor (actual resaltado con `aria-current`, resto enlaza a su ficha, "(agotado)" si sin stock). Los productos sin la convención no cambian.
+- **Bug arreglado de paso**: los productos creados desde el backoffice quedaban con `slug: null` y sus fichas no abrían (la tarjeta enlaza por slug y la ruta busca por slug). `ProductosService.create` ahora **genera el slug del nombre** (sin tildes, kebab-case, reintento sufijado ante colisión 23505). Backfill aplicado a los 5 productos existentes.
+- **Verificado en vivo**: home muestra 3 tarjetas (Bon Bon Bum, Milo y grupo "Galleta Festival" con badge "3 sabores") · ficha de vainilla con título base y chips enlazando a fresa/chocolate · alta "Café Águila Roja 250g" → slug `cafe-aguila-roja-250g` · typecheck API+web OK. (Ojo: curl desde Git Bash corrompe UTF-8 en `-d`; para probar JSON con tildes usar archivo `--data-binary`.)
+- **Imagen de familia para la tarjeta agrupada** (petición de Jonathan): convención `imagenes[1]` = foto de familia opcional (el array ya existía; `imagenes[0]` sigue siendo la foto del sabor). `ProductoForm` tiene un segundo campo "Imagen de familia (opcional)" con preview y botón Quitar — se sube en UNO solo de los sabores. `ProductoCardSabores` la usa con prioridad si algún hermano la tiene; sin ella, cae al comportamiento automático (primer sabor con stock). La ficha individual siempre muestra `imagenes[0]`.
+- **Selector de cantidad en la ficha** (petición de Jonathan): `AddToCartButton` ahora tiene stepper −/+ (1–30, el límite comercial; la API sigue validando el acumulado con 409) junto al botón "Añadir al carrito". Agotado → botón "Sin stock" solo, sin stepper.
+- **"← Volver al catálogo"** añadido arriba de la ficha de producto (enlace a `/`).
+- **Stock a cero por segunda vez**: Jonathan probó añadiendo unidades a mano desde Inventario; se restauró todo a 0 (sin reservas, carritos ni pedidos residuales). Sigue pendiente cargar la primera factura real.
+
+### ✅ Módulo "facturas" renombrado a "compras" (decisión de Jonathan)
+
+- Razón: el módulo registra **compras de mercancía** (documentadas con la factura del proveedor); "facturas" queda libre para un futuro módulo de facturas de proveedores (gastos/servicios).
+- **Migración 026** (aplicada y verificada): `UPDATE staff_modulos` facturas→compras + CHECK con `'compras'`.
+- **Renombrado completo**: tipos (`StaffModulo` "compras") · API `apps/api/src/compras/` (`ComprasController` en **`/admin/compras`**, `ComprasService`, `CrearCompraDto`) · web `/backoffice/compras` (+nueva, +[id]) · sidebar "🛒 Compras" · labels de usuarios/perfil · enrutado de /backoffice.
+- **Lo que NO cambió** (a propósito): tablas `facturas_compra`/`factura_compra_items`, RPC `registrar_factura_compra`, bucket `facturas` y el tipo `FacturaCompra` — nombres internos correctos (una compra se documenta con su factura); renombrarlos era churn con riesgo y sin beneficio.
+- **Verificado**: `/admin/compras` 200 admin / 401 anónimo · `/admin/facturas` ya no existe (404) · constraint remota con 'compras' y 0 filas 'facturas' · typecheck types+API+web OK.
+
+### ✅ Submódulo de Proveedores + costos y total en las compras
+
+- **Migración 027** (aplicada y verificada): tabla `proveedores` (cif UNIQUE normalizado, nombre, teléfono, email, dirección, notas; RLS sin policies) · `facturas_compra` += `proveedor_id` FK + `total numeric(12,2)` (la columna `proveedor` queda como snapshot del nombre) · `factura_compra_items` += `costo_unitario numeric(10,2)` (null en compras antiguas) · **RPC v2** `registrar_factura_compra` (firma nueva con `p_proveedor_id`; valida costo ≥ 0 por línea y calcula `total = Σ cantidad×costo` en la transacción — la BD es la fuente de verdad del total).
+- **API** (`apps/api/src/compras/`): `ProveedoresController` en `/admin/proveedores` (mismo permiso `compras`) — GET lista, **GET `cif/:cif`** (lookup para autocompletar; normaliza mayúsculas/espacios/guiones), POST, PATCH, DELETE (con compras → 409, el histórico no se rompe). `CrearCompraDto` cambia `proveedor` (texto) por `proveedorId` (UUID) y los items exigen `costoUnitario` (zod: ≥ 0, 2 decimales).
+- **Web**: `/backoffice/compras/proveedores` (CRUD completo, hereda el guard del layout de compras; botón "👥 Proveedores" en el histórico). Form de nueva compra: campo **CIF con lookup** (blur/Enter/botón) → chip "✓ Nombre · teléfono" o aviso con enlace a crear proveedor; líneas con **costo unitario y subtotal**; total € en vivo. Histórico con columna Total; detalle con costo/subtotal por línea, fila de total y tarjeta "Total compra".
+- **Verificado E2E en vivo**: CIF "b-1234 5678" → guardado como `B12345678` y lookup con "b1234-5678" lo encuentra · compra 4×0,55 + 6×1,20 → `total: 9.4` calculado en BD, snapshot del nombre del proveedor, stock +10 · línea sin costo → 400 · DELETE proveedor con compras → 409, sin compras → 204 · datos de prueba limpiados (compra, stock, PDF, proveedor). Typecheck types+API+web OK.
+- **Sidebar con submódulos** (petición de Jonathan): navegación extraída a `SidebarNav` (client, `usePathname`) — "🚚 Proveedores" aparece indentado bajo "🛒 Compras" solo cuando la ruta actual está dentro del módulo, con borde izquierdo y resaltado del enlace activo (bg-muted). El layout (server) sigue filtrando por permisos y pasa los items visibles. El botón "Proveedores" de la cabecera del histórico se quitó (petición de Jonathan; acceso solo por sidebar).
+- **Selector de proveedor con autocompletado** (petición de Jonathan, sustituye al lookup por CIF exacto): el form de nueva compra carga la lista de proveedores y al teclear (CIF o nombre, con normalización) muestra un dropdown de sugerencias (máx. 6); al seleccionar queda una **tarjeta con check verde** y los datos básicos (nombre, CIF, teléfono/email, dirección) + botón "✕ Cambiar". Sin coincidencias → enlace a crear proveedor. El endpoint `GET /admin/proveedores/cif/:cif` sigue existiendo (API pública del módulo).
+- **Costo unitario a 4 decimales** (petición de Jonathan): migración **028** — `costo_unitario numeric(10,4)`; la RPC acumula el total sin redondear y hace `round(v_total, 2)` al final (el total sigue siendo importe monetario a 2 decimales). Zod valida los 4 decimales con `refine` manual (multipleOf con floats es impreciso); form con `step="0.0001"`; el detalle muestra el costo con hasta 4 decimales (`formatCosto`, Intl con maximumFractionDigits 4). Verificado: 3×0,5533 → costo exacto y total 1,66 · 5 decimales → 400.
+- **Etiquetas "(sin IVA)"** en costos/subtotales/totales de compras (form, histórico y detalle) — convención confirmada por Jonathan: los costos de compra se registran en base imponible, sin IVA. Solo etiquetado; sin cambios de datos. 🎉 **Primeros productos reales y primera compra de proveedor registrados por Jonathan (2026-07-18).**
+- **IVA por línea en compras** (petición de Jonathan): migración **029** — `factura_compra_items.iva_pct numeric(4,2)` CHECK (4|10|21) · `facturas_compra` += `total_iva`, `total_con_iva` (`total` sigue siendo la base sin IVA) · RPC v3 valida el IVA por línea y calcula base/cuota/total con IVA acumulando sin redondear (round al final). `IVA_PORCENTAJES` en `@valatino/types`; zod exige `ivaPct` por item. Form: select 4/10/21 por línea (default 10) + resumen en vivo "uds · Base · IVA · Total". Histórico: columnas "Base (sin IVA)" y "Total (con IVA)". Detalle: columna IVA + filas Base imponible / IVA / Total (con IVA); la compra antigua de Jonathan (sin IVA registrado) muestra "—" y conserva su base. Verificado E2E: 2×1,00@10 + 1×2,00@21 → base 4,00 / IVA 0,62 / total 4,62 · sin ivaPct → 400 · IVA 15 → 400 · limpieza exacta (el stock real de Jonathan quedó intacto).
+- Nota: los 10 productos del seed siguen apuntando a los SVG locales de `/productos/*.svg` — se irán reemplazando al editar cada producto con foto real.
+- **Especificación de imagen de producto** (la web las muestra cuadradas, `aspect-square`, en tarjeta y ficha): **1200×1200 px, formato WebP** (o PNG/JPG), máx. 5 MB, fondo neutro muy claro (#F5F5F5) para integrarse con el `bg-muted` de la web, producto centrado ocupando ~80% del lienzo, sin texto ni marcas de agua. Prompt de generación con IA entregado a Jonathan en la sesión 2026-07-18.
+
+### ✅ Stock puesto a cero (2026-07-18)
+
+- Petición de Jonathan: limpiar el stock para que la primera factura de compra real establezca el inventario inicial. Los 10 productos quedaron con `stock_disponible=0, stock_reservado=0` (no había reservas activas). Quedan 3 `carrito_items` de prueba de sesiones anteriores (inofensivos con stock 0).
+
+### ✅ Limpieza total para arranque real (2026-07-18)
+
+- **La BD quedó vacía de datos de comercio**: pedidos, pedido_items, transacciones_pago, carritos, carrito_items, stock_reservas, checkout_datos, direcciones_envio, facturas_compra **y los 10 productos del seed** — todo a 0. Jonathan va a crear el catálogo real (productos con foto IA subida a la nube) y cargará el inventario inicial con la primera factura de compra.
+- Se conservan los 6 usuarios de `auth.users` (admin, cuentas de prueba y asesores), roles y staff_modulos.
+- ⚠️ Las secciones antiguas de este archivo que hablan de "10 productos del catálogo" o de pedidos de prueba quedan desactualizadas desde hoy.
 
 ---
 

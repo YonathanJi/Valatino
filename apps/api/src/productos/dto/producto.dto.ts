@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -12,6 +13,9 @@ import {
   Min,
   NotEquals,
 } from "class-validator";
+import { CATEGORIAS_PRODUCTO } from "@valatino/types";
+
+const MENSAJE_CATEGORIA = `La categoría debe ser una de: ${CATEGORIAS_PRODUCTO.join(", ")}`;
 
 export class CreateProductoDto {
   @IsString()
@@ -33,8 +37,7 @@ export class CreateProductoDto {
   imagenes?: string[];
 
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
+  @IsIn(CATEGORIAS_PRODUCTO, { message: MENSAJE_CATEGORIA })
   categoria!: string;
 
   @IsOptional()
@@ -78,8 +81,7 @@ export class UpdateProductoDto {
 
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
+  @IsIn(CATEGORIAS_PRODUCTO, { message: MENSAJE_CATEGORIA })
   categoria?: string;
 
   @IsOptional()

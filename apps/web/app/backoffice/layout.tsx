@@ -2,13 +2,20 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getStaffAcceso, esStaff, puedeVerModulo } from "@lib/auth/staff";
 import { LogoutButton } from "@components/backoffice/LogoutButton";
+import { SidebarNav, type SidebarNavItem } from "@components/backoffice/SidebarNav";
 import type { StaffModulo } from "@valatino/types";
 
-const NAV_ITEMS: { modulo: StaffModulo; href: string; label: string }[] = [
+const NAV_ITEMS: { modulo: StaffModulo; href: string; label: string; children?: SidebarNavItem["children"] }[] = [
   { modulo: "dashboard", href: "/backoffice/dashboard", label: "📈 Dashboard" },
   { modulo: "pedidos", href: "/backoffice/pedidos", label: "📦 Pedidos" },
   { modulo: "catalogo", href: "/backoffice/catalogo", label: "🛍️ Catálogo" },
   { modulo: "inventario", href: "/backoffice/inventario", label: "📊 Inventario" },
+  {
+    modulo: "compras",
+    href: "/backoffice/compras",
+    label: "🛒 Compras",
+    children: [{ href: "/backoffice/compras/proveedores", label: "🚚 Proveedores" }],
+  },
 ];
 
 export default async function BackofficeLayout({ children }: { children: React.ReactNode }) {
@@ -28,15 +35,9 @@ export default async function BackofficeLayout({ children }: { children: React.R
           <p className="text-xs text-muted-foreground">Back-Office</p>
         </div>
         <nav className="flex-1 p-3 space-y-1">
-          {visibles.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-muted transition-colors"
-            >
-              {item.label}
-            </Link>
-          ))}
+          <SidebarNav
+            items={visibles.map(({ href, label, children }) => ({ href, label, children }))}
+          />
           {acceso.role === "admin" && (
             <Link
               href="/backoffice/usuarios"

@@ -1,5 +1,7 @@
 import type { Producto } from "@valatino/types";
 import { ProductoCard } from "./ProductoCard";
+import { ProductoCardSabores } from "./ProductoCardSabores";
+import { agruparPorSabor } from "@lib/productos/sabores";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -24,11 +26,22 @@ export async function ProductoGrid() {
     );
   }
 
+  // Las variantes de sabor ("Producto Sabor X") se agrupan en una tarjeta
+  const items = agruparPorSabor(productos);
+
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-      {productos.map((p) => (
-        <ProductoCard key={p.id} producto={p} />
-      ))}
+      {items.map((item) =>
+        item.tipo === "producto" ? (
+          <ProductoCard key={item.producto.id} producto={item.producto} />
+        ) : (
+          <ProductoCardSabores
+            key={`grupo-${item.grupo.productos[0]!.id}`}
+            base={item.grupo.base}
+            productos={item.grupo.productos}
+          />
+        ),
+      )}
     </div>
   );
 }

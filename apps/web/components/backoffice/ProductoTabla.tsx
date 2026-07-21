@@ -1,5 +1,8 @@
+"use client";
+
+import { toast } from "sonner";
 import { Skeleton } from "@components/ui/Skeleton";
-import { StockAjusteModal } from "./StockAjusteModal";
+import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import type { Producto } from "@valatino/types";
 
@@ -11,6 +14,19 @@ interface ProductoTablaProps {
 }
 
 export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: ProductoTablaProps) {
+  const eliminarProducto = async (p: Producto) => {
+    if (!window.confirm(`¿Eliminar "${p.nombre}" del catálogo? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/productos/${p.id}`, { method: "DELETE" });
+      toast.success(`"${p.nombre}" eliminado`);
+      onRefresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al eliminar el producto");
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -53,11 +69,18 @@ export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: Produ
               <td className="p-3 flex gap-2">
                 <button
                   onClick={() => onEdit(p)}
-                  className="text-xs text-primary hover:underline"
+                  title={`Editar ${p.nombre}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors"
                 >
-                  Editar
+                  ✏️ Editar
                 </button>
-                <StockAjusteModal productoId={p.id} nombreProducto={p.nombre} onAjustado={onRefresh} />
+                <button
+                  onClick={() => void eliminarProducto(p)}
+                  title={`Eliminar ${p.nombre}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  🗑️ Eliminar
+                </button>
               </td>
             </tr>
           ))}

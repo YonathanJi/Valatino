@@ -14,6 +14,7 @@ export default async function BackofficeIndexPage() {
   if (puedeVerModulo(acceso, "pedidos")) redirect("/backoffice/pedidos");
   if (puedeVerModulo(acceso, "catalogo")) redirect("/backoffice/catalogo");
   if (puedeVerModulo(acceso, "inventario")) redirect("/backoffice/inventario");
+  if (puedeVerModulo(acceso, "compras")) redirect("/backoffice/compras");
 
   return (
     <div className="p-10 text-center text-sm text-muted-foreground">

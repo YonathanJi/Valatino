@@ -28,7 +28,8 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   } = await supabase.auth.getSession();
 
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  // Con FormData el navegador fija el Content-Type (incluye el boundary)
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (session) {

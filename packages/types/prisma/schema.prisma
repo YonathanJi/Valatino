@@ -64,9 +64,10 @@ model Producto {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  stockReservas StockReserva[]
-  carritoItems  CarritoItem[]
-  pedidoItems   PedidoItem[]
+  stockReservas      StockReserva[]
+  carritoItems       CarritoItem[]
+  pedidoItems        PedidoItem[]
+  facturaCompraItems FacturaCompraItem[]
 
   @@map("productos")
 }
@@ -171,6 +172,59 @@ model PedidoItem {
   producto Producto @relation(fields: [productoId], references: [id])
 
   @@map("pedido_items")
+}
+
+model Proveedor {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cif       String   @unique @db.VarChar(20)
+  nombre    String   @db.VarChar(200)
+  telefono  String?  @db.VarChar(30)
+  email     String?  @db.VarChar(200)
+  direccion String?  @db.VarChar(300)
+  notas     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  compras FacturaCompra[]
+
+  @@map("proveedores")
+}
+
+model FacturaCompra {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  numeroFactura String?  @db.VarChar(100) @map("numero_factura")
+  proveedor     String?  @db.VarChar(200)
+  proveedorId   String?  @db.Uuid @map("proveedor_id")
+  notas         String?
+  pdfPath       String   @map("pdf_path")
+  totalUnidades Int      @default(0) @map("total_unidades")
+  total         Decimal? @db.Decimal(12, 2)
+  totalIva      Decimal? @db.Decimal(12, 2) @map("total_iva")
+  totalConIva   Decimal? @db.Decimal(12, 2) @map("total_con_iva")
+  creadoPor     String?  @db.Uuid @map("creado_por")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  proveedorRel Proveedor? @relation(fields: [proveedorId], references: [id])
+  items        FacturaCompraItem[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("facturas_compra")
+}
+
+model FacturaCompraItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facturaId      String   @db.Uuid @map("factura_id")
+  productoId     String   @db.Uuid @map("producto_id")
+  nombreProducto String   @db.VarChar(200) @map("nombre_producto")
+  cantidad       Int
+  costoUnitario  Decimal? @db.Decimal(10, 4) @map("costo_unitario")
+  ivaPct         Decimal? @db.Decimal(4, 2) @map("iva_pct")
+
+  factura  FacturaCompra @relation(fields: [facturaId], references: [id])
+  producto Producto      @relation(fields: [productoId], references: [id])
+
+  @@index([facturaId])
+  @@map("factura_compra_items")
 }
 
 model TransaccionPago {
