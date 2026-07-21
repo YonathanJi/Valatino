@@ -19,7 +19,13 @@
   - **Fix crítico de arranque**: `nest build` dejaba el compilado en `packages/config/tsconfig/dist` (el `outDir` estaba en el tsconfig base → se resuelve relativo a ese archivo). Se fijó `outDir`/`rootDir` en `apps/api/tsconfig.json` → build correcto en `apps/api/dist/main.js`. En dev no se notaba (nest start en memoria).
   - **Fix build Render**: quitado `corepack enable` del buildCommand (Render trae pnpm y el FS es de solo lectura); build con `pnpm --filter` explícito (types → api).
   - Gestión del servicio hecha vía Render REST API (token de Jonathan). ⚠️ **Jonathan debe regenerar ese API token de Render** (quedó expuesto en el chat).
-  - **PENDIENTE**: desplegar la web en Vercel (Root Directory `apps/web`, `NEXT_PUBLIC_API_URL=https://valatino.onrender.com` + resto de NEXT_PUBLIC_*), y añadir el dominio Vercel a Supabase Auth → Redirect URLs.
+  - **WEB DESPLEGADA Y PÚBLICA en Vercel** (2026-07-21): **https://valatino-api-steel.vercel.app** (HTTP 200, home renderiza los productos reales desde la API de Render). Proyecto Vercel `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` (team `yonathanji`).
+    - El proyecto estaba mal configurado: framework `nestjs` + rootDir `apps/api` (desplegaba la API → crash FUNCTION_INVOCATION_FAILED). Reconfigurado a **framework `nextjs` + rootDir `apps/web`**, buildCommand `pnpm --filter @valatino/types build && pnpm --filter @valatino/web build`.
+    - 5 variables `NEXT_PUBLIC_*` recreadas con valores correctos (clave: `NEXT_PUBLIC_API_URL=https://valatino.onrender.com`; antes estaba mal).
+    - Desactivada la Deployment Protection (ssoProtection) para que la tienda sea pública.
+    - Gestión vía Vercel REST API (token `vcp_...` de Jonathan). ⚠️ **Regenerar también ese token de Vercel** (expuesto en el chat), además del de Render.
+    - Nombre del proyecto sigue siendo "valatino-api" (cosmético; despliega la web). CORS de la API ya permite `*.vercel.app`.
+    - **PENDIENTE login**: añadir `https://valatino-api-steel.vercel.app` a Supabase → Auth → URL Configuration (Site URL / Redirect URLs `/auth/callback`) para que funcione el login de clientes (OTP) y `/admin`.
 
 ---
 
