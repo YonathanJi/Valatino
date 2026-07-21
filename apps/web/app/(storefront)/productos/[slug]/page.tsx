@@ -9,22 +9,30 @@ import { formatEUR } from "@lib/utils";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 async function getProducto(slug: string): Promise<Producto | null> {
-  const res = await fetch(`${API_URL}/productos/slug/${slug}`, {
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) return null;
-  return res.json() as Promise<Producto>;
+  try {
+    const res = await fetch(`${API_URL}/productos/slug/${slug}`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as Producto;
+  } catch {
+    return null;
+  }
 }
 
 /** Variantes de sabor del producto (para el selector de la ficha) */
 async function getHermanos(producto: Producto): Promise<Producto[]> {
   if (!partirNombrePorSabor(producto.nombre)) return [];
-  const res = await fetch(`${API_URL}/productos?limit=100`, {
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) return [];
-  const json = (await res.json()) as { data: Producto[] };
-  return hermanosDeSabor(producto, json.data ?? []);
+  try {
+    const res = await fetch(`${API_URL}/productos?limit=100`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data: Producto[] };
+    return hermanosDeSabor(producto, json.data ?? []);
+  } catch {
+    return [];
+  }
 }
 
 interface Props {

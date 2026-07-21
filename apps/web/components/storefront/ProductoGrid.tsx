@@ -6,13 +6,18 @@ import { agruparPorSabor } from "@lib/productos/sabores";
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 async function getProductos(): Promise<Producto[]> {
-  const res = await fetch(`${API_URL}/productos?limit=50`, {
-    next: { revalidate: 60 },
-  });
-
-  if (!res.ok) return [];
-  const json = (await res.json()) as { data: Producto[] };
-  return json.data;
+  try {
+    const res = await fetch(`${API_URL}/productos?limit=50`, {
+      next: { revalidate: 60 },
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data: Producto[] };
+    return json.data;
+  } catch {
+    // API inalcanzable (dormida, red, URL mal configurada): la home no debe
+    // caerse — se muestra el catálogo vacío en su lugar.
+    return [];
+  }
 }
 
 export async function ProductoGrid() {
