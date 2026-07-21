@@ -13,6 +13,7 @@ import { InventarioModule } from "./inventario/inventario.module";
 import { EmailModule } from "./email/email.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { ComprasModule } from "./compras/compras.module";
+import { HealthController } from "./health.controller";
 import { SessionMiddleware } from "./carrito/session.middleware";
 
 @Module({
@@ -31,6 +32,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
     DashboardModule,
     ComprasModule,
   ],
+  controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule implements NestModule {

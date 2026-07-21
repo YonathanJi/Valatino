@@ -4,6 +4,20 @@
 
 ---
 
+## Sesión 2026-07-21 — Preparación de despliegue (Vercel web + Render API)
+
+- **Fix build Vercel** (commit 10a70d3): la API fallaba en Vercel (TS2339 `Response.ok/json`) porque el `lib` era solo ES2022; añadido `DOM` al lib de `packages/config/tsconfig/nestjs.json` (fetch/Response estables en cualquier entorno; Node 20 trae fetch global).
+- **Arquitectura de despliegue**: web (`apps/web`) → **Vercel**; API (`apps/api`) → **Render**. Se conectan por `NEXT_PUBLIC_API_URL` (web → URL pública de Render). Vercel NO debe compilar la API: Root Directory = `apps/web`.
+- **API lista para Render**:
+  - **PayPal opcional** (`paypal.service.ts`): `config.get` en vez de `getOrThrow` — la API arranca sin credenciales de PayPal (Jonathan no las tiene); sus endpoints devuelven 503 y Stripe sigue OK. `get configurado`.
+  - **`main.ts`**: `CORS_ORIGIN` admite lista separada por comas + se permiten `*.vercel.app` (preview URLs) vía callback; `app.listen(port, "0.0.0.0")` (obligatorio en Render).
+  - **`HealthController`** `GET /health` → `{status:"ok"}` (health check de Render).
+  - **`render.yaml`** (Blueprint): build `pnpm install --prod=false && turbo run build --filter=@valatino/api`, start `node apps/api/dist/main.js`, healthCheckPath `/health`, env vars secretas como `sync:false`.
+  - **`DEPLOY.md`**: guía paso a paso (Render primero → Vercel → conectar CORS/Supabase/webhooks).
+- Verificado: `turbo build --filter=@valatino/api` OK (types+api) · `GET /health` responde 200 en local.
+
+---
+
 ## Sesión 2026-07-18 — Submódulo de facturas de compra (entrada de mercancía documentada)
 
 Petición: submódulo del backoffice para subir la factura del proveedor en PDF, registrar su contenido (producto + cantidad), que al enviar el inventario sume esas unidades, y poder consultar el histórico factura a factura.

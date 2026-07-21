@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import {
+  Injectable,
+  BadRequestException,
+  ServiceUnavailableException,
+  Logger,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 
 export interface PaypalOrderResult {
@@ -7,21 +12,38 @@ export interface PaypalOrderResult {
 
 @Injectable()
 export class PaypalService {
-  private readonly clientId: string;
-  private readonly clientSecret: string;
+  private readonly logger = new Logger(PaypalService.name);
+  // Credenciales opcionales: si faltan, la API arranca igual y solo los
+  // endpoints de PayPal responden 503. Stripe sigue funcionando.
+  private readonly clientId: string | undefined;
+  private readonly clientSecret: string | undefined;
   private readonly baseUrl: string;
 
   constructor(private readonly config: ConfigService) {
-    this.clientId = config.getOrThrow("PAYPAL_CLIENT_ID");
-    this.clientSecret = config.getOrThrow("PAYPAL_CLIENT_SECRET");
+    this.clientId = config.get("PAYPAL_CLIENT_ID");
+    this.clientSecret = config.get("PAYPAL_CLIENT_SECRET");
     const env = config.get("PAYPAL_ENVIRONMENT") ?? "sandbox";
     this.baseUrl =
       env === "production"
         ? "https://api-m.paypal.com"
         : "https://api-m.sandbox.paypal.com";
+
+    if (!this.clientId || !this.clientSecret) {
+      this.logger.warn(
+        "PayPal no está configurado (faltan PAYPAL_CLIENT_ID/PAYPAL_CLIENT_SECRET); sus endpoints devolverán 503.",
+      );
+    }
+  }
+
+  /** Está PayPal disponible (credenciales presentes) */
+  get configurado(): boolean {
+    return Boolean(this.clientId && this.clientSecret);
   }
 
   private async getAccessToken(): Promise<string> {
+    if (!this.clientId || !this.clientSecret) {
+      throw new ServiceUnavailableException("PayPal no está configurado en este entorno");
+    }
     const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
     const res = await fetch(`${this.baseUrl}/v1/oauth2/token`, {
       method: "POST",

@@ -1,0 +1,57 @@
+# Render Blueprint — despliegue de la API NestJS (apps/api).
+# La web (apps/web) se despliega aparte en Vercel.
+# Deploy: Render → New → Blueprint → selecciona este repo.
+# Las variables marcadas sync:false se rellenan en el dashboard (son secretas).
+
+services:
+  - type: web
+    name: valatino-api
+    runtime: node
+    plan: free
+    branch: main
+    # --prod=false garantiza que se instalen las devDependencies (nest cli, tsc)
+    # necesarias para compilar; turbo compila también @valatino/types (dependencia).
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm turbo run build --filter=@valatino/api
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      # Origen(es) permitidos para CORS: la URL de tu web en Vercel.
+      # Admite varias separadas por comas. Los *.vercel.app se permiten solos.
+      - key: CORS_ORIGIN
+        sync: false
+      # --- Supabase ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # --- Stripe ---
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # --- Email (SendGrid SMTP) ---
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # --- PayPal (opcional; sin estas la API arranca igual y PayPal da 503) ---
+      # - key: PAYPAL_CLIENT_ID
+      #   sync: false
+      # - key: PAYPAL_CLIENT_SECRET
+      #   sync: false
+      # - key: PAYPAL_WEBHOOK_ID
+      #   sync: false
+      # - key: PAYPAL_ENVIRONMENT
+      #   value: sandbox
