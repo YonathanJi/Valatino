@@ -10,7 +10,9 @@
     "target": "ES2021",
     "outDir": "dist",
     "noEmit": false,
-    "noUncheckedIndexedAccess": false
+    "noUncheckedIndexedAccess": false,
+    "//lib": "DOM aporta los tipos de fetch/Response (ok/json) de forma estable en cualquier entorno; en Node 20 el runtime ya trae fetch global",
+    "lib": ["ES2021", "DOM"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
