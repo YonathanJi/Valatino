@@ -25,7 +25,12 @@
     - Desactivada la Deployment Protection (ssoProtection) para que la tienda sea pública.
     - Gestión vía Vercel REST API (token `vcp_...` de Jonathan). ⚠️ **Regenerar también ese token de Vercel** (expuesto en el chat), además del de Render.
     - Nombre del proyecto sigue siendo "valatino-api" (cosmético; despliega la web). CORS de la API ya permite `*.vercel.app`.
-    - **PENDIENTE login**: añadir `https://valatino-api-steel.vercel.app` a Supabase → Auth → URL Configuration (Site URL / Redirect URLs `/auth/callback`) para que funcione el login de clientes (OTP) y `/admin`.
+    - **Login configurado en Supabase** (vía Management API `config/auth`): `site_url=https://valatino-api-steel.vercel.app`, `uri_allow_list=http://localhost:3000/**,https://valatino-api-steel.vercel.app/**` (dev local conservado). Templates OTP intactos. Login de clientes (OTP) y `/admin` operativos en la web en vivo.
+
+### 🟢 STACK COMPLETO EN PRODUCCIÓN (2026-07-21)
+
+- **Web**: https://valatino-api-steel.vercel.app (Vercel) · **API**: https://valatino.onrender.com (Render) · **BD/Auth/Storage**: Supabase. Todo con claves de **test**. Auto-deploy en cada push a `main`.
+- ⚠️ **Pendiente de Jonathan**: regenerar los tokens expuestos en el chat — Render (`rnd_...`), Vercel (`vcp_...`). Y cuando pase a producción real: dominio propio, claves Stripe `live`, webhook de Stripe → `https://valatino.onrender.com/pagos/stripe/webhook`.
 
 ---
 
