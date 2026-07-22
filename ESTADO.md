@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-21
+**Última actualización**: 2026-07-22
 
 ---
 
@@ -11,17 +11,45 @@
 - **En línea**: tienda **https://valatino-api-steel.vercel.app** (Vercel) · API **https://valatino.onrender.com** (Render) · Supabase (BD/Auth/Storage). Auto-deploy en cada push a `main`. Render free duerme tras ~15 min (1ª carga lenta al despertar, normal).
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
+- **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
 - **Aplicar migraciones al remoto**: por Management API (script en scratchpad de la sesión / patrón `apply-migration.ps1`), NO `supabase db push`. Última aplicada: **029** (IVA en compras). Migraciones 024–029 nuevas esta racha.
-- **Tokens de despliegue**: la gestión de Render y Vercel se hizo por sus APIs REST. Si hace falta re-tocar, se necesita un token nuevo de cada uno (los usados quedaron expuestos y deben regenerarse — ver abajo).
+- **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
-1. **Regenerar el token de Render** (`rnd_...`) — Account Settings → API Keys.
-2. **Regenerar el token de Vercel** (`vcp_...`) — Account Settings → Tokens.
-3. Producción real (futuro): dominio propio, claves Stripe `live`, webhook Stripe → `https://valatino.onrender.com/pagos/stripe/webhook`, y actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
+1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
+2. **Paso a producción real** (ver "Plan de producción" en la sesión 2026-07-22): API en región **EU (Frankfurt) + plan de pago** (quita el "dormir" y el cruce transatlántico Render-Oregon ↔ Supabase-Irlanda), dominio propio, claves **Stripe `live`** + recrear el webhook con el nuevo signing secret, actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad.
+
+---
+
+## Sesión 2026-07-22 — Arreglo del checkout en producción (carrito, webhook Stripe, email) + diagnóstico de rendimiento
+
+**Contexto**: primera prueba real del checkout en línea. Salieron 3 fallos encadenados; los 3 arreglados y desplegados. Tokens de Render/Vercel reutilizados (Jonathan no los regeneró, seguimos en test).
+
+### ✅ Carrito no funcionaba en línea (cookie cross-domain) — arreglado
+- **Causa**: web (Vercel) y API (Render) en dominios distintos → la cookie de sesión del carrito es *cross-site*. Salía con `SameSite=Lax`, que el navegador NO envía en fetch/XHR cross-site → cada petición abría sesión nueva → carrito siempre vacío. En `localhost` no se veía (mismo host).
+- **Fix 1** (`carrito/session.middleware.ts`): sobre HTTPS la cookie se emite `SameSite=None; Secure` (detectado por `X-Forwarded-Proto`, NO por `NODE_ENV` — la instancia de Render no tenía NODE_ENV=production fiable). En local (http) sigue `lax`.
+- **Fix 2 — proxy same-origin** (imprescindible para **iPhone/Safari**, que bloquea cookies de terceros): `next.config.mjs` reescribe `/api/*` → API de Render; `lib/api/client.ts` (`apiFetch`) llama a `/api` (mismo origen de la web) → la cookie pasa a ser de **primera parte**. Los server components y el polling público siguen usando la URL absoluta (no dependen de la cookie). Verificado E2E local: el proxy relaya `Set-Cookie` y el carrito persiste.
+
+### ✅ "Se queda generando el número de pedido" + no llega email — causa raíz doble
+- **Faltaba el webhook de Stripe**: el pedido (y el vaciado del carrito y el email) solo se crean cuando llega `payment_intent.succeeded` a `/pagos/stripe/webhook`. En producción **no había ningún webhook configurado en Stripe** → el pago se cobraba pero el pedido nunca se creaba. Hasta ahora los pedidos solo se creaban en local con `stripe listen`.
+  - **Fix**: webhook creado por API de Stripe (`we_1Tw2mHL...`) → `https://valatino.onrender.com/pagos/stripe/webhook`, eventos `payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`. Su signing secret puesto en Render como `STRIPE_WEBHOOK_SECRET` (el viejo era el de `stripe listen` local, no valía). Pedidos atascados recuperados con `stripe events resend <evt> --api-key <key> --webhook-endpoint <we_id>` (idempotencia OK: el reenvío duplicado se ignora con "ya procesado").
+- **Email del pedido no salía — Render estrangula la salida SMTP por 465/587**: `email_cliente`, plantilla y credenciales estaban bien; el envío se colgaba. Diagnóstico (endpoint temporal, ya eliminado): desde Render, `verify()` conecta por 465/587/2525, pero `sendMail()` **se cuelga en 465 y 587** (Connection timeout ~90s) y **entrega por el 2525** (`250 queued`, ~200 ms). El 2525 es el puerto alternativo de SendGrid justo para redes que estrangulan.
+  - **Fix**: `SMTP_PORT=2525` en Render (EmailService usa `secure: port===465` → 2525 = STARTTLS). Además timeouts en `EmailService` (`connectionTimeout`/`greetingTimeout`/`socketTimeout`) para que un envío colgado falle rápido y no bloquee el webhook ~2 min (eso causaba reintentos de Stripe → el warning "ya procesado").
+  - Nota de entrega: se envía desde `jonathanduqee@gmail.com` vía SendGrid → Gmail puede marcar spam a veces (falla DMARC de gmail.com). El OTP y emails simples llegan; al tener dominio propio, autenticarlo en SendGrid deja la entrega impecable.
+
+### ✅ Carrito seguía mostrando el ítem tras pagar + "Iniciar sesión" a usuario ya logueado — arreglados
+- **Carrito obsoleto en el cliente**: el servidor SÍ vacía el carrito al crear el pedido; el `CarritoProvider` no se remonta al volver de Stripe y mostraba el ítem comprado. Fix: `confirmacion/page.tsx` llama a `reload()` del carrito al confirmarse el pedido.
+- **Flujo de sesión**: la confirmación ofrecía "Iniciar sesión" aunque el cliente ya tuviera sesión. Fix: comprueba la sesión (Supabase browser client); logueado → botón "Ver mis pedidos" (`/cuenta/pedidos`); invitado → bloque de login. Se comprueba antes de renderizar (sin parpadeo).
+
+### 📊 Diagnóstico de rendimiento (revisión sin cambios, petición de Jonathan)
+- **La estructura es adecuada y escalable** (Next/Vercel + NestJS + Supabase). La lentitud es de *configuración de despliegue*, no de diseño.
+- **Causa nº1**: Render **plan free se duerme** (~15 min) → 1ª carga 30-60s. Un plan de pago lo elimina.
+- **Causa nº2 (no la arregla pagar)**: **desajuste de regiones** — Render en `oregon` (EE.UU.), Supabase en `eu-west-1` (Irlanda), clientes en España → cada consulta a BD cruza el Atlántico (~150 ms). La web ya cachea catálogo/fichas (`revalidate: 60`), así que esto se paga sobre todo en carrito/checkout/backoffice.
+- **Plan de producción recomendado (orden de impacto)**: 1) **API en EU (Frankfurt) + plan de pago Render** — ⚠️ Render no cambia la región de un servicio existente, hay que **recrearlo** en Frankfurt (mismo repo/blueprint, reconfigurar variables); 2) Supabase de pago cuando haya tráfico real; 3) Vercel Hobby basta por rendimiento (Pro es más por términos comerciales). El proxy del carrito añade un saltito de latencia, trivial cuando todo esté en EU.
 
 ---
 
