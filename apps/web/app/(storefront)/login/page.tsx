@@ -7,7 +7,7 @@ import { AuthForm } from "@components/storefront/AuthForms";
 function LoginContent() {
   const searchParams = useSearchParams();
   const defaultEmail = searchParams.get("email") ?? "";
-  const redirectTo = searchParams.get("redirectTo") ?? "/cuenta/pedidos";
+  const redirectTo = searchParams.get("redirectTo") ?? "/cuenta/perfil";
 
   return (
     <div className="w-full max-w-sm space-y-6">

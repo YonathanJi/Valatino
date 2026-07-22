@@ -14,7 +14,7 @@ type Step = "request" | "verify";
 
 export function AuthForm({
   defaultEmail = "",
-  redirectTo = "/cuenta/pedidos",
+  redirectTo = "/cuenta/perfil",
 }: {
   defaultEmail?: string;
   redirectTo?: string;
