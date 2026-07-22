@@ -21,7 +21,8 @@
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad.
+- **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
+- Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
 
 ---
 
@@ -50,6 +51,18 @@
 - **Causa nº1**: Render **plan free se duerme** (~15 min) → 1ª carga 30-60s. Un plan de pago lo elimina.
 - **Causa nº2 (no la arregla pagar)**: **desajuste de regiones** — Render en `oregon` (EE.UU.), Supabase en `eu-west-1` (Irlanda), clientes en España → cada consulta a BD cruza el Atlántico (~150 ms). La web ya cachea catálogo/fichas (`revalidate: 60`), así que esto se paga sobre todo en carrito/checkout/backoffice.
 - **Plan de producción recomendado (orden de impacto)**: 1) **API en EU (Frankfurt) + plan de pago Render** — ⚠️ Render no cambia la región de un servicio existente, hay que **recrearlo** en Frankfurt (mismo repo/blueprint, reconfigurar variables); 2) Supabase de pago cuando haya tráfico real; 3) Vercel Hobby basta por rendimiento (Pro es más por términos comerciales). El proxy del carrito añade un saltito de latencia, trivial cuando todo esté en EU.
+
+### ✅ Perfil de cliente enriquecido + UX de cuenta
+- `/cuenta/perfil` (solo email + direcciones antes) ahora tiene: **saludo con nombre** (de la dirección predeterminada o, si no hay, del `envio_nombre` del último pedido; si nada, "Hola 👋"), **resumen** (tarjetas Nº pedidos / Total gastado [estados pagados] / En curso), **último pedido** destacado y **accesos rápidos** (Seguir comprando · Mis pedidos · Contacto valatino@hotmail.com). Misma estética gris de cliente; datos ya existentes, sin cambios de backend.
+- Si el cliente no tiene dirección guardada, la sección Direcciones muestra la del **último pedido** (snapshot `envio_*`) con botón **"Guardar en mis direcciones"** (POST /direcciones). El cliente confirma (la dirección de un pedido puede ser puntual).
+- **Nav superior de /cuenta eliminado** (estaba duplicado con los accesos rápidos); en "Mis pedidos" se añadió **"← Volver a mi perfil"**.
+- **Login del cliente aterriza en `/cuenta/perfil`** por defecto (antes /cuenta/pedidos); redirects explícitos (checkout, "ver mis pedidos") intactos.
+- Toasts (Sonner) movidos a **abajo-derecha**, más pequeños y 2,5s (tapaban navbar/parte superior en móvil).
+
+### ✅ Limpieza de BD a "arranque real" (2026-07-22, confirmada por Jonathan)
+- Borrado vía REST service_role + GoTrue admin API: **7 pedidos** (+líneas +transacciones), **29 carritos** (+ítems), checkout_datos, reservas y direcciones guardadas → **todo a 0**. Eliminadas las **3 cuentas de cliente** de prueba (jonathanduqee@gmail.com, jonathanduqee@hotmail.com, jhoannamendoza46@gmail.com): auth + profiles + user_roles.
+- **Conservado**: 13 productos, primera factura (202521188), y usuarios **admin** (jonathanduqee+admin@gmail.com) y **asesor** (jhoannamendoza46@valatino.com).
+- **Inventario restaurado** a las cantidades de la primera factura (`stock_disponible` = cantidad de `factura_compra_items`, `reservado=0`): Bon Bon Bum 48 · Festival Chocolate 12 · Festival Limón 12 · Ducales Noe 2 · Queso Mantequilla 2 · Saltín Noel 3 · Milo 400G 2 · Nucita 36 · Pony Malta 24 · Sparkies 20 · Tostados la Gitana 3 · (Festival Fresa/Vainilla 0). Verificado end-to-end.
 
 ---
 
