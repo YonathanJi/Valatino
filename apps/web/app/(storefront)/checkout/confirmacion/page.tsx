@@ -6,6 +6,7 @@ import Link from "next/link";
 import { CheckCircle2, Clock3, XCircle, LogIn } from "lucide-react";
 import { Button } from "@components/ui/button";
 import { API_URL } from "@lib/api/client";
+import { useCarrito } from "@lib/hooks/useCarrito";
 
 type EstadoPago = "exitoso" | "procesando" | "fallido";
 
@@ -72,6 +73,14 @@ function ConfirmacionContent() {
 
   const estado = resolverEstado(redirectStatus);
   const numeroPedido = useNumeroPedido(referencia, estado === "exitoso");
+  const { reload: recargarCarrito } = useCarrito();
+
+  // Al confirmarse el pedido, el servidor ya vació el carrito; refrescamos el
+  // estado del cliente para que no siga mostrando los artículos comprados
+  // (la navegación desde el checkout no remonta el CarritoProvider).
+  useEffect(() => {
+    if (estado === "exitoso" && numeroPedido) void recargarCarrito();
+  }, [estado, numeroPedido, recargarCarrito]);
 
   if (estado === "fallido") {
     return (
