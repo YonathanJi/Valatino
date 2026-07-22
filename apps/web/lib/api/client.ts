@@ -2,7 +2,15 @@
 
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 
+// URL absoluta de la API — para fetches SIN cookie desde server components o
+// polling público (no dependen de la sesión del carrito).
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+// Base para las llamadas del NAVEGADOR que llevan la cookie de sesión: mismo
+// origen que la web (proxy /api de next.config.mjs) → la cookie es de primera
+// parte y funciona en Safari/iOS. Un fetch directo a Render la haría de
+// terceros y el carrito se perdería en iPhone.
+const BROWSER_API_BASE = "/api";
 
 export class ApiError extends Error {
   constructor(
@@ -36,7 +44,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     headers.set("Authorization", `Bearer ${session.access_token}`);
   }
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${BROWSER_API_BASE}${path}`, {
     ...options,
     headers,
     credentials: "include",
