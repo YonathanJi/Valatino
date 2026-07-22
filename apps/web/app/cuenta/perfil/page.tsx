@@ -165,13 +165,18 @@ export default function PerfilPage() {
   const clienteDesde = user?.created_at
     ? new Date(user.created_at).toLocaleDateString("es-ES", { month: "long", year: "numeric" })
     : null;
+  // No guardamos nombre de perfil; se toma de la dirección predeterminada (o la
+  // primera). Si aún no hay direcciones, se saluda de forma genérica.
+  const nombre =
+    direcciones.find((d) => d.es_predeterminada)?.nombre_destinatario ??
+    direcciones[0]?.nombre_destinatario ??
+    null;
 
   return (
     <main className="space-y-8">
       {/* Saludo */}
       <section className="space-y-1">
-        <h1 className="text-2xl font-bold">Hola 👋</h1>
-        <p className="text-muted-foreground">{user?.email}</p>
+        <h1 className="text-2xl font-bold">{nombre ? `Hola, ${nombre} 👋` : "Hola 👋"}</h1>
         {clienteDesde && (
           <p className="text-sm text-muted-foreground">Cliente desde {clienteDesde}</p>
         )}

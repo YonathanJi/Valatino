@@ -67,6 +67,12 @@ export default function MisPedidosPage() {
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-12">
+      <Link
+        href="/cuenta/perfil"
+        className="inline-block text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+      >
+        ← Volver a mi perfil
+      </Link>
       <h1 className="text-3xl font-bold mb-8">Mis pedidos</h1>
 
       {pedidos.length === 0 ? (
