@@ -7,6 +7,7 @@ import { CheckCircle2, Clock3, XCircle, LogIn } from "lucide-react";
 import { Button } from "@components/ui/button";
 import { API_URL } from "@lib/api/client";
 import { useCarrito } from "@lib/hooks/useCarrito";
+import { createSupabaseBrowserClient } from "@lib/supabase/client";
 
 type EstadoPago = "exitoso" | "procesando" | "fallido";
 
@@ -74,6 +75,7 @@ function ConfirmacionContent() {
   const estado = resolverEstado(redirectStatus);
   const numeroPedido = useNumeroPedido(referencia, estado === "exitoso");
   const { reload: recargarCarrito } = useCarrito();
+  const [sesionIniciada, setSesionIniciada] = useState<boolean | null>(null);
 
   // Al confirmarse el pedido, el servidor ya vació el carrito; refrescamos el
   // estado del cliente para que no siga mostrando los artículos comprados
@@ -81,6 +83,16 @@ function ConfirmacionContent() {
   useEffect(() => {
     if (estado === "exitoso" && numeroPedido) void recargarCarrito();
   }, [estado, numeroPedido, recargarCarrito]);
+
+  // Si el cliente ya tiene sesión, no tiene sentido ofrecerle "Iniciar sesión":
+  // se le enlaza directamente a sus pedidos.
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient();
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSesionIniciada(Boolean(data.session)))
+      .catch(() => setSesionIniciada(false));
+  }, []);
 
   if (estado === "fallido") {
     return (
@@ -153,23 +165,33 @@ function ConfirmacionContent() {
         )
       )}
 
-      {email && (
+      {sesionIniciada ? (
         <div className="rounded-xl border bg-card p-6 space-y-4">
-          <p className="text-sm font-medium">
-            ¿Quieres hacer seguimiento a tu pedido?
-          </p>
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Inicia sesión con tu correo. Si no tienes cuenta, se creará automáticamente.
-            </p>
-            <Button asChild className="w-full">
-              <Link href={`/login?email=${encodeURIComponent(email)}&redirectTo=/cuenta/pedidos`}>
-                <LogIn className="h-4 w-4 mr-2" />
-                Iniciar sesión
-              </Link>
-            </Button>
-          </div>
+          <p className="text-sm font-medium">Sigue tu pedido desde tu cuenta</p>
+          <Button asChild className="w-full">
+            <Link href="/cuenta/pedidos">Ver mis pedidos</Link>
+          </Button>
         </div>
+      ) : (
+        sesionIniciada === false &&
+        email && (
+          <div className="rounded-xl border bg-card p-6 space-y-4">
+            <p className="text-sm font-medium">
+              ¿Quieres hacer seguimiento a tu pedido?
+            </p>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Inicia sesión con tu correo. Si no tienes cuenta, se creará automáticamente.
+              </p>
+              <Button asChild className="w-full">
+                <Link href={`/login?email=${encodeURIComponent(email)}&redirectTo=/cuenta/pedidos`}>
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Iniciar sesión
+                </Link>
+              </Button>
+            </div>
+          </div>
+        )
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
