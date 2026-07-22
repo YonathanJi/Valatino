@@ -165,12 +165,42 @@ export default function PerfilPage() {
   const clienteDesde = user?.created_at
     ? new Date(user.created_at).toLocaleDateString("es-ES", { month: "long", year: "numeric" })
     : null;
-  // No guardamos nombre de perfil; se toma de la dirección predeterminada (o la
-  // primera). Si aún no hay direcciones, se saluda de forma genérica.
+  // No guardamos nombre de perfil: se toma de la dirección predeterminada (o
+  // la primera) y, si aún no hay direcciones guardadas, de lo que el cliente
+  // escribió en su último pedido. Si nada de eso existe, saludo genérico.
   const nombre =
     direcciones.find((d) => d.es_predeterminada)?.nombre_destinatario ??
     direcciones[0]?.nombre_destinatario ??
+    ultimoPedido?.envio_nombre ??
     null;
+
+  // Dirección que el cliente puso en su último pedido (snapshot), por si aún no
+  // la tiene guardada: se muestra y se puede guardar con un clic.
+  const dirUltimoPedido =
+    ultimoPedido?.envio_nombre && ultimoPedido?.envio_linea1
+      ? {
+          nombre_destinatario: ultimoPedido.envio_nombre,
+          linea1: ultimoPedido.envio_linea1,
+          linea2: ultimoPedido.envio_linea2 ?? "",
+          ciudad: ultimoPedido.envio_ciudad ?? "",
+          codigo_postal: ultimoPedido.envio_codigo_postal ?? "",
+          provincia: ultimoPedido.envio_provincia ?? "",
+        }
+      : null;
+
+  const guardarDireccionPedido = async () => {
+    if (!dirUltimoPedido) return;
+    try {
+      await apiFetch("/direcciones", {
+        method: "POST",
+        body: JSON.stringify({ ...dirUltimoPedido, linea2: dirUltimoPedido.linea2 || undefined }),
+      });
+      toast.success("Dirección guardada en tu perfil");
+      void loadDirecciones();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo guardar la dirección");
+    }
+  };
 
   return (
     <main className="space-y-8">
@@ -348,9 +378,33 @@ export default function PerfilPage() {
         )}
 
         {direcciones.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No tienes direcciones guardadas todavía.
-          </p>
+          dirUltimoPedido && !showForm ? (
+            <div className="rounded-xl border bg-card p-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Esta es la dirección de tu último pedido. Guárdala para usarla más rápido la próxima vez.
+              </p>
+              <div className="space-y-1">
+                <p className="font-medium">{dirUltimoPedido.nombre_destinatario}</p>
+                <p className="text-sm text-muted-foreground">
+                  {dirUltimoPedido.linea1}
+                  {dirUltimoPedido.linea2 ? `, ${dirUltimoPedido.linea2}` : ""}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {dirUltimoPedido.codigo_postal} {dirUltimoPedido.ciudad}
+                  {dirUltimoPedido.provincia ? `, ${dirUltimoPedido.provincia}` : ""}
+                </p>
+              </div>
+              <Button size="sm" onClick={() => void guardarDireccionPedido()}>
+                Guardar en mis direcciones
+              </Button>
+            </div>
+          ) : (
+            !showForm && (
+              <p className="text-sm text-muted-foreground">
+                No tienes direcciones guardadas todavía.
+              </p>
+            )
+          )
         ) : (
           <div className="space-y-3">
             {direcciones.map((d) => (
