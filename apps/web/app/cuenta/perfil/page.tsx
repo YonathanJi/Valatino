@@ -2,12 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
+import { formatEUR } from "@lib/utils";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
+import type { Pedido, PaginatedResponse } from "@valatino/types";
+
+// Escala de grises coherente con la lista de pedidos: el estado se distingue
+// por intensidad, no por tono.
+const ESTADO_LABELS: Record<string, string> = {
+  PENDIENTE_PAGO: "Pendiente de pago",
+  PROCESANDO: "Procesando",
+  ENVIADO: "Enviado",
+  ENTREGADO: "Entregado",
+  CANCELADO: "Cancelado",
+};
+const ESTADO_COLORS: Record<string, string> = {
+  PENDIENTE_PAGO: "bg-neutral-100 text-neutral-500",
+  PROCESANDO: "bg-neutral-200 text-neutral-700",
+  ENVIADO: "bg-neutral-300 text-neutral-800",
+  ENTREGADO: "bg-neutral-900 text-neutral-50",
+  CANCELADO: "bg-neutral-100 text-neutral-400",
+};
+const ESTADOS_PAGADOS = ["PROCESANDO", "ENVIADO", "ENTREGADO"];
+const ESTADOS_EN_CURSO = ["PROCESANDO", "ENVIADO"];
 
 interface Direccion {
   id: string;
@@ -32,8 +54,9 @@ const emptyDireccion = (): Omit<Direccion, "id" | "es_predeterminada"> => ({
 export default function PerfilPage() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
-  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [user, setUser] = useState<{ email?: string; created_at?: string } | null>(null);
   const [direcciones, setDirecciones] = useState<Direccion[]>([]);
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,6 +82,12 @@ export default function PerfilPage() {
       // Solo clientes llegan aquí: el layout de /cuenta redirige al staff
       // a /backoffice/perfil (áreas separadas).
       await loadDirecciones();
+      try {
+        const json = await apiFetch<PaginatedResponse<Pedido>>("/pedidos?limit=50");
+        setPedidos(json.data ?? []);
+      } catch {
+        // sin pedidos o API inalcanzable: el resumen se muestra a cero
+      }
       setIsLoading(false);
     };
     void init();
@@ -124,14 +153,96 @@ export default function PerfilPage() {
     );
   }
 
+  const numPedidos = pedidos.length;
+  const totalGastado = pedidos
+    .filter((p) => ESTADOS_PAGADOS.includes(p.estado))
+    .reduce((s, p) => s + Number(p.total), 0);
+  const enCurso = pedidos.filter((p) => ESTADOS_EN_CURSO.includes(p.estado)).length;
+  const ultimoPedido =
+    [...pedidos].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0] ?? null;
+  const clienteDesde = user?.created_at
+    ? new Date(user.created_at).toLocaleDateString("es-ES", { month: "long", year: "numeric" })
+    : null;
+
   return (
     <main className="space-y-8">
-      <section>
-        <h1 className="text-2xl font-bold mb-4">Mi perfil</h1>
-        <div className="rounded-xl border bg-card p-5 space-y-2">
-          <p className="text-sm text-muted-foreground">Correo electrónico</p>
-          <p className="font-medium">{user?.email}</p>
+      {/* Saludo */}
+      <section className="space-y-1">
+        <h1 className="text-2xl font-bold">Hola 👋</h1>
+        <p className="text-muted-foreground">{user?.email}</p>
+        {clienteDesde && (
+          <p className="text-sm text-muted-foreground">Cliente desde {clienteDesde}</p>
+        )}
+      </section>
+
+      {/* Resumen */}
+      <section className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Pedidos</p>
+          <p className="text-2xl font-bold tabular-nums">{numPedidos}</p>
         </div>
+        <div className="rounded-xl border bg-card p-4">
+          <p className="text-xs text-muted-foreground">Total gastado</p>
+          <p className="text-2xl font-bold tabular-nums">{formatEUR(totalGastado)}</p>
+        </div>
+        <div className="rounded-xl border bg-card p-4 col-span-2 sm:col-span-1">
+          <p className="text-xs text-muted-foreground">En curso</p>
+          <p className="text-2xl font-bold tabular-nums">{enCurso}</p>
+        </div>
+      </section>
+
+      {/* Último pedido */}
+      {ultimoPedido && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Último pedido</h2>
+          <Link
+            href="/cuenta/pedidos"
+            className="block rounded-xl border bg-card p-4 hover:bg-muted transition-colors"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-xs font-mono text-muted-foreground">
+                #{ultimoPedido.numero_pedido ?? ultimoPedido.id.slice(0, 8).toUpperCase()}
+              </p>
+              <span
+                className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                  ESTADO_COLORS[ultimoPedido.estado] ?? "bg-muted text-muted-foreground"
+                }`}
+              >
+                {ESTADO_LABELS[ultimoPedido.estado] ?? ultimoPedido.estado}
+              </span>
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <p className="font-bold">{formatEUR(Number(ultimoPedido.total))}</p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(ultimoPedido.created_at).toLocaleDateString("es-ES")}
+              </p>
+            </div>
+          </Link>
+        </section>
+      )}
+
+      {/* Accesos rápidos */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Link
+          href="/"
+          className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          🛍️ Seguir comprando
+        </Link>
+        <Link
+          href="/cuenta/pedidos"
+          className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          📦 Mis pedidos
+        </Link>
+        <a
+          href="mailto:valatino@hotmail.com"
+          className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          ✉️ Contacto
+        </a>
       </section>
 
       <section>
