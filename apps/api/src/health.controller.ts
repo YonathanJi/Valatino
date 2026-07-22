@@ -21,29 +21,46 @@ export class HealthController {
     const host = process.env.SMTP_HOST ?? "";
     const user = process.env.SMTP_USER ?? "";
     const pass = process.env.SMTP_PASS ?? "";
-    const port = Number(process.env.SMTP_PORT ?? 465);
     const from = process.env.EMAIL_FROM ?? "";
     const configurado = Boolean(host && user && pass);
 
-    // Envío REAL desde Render con la misma config que EmailService, para
-    // reproducir exactamente el email de pedido. ?send=correo@dominio
-    let envio: unknown = "omitido (usa ?send=correo@dominio)";
+    // Envío REAL desde Render por cada puerto, con timeouts cortos para no
+    // colgarse, y ver cuál ENTREGA de verdad (verify conecta pero el envío
+    // puede estrangularse). ?send=correo@dominio
+    let envios: unknown = "omitido (usa ?send=correo@dominio)";
     if (send) {
-      const inicio = Date.now();
-      try {
-        const t = createTransport({ host, port, secure: port === 465, auth: { user, pass } });
-        const info = await t.sendMail({
-          from,
-          to: send,
-          subject: `Prueba envío desde Render ${new Date().toISOString()}`,
-          html: "<p>Prueba de envío del email de pedido <strong>desde Render</strong> (mismo camino que EmailService). Si llega, el envío en producción funciona.</p>",
-        });
-        envio = { ok: true, ms: Date.now() - inicio, port, from, response: info.response, accepted: info.accepted, rejected: info.rejected };
-      } catch (e) {
-        envio = { ok: false, ms: Date.now() - inicio, port, from, error: (e as Error).message };
-      }
+      const puertos: Array<{ port: number; secure: boolean }> = [
+        { port: 465, secure: true },
+        { port: 587, secure: false },
+        { port: 2525, secure: false },
+      ];
+      envios = await Promise.all(
+        puertos.map(async ({ port, secure }) => {
+          const inicio = Date.now();
+          try {
+            const t = createTransport({
+              host,
+              port,
+              secure,
+              auth: { user, pass },
+              connectionTimeout: 10000,
+              greetingTimeout: 10000,
+              socketTimeout: 20000,
+            });
+            const info = await t.sendMail({
+              from,
+              to: send,
+              subject: `Prueba Render puerto ${port} — ${new Date().toISOString()}`,
+              html: `<p>Prueba de envío <strong>desde Render por el puerto ${port}</strong>. Si llega, ese puerto entrega en producción.</p>`,
+            });
+            return { port, secure, ok: true, ms: Date.now() - inicio, response: info.response, accepted: info.accepted };
+          } catch (e) {
+            return { port, secure, ok: false, ms: Date.now() - inicio, error: (e as Error).message };
+          }
+        }),
+      );
     }
 
-    return { host, user, port, from, configurado, envio };
+    return { host, user, from, configurado, envios };
   }
 }
