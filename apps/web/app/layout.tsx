@@ -21,7 +21,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* El shell de tienda (navbar + carrito) vive en los layouts de
             (storefront) y /cuenta — las áreas internas no lo cargan */}
         {children}
-        <Toaster position="top-right" richColors />
+        {/* Abajo a la derecha para no tapar la navbar (perfil/carrito) ni la
+            franja superior en móvil. Compactos y de corta duración. */}
+        <Toaster
+          position="bottom-right"
+          richColors
+          duration={2500}
+          toastOptions={{
+            style: {
+              fontSize: "13px",
+              padding: "10px 12px",
+              minHeight: "auto",
+            },
+          }}
+        />
       </body>
     </html>
   );
