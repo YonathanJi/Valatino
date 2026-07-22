@@ -21,6 +21,12 @@ export class EmailService {
         port,
         secure: port === 465,
         auth: { user, pass },
+        // Fallar rápido si el proveedor estrangula la salida SMTP (Render free
+        // cuelga 465/587; usar 2525). Sin esto, un envío colgado bloquea el
+        // webhook ~2 min y provoca reintentos de Stripe.
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 20000,
       });
     } else {
       this.logger.warn(
