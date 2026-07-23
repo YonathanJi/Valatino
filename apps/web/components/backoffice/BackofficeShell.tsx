@@ -31,55 +31,57 @@ export function BackofficeShell({
     setOpen(false);
   }, [pathname]);
 
-  const linkCls =
-    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-muted transition-colors";
+  const darkLink =
+    "flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-white/5 hover:text-white";
 
   const contenidoSidebar = (
-    <div className="flex h-full flex-col">
-      <div className="px-4 py-5 border-b">
-        <p className="font-bold text-primary">Valatino</p>
-        <p className="text-xs text-muted-foreground">Back-Office</p>
+    <div className="flex h-full flex-col bg-zinc-950 text-zinc-100">
+      <div className="border-b border-white/10 px-5 py-5">
+        <p className="text-lg font-bold tracking-tight text-white">Valatino</p>
+        <p className="mt-0.5 text-[11px] uppercase tracking-[0.22em] text-zinc-500">
+          Back-Office
+        </p>
       </div>
-      <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         <SidebarNav items={items} />
         {isAdmin && (
-          <Link href="/backoffice/usuarios" className={linkCls}>
+          <Link href="/backoffice/usuarios" className={darkLink}>
             👥 Usuarios
           </Link>
         )}
         {showNoModulos && (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
+          <p className="px-3 py-2 text-xs text-zinc-500">
             No tienes módulos asignados. Contacta con un administrador.
           </p>
         )}
       </nav>
-      <div className="p-3 border-t space-y-1">
-        <Link href="/backoffice/perfil" className={linkCls}>
+      <div className="space-y-1 border-t border-white/10 p-3">
+        <Link href="/backoffice/perfil" className={darkLink}>
           👤 Mi perfil
         </Link>
         <LogoutButton />
-        <p className="text-xs text-muted-foreground px-3 truncate">{email}</p>
-        <p className="text-xs font-medium text-primary px-3 capitalize">{role}</p>
+        <div className="px-3 pt-1.5">
+          <p className="truncate text-xs text-zinc-400">{email}</p>
+          <p className="text-[11px] font-medium capitalize text-orange-400">{role}</p>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="flex min-h-screen">
+    <div className="theme-admin flex min-h-screen bg-background">
       {/* Sidebar fijo (escritorio) */}
-      <aside className="hidden md:flex w-56 shrink-0 border-r bg-card flex-col">
-        {contenidoSidebar}
-      </aside>
+      <aside className="hidden w-60 shrink-0 flex-col md:flex">{contenidoSidebar}</aside>
 
       {/* Drawer deslizante (móvil) */}
       {open && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />
-          <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85%] flex-col border-r bg-card shadow-lg">
+          <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85%] flex-col shadow-2xl">
             {contenidoSidebar}
           </aside>
         </div>
@@ -93,15 +95,19 @@ export function BackofficeShell({
             type="button"
             onClick={() => setOpen(true)}
             aria-label="Abrir menú"
-            className="rounded-lg border px-2.5 py-1.5 text-lg leading-none hover:bg-muted"
+            className="rounded-lg border px-2.5 py-1.5 text-lg leading-none text-foreground hover:bg-muted"
           >
             ☰
           </button>
-          <span className="font-bold text-primary">Valatino</span>
+          <span className="font-bold text-foreground">Valatino</span>
           <span className="text-xs text-muted-foreground">Back-Office</span>
         </header>
 
-        <main className="flex-1 overflow-auto bg-background">{children}</main>
+        <main className="flex-1 overflow-auto">
+          <div key={pathname} className="animate-fade-in">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
   );

@@ -46,6 +46,14 @@
     --ring: 0 0% 9%;
   }
 
+  /* Back-office: lienzo gris muy suave para que las tarjetas blancas ganen
+     profundidad. El sidebar usa clases zinc explícitas (no estos tokens). */
+  .theme-admin {
+    --background: 210 20% 98%;
+    --muted: 214 32% 95%;
+    --border: 214 20% 90%;
+  }
+
   * {
     @apply border-border;
   }
@@ -53,5 +61,16 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  /* Profundidad sutil para todas las tarjetas del back-office sin tocar cada
+     página. :where() mantiene especificidad baja para que las utilidades
+     shadow-* de Tailwind (p. ej. shadow-lg de un modal) sigan ganando. */
+  .theme-admin :where(.bg-card) {
+    box-shadow:
+      0 1px 2px 0 rgb(16 24 40 / 0.04),
+      0 1px 3px 0 rgb(16 24 40 / 0.06);
   }
 }
