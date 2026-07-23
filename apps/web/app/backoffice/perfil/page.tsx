@@ -9,6 +9,7 @@ const MODULO_LABELS: Record<StaffModulo, string> = {
   inventario: "Inventario",
   dashboard: "Dashboard",
   compras: "Compras",
+  gestion_humana: "Gestión Humana",
 };
 
 // Perfil del empleado (server component). El layout del backoffice ya

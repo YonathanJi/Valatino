@@ -11,7 +11,13 @@
 export type UserRole = "admin" | "asesor" | "cliente";
 
 /** Módulos del backoffice asignables a asesores (admin tiene todos implícitamente) */
-export type StaffModulo = "pedidos" | "catalogo" | "inventario" | "dashboard" | "compras";
+export type StaffModulo =
+  | "pedidos"
+  | "catalogo"
+  | "inventario"
+  | "dashboard"
+  | "compras"
+  | "gestion_humana";
 
 export const STAFF_MODULOS: readonly StaffModulo[] = [
   "pedidos",
@@ -19,6 +25,7 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
   "inventario",
   "dashboard",
   "compras",
+  "gestion_humana",
 ];
 
 /** Categorías fijas del catálogo (selector del backoffice + validación API) */
@@ -287,4 +294,77 @@ export interface ReservaCheckout {
 export interface ReservaCheckoutResponse {
   reservas: ReservaCheckout[];
   expiresAt: string;
+}
+
+// ============================================================
+// Gestión Humana (RRHH)
+// ============================================================
+
+/** Tipos de contratación (contexto España). Deben coincidir con el CHECK de BD. */
+export const TIPOS_CONTRATACION = [
+  "Indefinido",
+  "Temporal",
+  "Prácticas",
+  "Formación en alternancia",
+  "Fijo discontinuo",
+  "Autónomo/Mercantil",
+] as const;
+
+export type TipoContratacion = (typeof TIPOS_CONTRATACION)[number];
+
+/** Cargo/rol de RRHH con identificador único (codigo). */
+export interface Cargo {
+  id: string;
+  codigo: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface Empleado {
+  id: string;
+  user_id: string;
+  nombre_completo: string;
+  documento: string;
+  telefono: string | null;
+  correo_personal: string | null;
+  correo_empresa: string;
+  cargo_id: string;
+  tipo_contratacion: TipoContratacion;
+  fecha_vinculacion: string;
+  fecha_desvinculacion: string | null;
+  salario: number | null;
+  activo: boolean;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Datos del cargo (join de conveniencia en listados/detalle). */
+  cargo_codigo?: string;
+  cargo_nombre?: string;
+}
+
+/** Snapshot mensual del estado de un empleado. */
+export interface EmpleadoHistorialMensual {
+  id: string;
+  empleado_id: string;
+  anio: number;
+  mes: number;
+  nombre_completo: string;
+  cargo_id: string | null;
+  cargo_codigo: string | null;
+  cargo_nombre: string | null;
+  tipo_contratacion: string | null;
+  correo_empresa: string | null;
+  salario: number | null;
+  activo: boolean;
+  fecha_vinculacion: string | null;
+  generado_at: string;
+}
+
+/** Cuenta de acceso (staff) enlazable a un empleado. */
+export interface CuentaVinculable {
+  user_id: string;
+  email: string | null;
+  nombre: string | null;
 }

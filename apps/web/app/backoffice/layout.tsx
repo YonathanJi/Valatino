@@ -24,6 +24,12 @@ const NAV_ITEMS: {
       { href: "/backoffice/compras/proveedores", label: "Proveedores", iconKey: "proveedores" },
     ],
   },
+  {
+    modulo: "gestion_humana",
+    href: "/backoffice/gestion-humana",
+    label: "Gestión Humana",
+    iconKey: "gestion_humana",
+  },
 ];
 
 export default async function BackofficeLayout({ children }: { children: React.ReactNode }) {
