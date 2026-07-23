@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-22
+**Última actualización**: 2026-07-23
 
 ---
 
@@ -14,6 +14,8 @@
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
 - **Aplicar migraciones al remoto**: por Management API (script en scratchpad de la sesión / patrón `apply-migration.ps1`), NO `supabase db push`. Última aplicada: **029** (IVA en compras). Migraciones 024–029 nuevas esta racha.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
+- **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
+- **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
@@ -23,6 +25,48 @@
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
 - Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-23 — Limpieza de raíz + constitución vinculante + edición de usuarios + responsive + rediseño del panel
+
+**Para reanudar**: todo commiteado y **desplegado** (5 commits, push a `main`). Typecheck + build de producción del web OK. La constitución (`specs/constitution.md`) es ahora la **guía vinculante** del proyecto. Pendiente: revisar en el móvil el rediseño del panel y el responsive en vivo (Jonathan lo valida visualmente).
+
+### ✅ Limpieza de la raíz (retirado Spec-Kit)
+- Eliminados por no usarse en la app (no había CI real, `.github/workflows` no existía): `.specify/` (18 archivos de andamiaje), `.github/agents` + `.github/prompts` (20 archivos `speckit.*`), `.vscode/` (incluía un `mcp.json` duplicado del de la raíz + `settings.json` solo de Spec-Kit) y `DEPLOY.md` (su info ya vive en este ESTADO).
+- **Conservado**: `.mcp.json` de la raíz (la conexión Supabase que usa Claude Code, verificada), `specs/001-valatino-ecommerce/` (documentación real) y todo lo de `apps/`, `packages/`.
+- ⚠️ Secretos locales `Contraseñas.txt` y `.env.vercel` siguen **fuera de git** (gitignored), intactos.
+
+### ✅ Constitución como guía vinculante (v1.1.0)
+- La "constitution" de Spec-Kit se **rescató** y movió a **`specs/constitution.md`** (git lo registró como rename, conserva historial). Es la fuente de verdad de principios del proyecto y se debe hacer respetar.
+- Actualizada **1.0.0 → 1.1.0** para alinearla con la implementación real:
+  - Despliegue backend **Railway → Render** (`valatino.onrender.com`).
+  - **Prisma NO es ORM**: `schema.prisma` es solo modelo/referencia; el acceso a datos en runtime es `@supabase/supabase-js` (service_role en la API). Los tipos del dominio viven en `@valatino/types`.
+  - Migraciones = **SQL versionado** aplicado por la Management API de Supabase (no `prisma migrate` ni `supabase db push`). Añadidos supabase-js y Sonner al stack oficial.
+
+### ✅ Edición completa de usuarios del staff por el súper admin
+- **API** (`apps/api/src/auth/usuarios.controller.ts`, todo `@Roles("admin")`), 3 endpoints nuevos + DTOs:
+  - `PATCH /admin/usuarios/:id` → editar **nombre y correo** (sincroniza `auth.users` vía admin API + tabla `profiles`; `email_exists` → 409).
+  - `PATCH /admin/usuarios/:id/password` → **restablecer contraseña** directa (se aplica al instante; se comparte al usuario).
+  - `PATCH /admin/usuarios/:id/rol` → cambiar **rol admin↔asesor** con salvaguardas: no puedes cambiar tu propio rol, no puedes degradar al **último admin**; al pasar a asesor se fijan sus módulos, admin ve todo (sin filas). Usa **borrar+insertar** en `user_roles` (PK **compuesta** `(user_id, role_id)`) para garantizar un solo rol — ⚠️ el viejo `POST /admin/usuarios/roles` con `upsert` tenía ese riesgo latente; se dejó intacto (sin UI, fuera de alcance).
+- **Web**: modal `EditarUsuarioModal` (datos · contraseña · rol+módulos) desde el botón "Editar" de cada fila; el rol propio queda bloqueado. La edición de módulos se unificó en el modal. El admin actual se identifica con el browser client (`getUser`) para bloquear su propio rol/borrado.
+- **Verificado E2E en vivo** (login admin real, API local contra BD real): **20/20 checks** — 401 anónimo, crear, editar datos, reset password + re-login con credenciales nuevas, admin↔asesor con módulos, bloqueos (rol propio → 400, rol 'cliente' → 400), borrado + limpieza. BD sin residuos (solo admin + asesora reales). Typecheck types+API+web OK.
+
+### ✅ Responsive del backoffice en móvil
+- **Causa**: el layout tenía un sidebar fijo `w-56` **siempre visible**, sin menú móvil → contenido aplastado en el teléfono.
+- **Fix**: nuevo `BackofficeShell` (client) — en escritorio sidebar fijo; en móvil se oculta y aparece **barra superior con hamburguesa** que abre un **drawer** con backdrop (se cierra al navegar). `min-w-0` en la columna principal para que las tablas scrolleen.
+- `PedidoTabla` y `ProductoTabla`: `overflow-hidden` → `overflow-x-auto` (antes **recortaban** columnas en pantallas estrechas). Inventario/Compras/Usuarios ya tenían scroll.
+
+### ✅ Rediseño del panel — sidebar oscuro + canvas premium (petición: "se veía muerto/antiguo")
+- Dirección elegida por Jonathan: **sidebar oscuro + contenido claro pulido** (tipo Linear/Vercel), a juego con el login `/admin` y sin perder el toque premium.
+- **Sidebar** zinc-950 con texto claro y **acento naranja de marca** en el módulo activo (barrita lateral); enlaces, subitems, perfil y logout adaptados a fondo oscuro.
+- Scope **`.theme-admin`** (en `globals.css`): lienzo gris muy suave (`--background`) para dar profundidad a las tarjetas blancas — se aplica a **todo el back-office vía el shell**, sin tocar página por página.
+- **Sombra sutil** en todas las `.bg-card` con `:where()` (especificidad baja → respeta `shadow-lg` de los modales). Drawer móvil oscuro con backdrop desenfocado. **Micro-animación fade-in** por página al navegar.
+- El login `/admin` (ruta aparte) conserva su propio look oscuro premium; sin conflicto.
+- Verificado: typecheck web OK + **build de producción OK** (todas las rutas compilan). Validación visual en dispositivo pendiente de Jonathan.
+
+### 🔒 Nota de seguridad (consultada por Jonathan, sin cambios de código)
+- "Sigo logueado como admin al reabrir la web" es **comportamiento normal** (persistencia de sesión por navegador/dispositivo), **no** un agujero remoto: un cliente desde su propio dispositivo nunca ve tu sesión. El acceso al panel está gateado **por rol y en el servidor** (middleware + layout que redirige a no-staff + guards `@Roles` de la API + rol leído de `user_roles`, nunca de metadata). Único riesgo real: **dispositivo compartido** sin cerrar sesión → mitigación: usar "Cerrar sesión". Jonathan decidió **dejarlo como está** (opciones ofrecidas: auto-logout por inactividad / ajustar duración de sesión).
 
 ---
 
