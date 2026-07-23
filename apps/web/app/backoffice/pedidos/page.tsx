@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch } from "@lib/api/client";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
+import { ShoppingCart } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { Pedido, PaginatedResponse } from "@valatino/types";
 
@@ -76,13 +78,16 @@ export default function BackofficePedidosPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Panel de Pedidos</h1>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        icon={ShoppingCart}
+        title="Panel de Pedidos"
+        description="Seguimiento de pedidos de la tienda"
+      >
+        <span className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs text-muted-foreground">Actualización en tiempo real</span>
-        </div>
-      </div>
+          <span className="text-xs text-muted-foreground">En tiempo real</span>
+        </span>
+      </PageHeader>
 
       <PedidoTabla
         pedidos={pedidos}

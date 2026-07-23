@@ -5,6 +5,8 @@ import Link from "next/link";
 import { apiFetch } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { formatEUR } from "@lib/utils";
+import { ShoppingBag } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { FacturaCompra, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeComprasPage() {
@@ -30,17 +32,15 @@ export default function BackofficeComprasPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Compras de mercancía</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Histórico de entradas de mercancía documentadas ({total})
-          </p>
-        </div>
+      <PageHeader
+        icon={ShoppingBag}
+        title="Compras de mercancía"
+        description={`Histórico de entradas de mercancía documentadas (${total})`}
+      >
         <Button asChild>
           <Link href="/backoffice/compras/nueva">＋ Registrar compra</Link>
         </Button>
-      </div>
+      </PageHeader>
 
       <div className="rounded-xl border bg-card">
         {isLoading ? (

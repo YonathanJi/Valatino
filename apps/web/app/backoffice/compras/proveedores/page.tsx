@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Truck } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Proveedor } from "@valatino/types";
 
 interface FormProveedor {
@@ -109,18 +110,12 @@ export default function ProveedoresPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <Link
-          href="/backoffice/compras"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← Compras
-        </Link>
-        <h1 className="text-2xl font-bold mt-1">Proveedores</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Datos básicos de tus proveedores — en la compra basta con el CIF para autocompletar
-        </p>
-      </div>
+      <PageHeader
+        icon={Truck}
+        back={{ href: "/backoffice/compras", label: "Compras" }}
+        title="Proveedores"
+        description="Datos básicos de tus proveedores — en la compra basta con el CIF para autocompletar"
+      />
 
       {/* Nuevo proveedor */}
       <form onSubmit={crear} className="rounded-xl border bg-card p-6 space-y-4">

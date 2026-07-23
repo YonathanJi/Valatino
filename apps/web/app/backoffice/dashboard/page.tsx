@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { DashboardGerencial } from "@valatino/types";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
+import { LayoutDashboard } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import {
   StatTile,
@@ -52,12 +54,11 @@ export default function DashboardPage() {
 
   return (
     <div className="p-8 space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Dashboard gerencial</h1>
-        <p className="text-sm text-muted-foreground">
-          Ventas de los últimos 30 días y estado actual de la operación
-        </p>
-      </header>
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Dashboard gerencial"
+        description="Ventas de los últimos 30 días y estado actual de la operación"
+      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { formatEUR } from "@lib/utils";
+import { ShoppingBag, FileText } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { FacturaCompra } from "@valatino/types";
 
 /** Costo unitario con hasta 4 decimales (los importes totales siguen a 2) */
@@ -70,34 +72,27 @@ export default function CompraDetallePage() {
 
   return (
     <div className="p-6 space-y-4 max-w-3xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/backoffice/compras"
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            ← Compras
-          </Link>
-          <h1 className="text-2xl font-bold mt-1">
-            {compra.numero_factura
-              ? `Compra — Factura ${compra.numero_factura}`
-              : "Compra de mercancía"}
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Registrada el{" "}
-            {new Date(compra.created_at).toLocaleDateString("es-ES", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </p>
-        </div>
+      <PageHeader
+        icon={ShoppingBag}
+        back={{ href: "/backoffice/compras", label: "Compras" }}
+        title={
+          compra.numero_factura
+            ? `Compra — Factura ${compra.numero_factura}`
+            : "Compra de mercancía"
+        }
+        description={`Registrada el ${new Date(compra.created_at).toLocaleDateString("es-ES", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`}
+      >
         <Button onClick={() => void verPdf()} disabled={abriendoPdf} variant="outline">
-          {abriendoPdf ? "Abriendo…" : "📄 Ver factura"}
+          <FileText className="mr-1.5 h-4 w-4" />
+          {abriendoPdf ? "Abriendo…" : "Ver factura"}
         </Button>
-      </div>
+      </PageHeader>
 
       <div className="rounded-xl border bg-card p-6 grid gap-4 sm:grid-cols-4 text-sm">
         <div>

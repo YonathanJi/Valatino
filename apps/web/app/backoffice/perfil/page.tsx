@@ -1,4 +1,6 @@
 import { getStaffAcceso, esStaff } from "@lib/auth/staff";
+import { UserCircle } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { StaffModulo } from "@valatino/types";
 
 const MODULO_LABELS: Record<StaffModulo, string> = {
@@ -19,7 +21,7 @@ export default async function PerfilStaffPage() {
 
   return (
     <div className="p-6 max-w-2xl space-y-6">
-      <h1 className="text-2xl font-bold">Mi perfil</h1>
+      <PageHeader icon={UserCircle} title="Mi perfil" description="Tu cuenta y accesos al panel" />
 
       <section className="rounded-xl border bg-card p-5 space-y-4">
         <div className="flex items-center justify-between gap-4">

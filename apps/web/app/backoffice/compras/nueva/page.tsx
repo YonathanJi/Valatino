@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { formatEUR } from "@lib/utils";
+import { ShoppingBag } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { FacturaCompra, PaginatedResponse, Producto, Proveedor } from "@valatino/types";
 
 interface Linea {
@@ -123,18 +125,12 @@ export default function NuevaCompraPage() {
 
   return (
     <div className="p-6 space-y-4 max-w-4xl">
-      <div>
-        <Link
-          href="/backoffice/compras"
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← Compras
-        </Link>
-        <h1 className="text-2xl font-bold mt-1">Registrar compra de mercancía</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Sube el PDF de la factura, indica qué contiene y el inventario sumará esas unidades
-        </p>
-      </div>
+      <PageHeader
+        icon={ShoppingBag}
+        back={{ href: "/backoffice/compras", label: "Compras" }}
+        title="Registrar compra de mercancía"
+        description="Sube el PDF de la factura, indica qué contiene y el inventario sumará esas unidades"
+      />
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Proveedor */}

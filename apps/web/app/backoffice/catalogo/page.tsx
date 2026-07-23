@@ -5,6 +5,8 @@ import { apiFetch } from "@lib/api/client";
 import { ProductoTabla } from "@components/backoffice/ProductoTabla";
 import { ProductoForm } from "@components/backoffice/ProductoForm";
 import { Button } from "@components/ui/button";
+import { Store } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeCatalogoPage() {
@@ -31,12 +33,11 @@ export default function BackofficeCatalogoPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Gestión de Catálogo</h1>
+      <PageHeader icon={Store} title="Gestión de Catálogo" description="Productos de la tienda">
         <Button onClick={() => { setEditing(null); setShowForm(true); }}>
           + Nuevo producto
         </Button>
-      </div>
+      </PageHeader>
 
       {showForm && (
         <ProductoForm

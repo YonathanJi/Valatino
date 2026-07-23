@@ -7,7 +7,8 @@ import { Button } from "@components/ui/button";
 import { EditarUsuarioModal } from "@components/backoffice/EditarUsuarioModal";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Users } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
 
 interface StaffMiembro {
@@ -91,12 +92,11 @@ export default function BackofficeUsuariosPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Gestión de Usuarios</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Crea asesores y decide qué módulos puede ver cada uno
-        </p>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Gestión de Usuarios"
+        description="Crea asesores y decide qué módulos puede ver cada uno"
+      />
 
       {/* Crear asesor */}
       <form onSubmit={crearAsesor} className="rounded-xl border bg-card p-6 space-y-4">

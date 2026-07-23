@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@lib/api/client";
 import { StockAjusteModal } from "@components/backoffice/StockAjusteModal";
+import { Boxes } from "lucide-react";
+import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeInventarioPage() {
@@ -27,12 +29,11 @@ export default function BackofficeInventarioPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Inventario</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Stock en tiempo real y entrada manual de mercancía
-        </p>
-      </div>
+      <PageHeader
+        icon={Boxes}
+        title="Inventario"
+        description="Stock en tiempo real y entrada manual de mercancía"
+      />
 
       <div className="rounded-xl border bg-card">
         {isLoading ? (
