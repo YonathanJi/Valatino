@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { Pencil, Trash2 } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import type { Proveedor } from "@valatino/types";
@@ -280,7 +281,7 @@ export default function ProveedoresPage() {
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{p.direccion ?? "—"}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-1">
                           <button
                             type="button"
                             onClick={() => {
@@ -294,16 +295,20 @@ export default function ProveedoresPage() {
                                 notas: p.notas ?? "",
                               });
                             }}
-                            className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors"
+                            title="Editar"
+                            aria-label={`Editar ${p.nombre}`}
+                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                           >
-                            ✏️ Editar
+                            <Pencil className="h-4 w-4" />
                           </button>
                           <button
                             type="button"
                             onClick={() => void eliminar(p)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
+                            title="Eliminar"
+                            aria-label={`Eliminar ${p.nombre}`}
+                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
                           >
-                            🗑️ Eliminar
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

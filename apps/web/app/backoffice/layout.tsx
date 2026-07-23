@@ -4,16 +4,25 @@ import { BackofficeShell } from "@components/backoffice/BackofficeShell";
 import type { SidebarNavItem } from "@components/backoffice/SidebarNav";
 import type { StaffModulo } from "@valatino/types";
 
-const NAV_ITEMS: { modulo: StaffModulo; href: string; label: string; children?: SidebarNavItem["children"] }[] = [
-  { modulo: "dashboard", href: "/backoffice/dashboard", label: "📈 Dashboard" },
-  { modulo: "pedidos", href: "/backoffice/pedidos", label: "📦 Pedidos" },
-  { modulo: "catalogo", href: "/backoffice/catalogo", label: "🛍️ Catálogo" },
-  { modulo: "inventario", href: "/backoffice/inventario", label: "📊 Inventario" },
+const NAV_ITEMS: {
+  modulo: StaffModulo;
+  href: string;
+  label: string;
+  iconKey: string;
+  children?: SidebarNavItem["children"];
+}[] = [
+  { modulo: "dashboard", href: "/backoffice/dashboard", label: "Dashboard", iconKey: "dashboard" },
+  { modulo: "pedidos", href: "/backoffice/pedidos", label: "Pedidos", iconKey: "pedidos" },
+  { modulo: "catalogo", href: "/backoffice/catalogo", label: "Catálogo", iconKey: "catalogo" },
+  { modulo: "inventario", href: "/backoffice/inventario", label: "Inventario", iconKey: "inventario" },
   {
     modulo: "compras",
     href: "/backoffice/compras",
-    label: "🛒 Compras",
-    children: [{ href: "/backoffice/compras/proveedores", label: "🚚 Proveedores" }],
+    label: "Compras",
+    iconKey: "compras",
+    children: [
+      { href: "/backoffice/compras/proveedores", label: "Proveedores", iconKey: "proveedores" },
+    ],
   },
 ];
 
@@ -25,7 +34,7 @@ export default async function BackofficeLayout({ children }: { children: React.R
 
   const visibles: SidebarNavItem[] = NAV_ITEMS.filter((item) =>
     puedeVerModulo(acceso, item.modulo),
-  ).map(({ href, label, children }) => ({ href, label, children }));
+  ).map(({ href, label, iconKey, children }) => ({ href, label, iconKey, children }));
 
   return (
     <BackofficeShell

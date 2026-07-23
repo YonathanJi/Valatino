@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { Pencil, Trash2 } from "lucide-react";
 import { Skeleton } from "@components/ui/Skeleton";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
@@ -66,21 +67,25 @@ export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: Produ
                   {p.activo ? "Activo" : "Inactivo"}
                 </span>
               </td>
-              <td className="p-3 flex gap-2">
-                <button
-                  onClick={() => onEdit(p)}
-                  title={`Editar ${p.nombre}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-primary hover:bg-muted transition-colors"
-                >
-                  ✏️ Editar
-                </button>
-                <button
-                  onClick={() => void eliminarProducto(p)}
-                  title={`Eliminar ${p.nombre}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
-                >
-                  🗑️ Eliminar
-                </button>
+              <td className="p-3">
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => onEdit(p)}
+                    title="Editar"
+                    aria-label={`Editar ${p.nombre}`}
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => void eliminarProducto(p)}
+                    title="Eliminar"
+                    aria-label={`Eliminar ${p.nombre}`}
+                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

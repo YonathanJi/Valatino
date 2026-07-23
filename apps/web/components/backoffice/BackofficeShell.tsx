@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Menu, Users, UserCircle } from "lucide-react";
 import { LogoutButton } from "@components/backoffice/LogoutButton";
 import { SidebarNav, type SidebarNavItem } from "@components/backoffice/SidebarNav";
 
@@ -46,7 +47,8 @@ export function BackofficeShell({
         <SidebarNav items={items} />
         {isAdmin && (
           <Link href="/backoffice/usuarios" className={darkLink}>
-            👥 Usuarios
+            <Users className="h-[18px] w-[18px] shrink-0" />
+            Usuarios
           </Link>
         )}
         {showNoModulos && (
@@ -57,7 +59,8 @@ export function BackofficeShell({
       </nav>
       <div className="space-y-1 border-t border-white/10 p-3">
         <Link href="/backoffice/perfil" className={darkLink}>
-          👤 Mi perfil
+          <UserCircle className="h-[18px] w-[18px] shrink-0" />
+          Mi perfil
         </Link>
         <LogoutButton />
         <div className="px-3 pt-1.5">
@@ -95,9 +98,9 @@ export function BackofficeShell({
             type="button"
             onClick={() => setOpen(true)}
             aria-label="Abrir menú"
-            className="rounded-lg border px-2.5 py-1.5 text-lg leading-none text-foreground hover:bg-muted"
+            className="rounded-lg border p-1.5 text-foreground hover:bg-muted"
           >
-            ☰
+            <Menu className="h-5 w-5" />
           </button>
           <span className="font-bold text-foreground">Valatino</span>
           <span className="text-xs text-muted-foreground">Back-Office</span>

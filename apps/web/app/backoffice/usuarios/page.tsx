@@ -7,14 +7,8 @@ import { Button } from "@components/ui/button";
 import { EditarUsuarioModal } from "@components/backoffice/EditarUsuarioModal";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-
-const MODULO_LABELS: Record<StaffModulo, string> = {
-  pedidos: "📦 Pedidos",
-  catalogo: "🛍️ Catálogo",
-  inventario: "📊 Inventario",
-  dashboard: "📈 Dashboard",
-  compras: "🛒 Compras",
-};
+import { Pencil, Trash2 } from "lucide-react";
+import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
 
 interface StaffMiembro {
   user_id: string;
@@ -138,17 +132,21 @@ export default function BackofficeUsuariosPage() {
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <span className="text-sm text-muted-foreground">Módulos:</span>
-          {STAFF_MODULOS.map((m) => (
-            <label key={m} className="flex items-center gap-1.5 text-sm cursor-pointer">
-              <input
-                type="checkbox"
-                checked={modulos.includes(m)}
-                onChange={() => setModulos((prev) => toggleModulo(prev, m))}
-                className="accent-primary"
-              />
-              {MODULO_LABELS[m]}
-            </label>
-          ))}
+          {STAFF_MODULOS.map((m) => {
+            const Icon = MODULO_ICONOS[m];
+            return (
+              <label key={m} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={modulos.includes(m)}
+                  onChange={() => setModulos((prev) => toggleModulo(prev, m))}
+                  className="accent-primary"
+                />
+                <Icon className="h-4 w-4 text-muted-foreground" />
+                {MODULO_LABELS[m]}
+              </label>
+            );
+          })}
           <Button type="submit" disabled={isCreating} className="ml-auto">
             {isCreating ? "Creando..." : "Crear asesor"}
           </Button>
@@ -210,14 +208,18 @@ export default function BackofficeUsuariosPage() {
                         <span className="text-xs text-muted-foreground">Sin módulos</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {u.modulos.map((m) => (
-                            <span
-                              key={m}
-                              className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
-                            >
-                              {MODULO_LABELS[m]}
-                            </span>
-                          ))}
+                          {u.modulos.map((m) => {
+                            const Icon = MODULO_ICONOS[m];
+                            return (
+                              <span
+                                key={m}
+                                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs"
+                              >
+                                <Icon className="h-3 w-3" />
+                                {MODULO_LABELS[m]}
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
                     </td>
@@ -229,21 +231,25 @@ export default function BackofficeUsuariosPage() {
                       })}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <div className="flex justify-end gap-3">
+                      <div className="flex justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => setEditingUser(u)}
-                          className="text-xs font-medium text-primary hover:underline"
+                          title="Editar"
+                          aria-label={`Editar ${u.nombre ?? u.email ?? "usuario"}`}
+                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
-                          Editar
+                          <Pencil className="h-4 w-4" />
                         </button>
                         {u.rol === "asesor" && u.user_id !== myUserId && (
                           <button
                             type="button"
                             onClick={() => void eliminarAsesor(u)}
-                            className="text-xs text-red-600 hover:underline"
+                            title="Eliminar"
+                            aria-label={`Eliminar ${u.nombre ?? u.email ?? "asesor"}`}
+                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
                           >
-                            Eliminar
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
                       </div>

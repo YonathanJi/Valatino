@@ -7,14 +7,7 @@ import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-
-const MODULO_LABELS: Record<StaffModulo, string> = {
-  pedidos: "📦 Pedidos",
-  catalogo: "🛍️ Catálogo",
-  inventario: "📊 Inventario",
-  dashboard: "📈 Dashboard",
-  compras: "🛒 Compras",
-};
+import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
 
 interface StaffMiembro {
   user_id: string;
@@ -227,20 +220,24 @@ export function EditarUsuarioModal({
                 <div className="space-y-2">
                   <span className="text-xs text-muted-foreground">Módulos autorizados:</span>
                   <div className="flex flex-wrap gap-3">
-                    {STAFF_MODULOS.map((m) => (
-                      <label
-                        key={m}
-                        className="flex items-center gap-1.5 text-xs cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={modulos.includes(m)}
-                          onChange={() => toggleModulo(m)}
-                          className="accent-primary"
-                        />
-                        {MODULO_LABELS[m]}
-                      </label>
-                    ))}
+                    {STAFF_MODULOS.map((m) => {
+                      const Icon = MODULO_ICONOS[m];
+                      return (
+                        <label
+                          key={m}
+                          className="flex items-center gap-1.5 text-xs cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={modulos.includes(m)}
+                            onChange={() => toggleModulo(m)}
+                            className="accent-primary"
+                          />
+                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                          {MODULO_LABELS[m]}
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               )}
