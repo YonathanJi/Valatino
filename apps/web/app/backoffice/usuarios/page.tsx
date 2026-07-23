@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { toast } from "sonner";
 import { Button } from "@components/ui/button";
+import { EditarUsuarioModal } from "@components/backoffice/EditarUsuarioModal";
+import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
 
 const MODULO_LABELS: Record<StaffModulo, string> = {
@@ -34,10 +36,9 @@ export default function BackofficeUsuariosPage() {
   const [modulos, setModulos] = useState<StaffModulo[]>(["pedidos"]);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Edición de módulos por fila
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editModulos, setEditModulos] = useState<StaffModulo[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
+  // Edición completa por fila (modal)
+  const [editingUser, setEditingUser] = useState<StaffMiembro | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
 
   const loadStaff = async () => {
     try {
@@ -51,6 +52,12 @@ export default function BackofficeUsuariosPage() {
 
   useEffect(() => {
     void loadStaff();
+    void (async () => {
+      const {
+        data: { user },
+      } = await createSupabaseBrowserClient().auth.getUser();
+      setMyUserId(user?.id ?? null);
+    })();
   }, []);
 
   const toggleModulo = (lista: StaffModulo[], m: StaffModulo): StaffModulo[] =>
@@ -74,23 +81,6 @@ export default function BackofficeUsuariosPage() {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el asesor");
     } finally {
       setIsCreating(false);
-    }
-  };
-
-  const guardarModulos = async (userId: string) => {
-    setIsSaving(true);
-    try {
-      await apiFetch(`/admin/usuarios/${userId}/modulos`, {
-        method: "PATCH",
-        body: JSON.stringify({ modulos: editModulos }),
-      });
-      toast.success("Módulos actualizados");
-      setEditing(null);
-      void loadStaff();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Error al guardar");
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -216,52 +206,18 @@ export default function BackofficeUsuariosPage() {
                     <td className="px-4 py-3">
                       {u.rol === "admin" ? (
                         <span className="text-xs text-muted-foreground">Todos</span>
-                      ) : editing === u.user_id ? (
-                        <div className="flex flex-wrap items-center gap-3">
-                          {STAFF_MODULOS.map((m) => (
-                            <label
-                              key={m}
-                              className="flex items-center gap-1.5 text-xs cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={editModulos.includes(m)}
-                                onChange={() => setEditModulos((prev) => toggleModulo(prev, m))}
-                                className="accent-primary"
-                              />
-                              {MODULO_LABELS[m]}
-                            </label>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => void guardarModulos(u.user_id)}
-                            disabled={isSaving}
-                            className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditing(null)}
-                            className="text-xs text-muted-foreground"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
+                      ) : u.modulos.length === 0 ? (
+                        <span className="text-xs text-muted-foreground">Sin módulos</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {u.modulos.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">Sin módulos</span>
-                          ) : (
-                            u.modulos.map((m) => (
-                              <span
-                                key={m}
-                                className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
-                              >
-                                {MODULO_LABELS[m]}
-                              </span>
-                            ))
-                          )}
+                          {u.modulos.map((m) => (
+                            <span
+                              key={m}
+                              className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
+                            >
+                              {MODULO_LABELS[m]}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </td>
@@ -273,18 +229,15 @@ export default function BackofficeUsuariosPage() {
                       })}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {u.rol === "asesor" && editing !== u.user_id && (
-                        <div className="flex justify-end gap-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(u.user_id);
-                              setEditModulos(u.modulos);
-                            }}
-                            className="text-xs font-medium text-primary hover:underline"
-                          >
-                            Editar módulos
-                          </button>
+                      <div className="flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser(u)}
+                          className="text-xs font-medium text-primary hover:underline"
+                        >
+                          Editar
+                        </button>
+                        {u.rol === "asesor" && u.user_id !== myUserId && (
                           <button
                             type="button"
                             onClick={() => void eliminarAsesor(u)}
@@ -292,8 +245,8 @@ export default function BackofficeUsuariosPage() {
                           >
                             Eliminar
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -302,6 +255,15 @@ export default function BackofficeUsuariosPage() {
           </div>
         )}
       </div>
+
+      {editingUser && (
+        <EditarUsuarioModal
+          miembro={editingUser}
+          esUnoMismo={editingUser.user_id === myUserId}
+          onClose={() => setEditingUser(null)}
+          onUpdated={() => void loadStaff()}
+        />
+      )}
     </div>
   );
 }

@@ -23,6 +23,9 @@ import { CurrentUser } from "./decorators/current-user.decorator";
 import { AssignRoleDto } from "./dto/assign-role.dto";
 import { CreateAsesorDto } from "./dto/create-asesor.dto";
 import { UpdateModulosDto } from "./dto/update-modulos.dto";
+import { UpdateUsuarioDto } from "./dto/update-usuario.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
+import { UpdateRolDto } from "./dto/update-rol.dto";
 import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
 
 interface StaffMiembro {
@@ -141,6 +144,143 @@ export class UsuariosController {
       modulos: dto.modulos,
       created_at: created.user.created_at,
     };
+  }
+
+  @Patch(":id")
+  async updateUsuario(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: UpdateUsuarioDto,
+  ) {
+    const rol = await this.fetchRol(id);
+    if (rol !== "admin" && rol !== "asesor") {
+      throw new NotFoundException("Usuario no encontrado en el staff");
+    }
+
+    const authUpdate: {
+      email?: string;
+      email_confirm?: boolean;
+      user_metadata?: { nombre: string };
+    } = {};
+    if (dto.email !== undefined) {
+      authUpdate.email = dto.email.toLowerCase();
+      authUpdate.email_confirm = true;
+    }
+    if (dto.nombre !== undefined) authUpdate.user_metadata = { nombre: dto.nombre };
+
+    if (Object.keys(authUpdate).length > 0) {
+      const { error } = await this.supabase.auth.admin.updateUserById(id, authUpdate);
+      if (error) {
+        if (error.code === "email_exists") {
+          throw new ConflictException("Ya existe un usuario con ese email");
+        }
+        throw new InternalServerErrorException(`No se pudo actualizar el usuario: ${error.message}`);
+      }
+    }
+
+    // Reflejar los cambios en profiles (auth.users no dispara el trigger en updates).
+    const profileUpdate: { email?: string; nombre?: string } = {};
+    if (dto.email !== undefined) profileUpdate.email = dto.email.toLowerCase();
+    if (dto.nombre !== undefined) profileUpdate.nombre = dto.nombre;
+    if (Object.keys(profileUpdate).length > 0) {
+      const { error } = await this.supabase.from("profiles").update(profileUpdate).eq("id", id);
+      if (error) throw new InternalServerErrorException("No se pudo actualizar el perfil");
+    }
+
+    return { message: "Usuario actualizado" };
+  }
+
+  @Patch(":id/password")
+  async resetPassword(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: ResetPasswordDto,
+  ) {
+    const rol = await this.fetchRol(id);
+    if (rol !== "admin" && rol !== "asesor") {
+      throw new NotFoundException("Usuario no encontrado en el staff");
+    }
+
+    const { error } = await this.supabase.auth.admin.updateUserById(id, {
+      password: dto.password,
+    });
+    if (error) {
+      throw new InternalServerErrorException(
+        `No se pudo restablecer la contraseña: ${error.message}`,
+      );
+    }
+    return { message: "Contraseña restablecida" };
+  }
+
+  @Patch(":id/rol")
+  async updateRol(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: UpdateRolDto,
+    @CurrentUser() editor: JwtPayload,
+  ) {
+    if (id === editor.sub) {
+      throw new BadRequestException("No puedes cambiar tu propio rol");
+    }
+
+    const rolActual = await this.fetchRol(id);
+    if (rolActual !== "admin" && rolActual !== "asesor") {
+      throw new NotFoundException("Usuario no encontrado en el staff");
+    }
+
+    const { data: rolesData, error: rolesError } = await this.supabase
+      .from("roles")
+      .select("id, nombre")
+      .in("nombre", ["admin", "asesor"]);
+    if (rolesError || !rolesData) {
+      throw new InternalServerErrorException("No se pudieron cargar los roles");
+    }
+    const roleIdPorNombre = new Map(
+      (rolesData as { id: string; nombre: UserRole }[]).map((r) => [r.nombre, r.id]),
+    );
+    const nuevoRoleId = roleIdPorNombre.get(dto.rol);
+    const adminRoleId = roleIdPorNombre.get("admin");
+    if (!nuevoRoleId || !adminRoleId) {
+      throw new InternalServerErrorException("Configuración de roles incompleta");
+    }
+
+    // Degradar un admin: nunca dejar el sistema sin administradores.
+    if (rolActual === "admin" && dto.rol !== "admin") {
+      const { count } = await this.supabase
+        .from("user_roles")
+        .select("user_id", { count: "exact", head: true })
+        .eq("role_id", adminRoleId);
+      if ((count ?? 0) <= 1) {
+        throw new BadRequestException("No puedes degradar al último administrador");
+      }
+    }
+
+    // user_roles tiene PK compuesta (user_id, role_id): reemplazar = borrar + insertar
+    // garantiza un único rol por usuario.
+    if (dto.rol !== rolActual) {
+      const { error: delError } = await this.supabase
+        .from("user_roles")
+        .delete()
+        .eq("user_id", id);
+      if (delError) throw new InternalServerErrorException("No se pudo actualizar el rol");
+
+      const { error: insError } = await this.supabase.from("user_roles").insert({
+        user_id: id,
+        role_id: nuevoRoleId,
+        asignado_por: editor.sub,
+      });
+      if (insError) throw new InternalServerErrorException("No se pudo asignar el nuevo rol");
+    }
+
+    // Módulos: un admin ve todo (sin filas explícitas); un asesor tiene los indicados.
+    if (dto.rol === "admin") {
+      const { error } = await this.supabase.from("staff_modulos").delete().eq("user_id", id);
+      if (error) throw new InternalServerErrorException("No se pudieron limpiar los módulos");
+    } else if (dto.modulos !== undefined) {
+      await this.reemplazarModulos(id, dto.modulos, editor.sub);
+    } else if (rolActual === "admin") {
+      // Promoción admin→asesor sin módulos indicados: arranca sin módulos.
+      await this.reemplazarModulos(id, [], editor.sub);
+    }
+
+    return { message: "Rol actualizado", rol: dto.rol };
   }
 
   @Patch(":id/modulos")
