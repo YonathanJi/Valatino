@@ -15,7 +15,7 @@
 - **Aplicar migraciones al remoto**: por Management API (script en scratchpad de la sesión / patrón `apply-migration.ps1`), NO `supabase db push`. Última aplicada: **029** (IVA en compras). Migraciones 024–029 nuevas esta racha.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
-- **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
+- **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
@@ -64,6 +64,14 @@
 - **Sombra sutil** en todas las `.bg-card` con `:where()` (especificidad baja → respeta `shadow-lg` de los modales). Drawer móvil oscuro con backdrop desenfocado. **Micro-animación fade-in** por página al navegar.
 - El login `/admin` (ruta aparte) conserva su propio look oscuro premium; sin conflicto.
 - Verificado: typecheck web OK + **build de producción OK** (todas las rutas compilan). Validación visual en dispositivo pendiente de Jonathan.
+
+### ✅ Iconos Lucide + cabeceras de página premium (continuación del rediseño)
+- **Iconos**: reemplazados todos los emoji del back-office por **Lucide** (el set que acompaña a Shadcn/UI, ya instalado). Mapa centralizado en **`apps/web/lib/backoffice/iconos.tsx`** (`MODULO_LABELS` sin emoji, `MODULO_ICONOS` por módulo, `NAV_ICONOS` por clave serializable — el layout es server component y no puede pasar componentes como props, por eso `SidebarNav` recibe `iconKey` string y resuelve el icono).
+  - Sidebar: Dashboard=`LayoutDashboard`, Pedidos=`ShoppingCart`, Catálogo=`Store`, Inventario=`Boxes`, Compras=`ShoppingBag`, Proveedores=`Truck`, Usuarios=`Users`, Mi perfil=`UserCircle`; hamburguesa=`Menu`.
+  - **Acciones Editar/Eliminar → botones-icono** (`Pencil` / `Trash2`, con `title` + `aria-label`) en usuarios, catálogo (`ProductoTabla`) y proveedores. Chips y checkboxes de módulos con su icono.
+- **Cabeceras**: nuevo componente **`PageHeader`** (icono en chip con acento naranja de marca + título + descripción + enlace "volver" opcional + slot de acciones a la derecha). Aplicado a las **10 páginas** del back-office, unificando el patrón (antes cada una repetía `<h1>` a secas). Los "← Compras" pasan a `back` con `ChevronLeft`; "Ver factura" con icono `FileText`.
+- Verificado: typecheck web OK + **build de producción OK**. Cero emoji en el back-office.
+- Pendiente opcional anotado: dar un toque a los **StatTiles del dashboard** (icono + acento) para rematar la portada del panel.
 
 ### 🔒 Nota de seguridad (consultada por Jonathan, sin cambios de código)
 - "Sigo logueado como admin al reabrir la web" es **comportamiento normal** (persistencia de sesión por navegador/dispositivo), **no** un agujero remoto: un cliente desde su propio dispositivo nunca ve tu sesión. El acceso al panel está gateado **por rol y en el servidor** (middleware + layout que redirige a no-staff + guards `@Roles` de la API + rol leído de `user_roles`, nunca de metadata). Único riesgo real: **dispositivo compartido** sin cerrar sesión → mitigación: usar "Cerrar sesión". Jonathan decidió **dejarlo como está** (opciones ofrecidas: auto-logout por inactividad / ajustar duración de sesión).
