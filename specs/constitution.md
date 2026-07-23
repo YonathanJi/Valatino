@@ -1,21 +1,15 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: TEMPLATE → 1.0.0 (ratificación inicial)
-Principios añadidos:
-  - I. TypeScript Fullstack y Seguridad de Tipos (nuevo)
-  - II. Arquitectura Enterprise Modular — Monorepo (nuevo)
-  - III. Seguridad en Capas (nuevo)
-  - IV. UX/UI Premium — Estética Apple (nuevo)
-  - V. Escalabilidad y Despliegue Cloud (nuevo)
-Secciones añadidas:
-  - Stack Tecnológico Oficial
-  - Estrategia de Integración y Comunicación
-Secciones eliminadas: ninguna (documento inicial)
-Plantillas:
-  - .specify/templates/plan-template.md ✅ alineada — "Constitution Check" referenciará estos principios
-  - .specify/templates/spec-template.md ✅ alineada — sin cambios requeridos
-  - .specify/templates/tasks-template.md ✅ alineada — sin cambios requeridos
+Version change: 1.0.0 → 1.0.1 (PATCH — corrección de despliegue backend)
+Cambios:
+  - Principio V y Stack Oficial: despliegue backend Railway → Render
+    (refleja el despliegue real en https://valatino.onrender.com).
+Principios: sin cambios en el conjunto (I–V intactos).
+Secciones: sin cambios estructurales.
+Notas:
+  - Spec-Kit retirado del repo (2026-07-23); esta constitución se conserva
+    como guía vinculante del proyecto en specs/constitution.md.
 TODOs diferidos: ninguno
 -->
 
@@ -75,7 +69,7 @@ Valatino y DEBE reflejarse en cada pantalla de la plataforma.
 ### V. Escalabilidad y Despliegue Cloud
 
 El frontend y las funciones Edge DEBEN desplegarse en Vercel. Los servicios de backend (NestJS) DEBEN
-desplegarse en Railway. La arquitectura de NestJS DEBE diseñarse para escalabilidad horizontal desde
+desplegarse en Render. La arquitectura de NestJS DEBE diseñarse para escalabilidad horizontal desde
 el inicio: sin estado compartido en memoria entre instancias, sin sesiones server-side que impidan el
 escalado. Supabase actúa como única fuente de verdad persistente.
 
@@ -99,7 +93,7 @@ tecnología principal DEBE pasar por el proceso de enmienda de esta Constitució
 | Animaciones | Framer Motion | 11+ |
 | Monorepo | Turborepo | último estable |
 | Despliegue Frontend | Vercel | — |
-| Despliegue Backend | Railway | — |
+| Despliegue Backend | Render | — |
 | Lenguaje | TypeScript | 5+ |
 
 ## Estrategia de Integración y Comunicación
@@ -133,4 +127,4 @@ principios aquí definidos antes de fusionarse a la rama principal.
 **Revisión de cumplimiento**: Todo PR que toque lógica de negocio, seguridad o integración con
 terceros DEBE incluir un "Constitution Check" explícito en la descripción del PR.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-02
+**Version**: 1.0.1 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-23
