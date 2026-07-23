@@ -36,7 +36,7 @@ export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: Produ
   }
 
   return (
-    <div className="rounded-xl border bg-card overflow-hidden">
+    <div className="rounded-xl border bg-card overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="border-b bg-muted/50">
           <tr>
