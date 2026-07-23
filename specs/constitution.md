@@ -1,12 +1,19 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 1.0.0 → 1.0.1 (PATCH — corrección de despliegue backend)
+Version change: 1.0.0 → 1.1.0 (alineación con la implementación real)
 Cambios:
   - Principio V y Stack Oficial: despliegue backend Railway → Render
-    (refleja el despliegue real en https://valatino.onrender.com).
+    (despliegue real en https://valatino.onrender.com).
+  - Principio I y Estrategia de Integración: los tipos del dominio se
+    centralizan en el paquete @valatino/types (packages/types); Prisma
+    queda como modelo/referencia de esquema (schema.prisma), NO como ORM.
+  - Stack Oficial: añadido @supabase/supabase-js como capa de acceso a
+    datos real (service_role en la API). Añadido Sonner (notificaciones UI).
+  - Estrategia de Integración: documentado que las migraciones son SQL
+    versionado en supabase/migrations, aplicadas por la Management API de
+    Supabase (NO prisma migrate ni supabase db push).
 Principios: sin cambios en el conjunto (I–V intactos).
-Secciones: sin cambios estructurales.
 Notas:
   - Spec-Kit retirado del repo (2026-07-23); esta constitución se conserva
     como guía vinculante del proyecto en specs/constitution.md.
@@ -20,10 +27,10 @@ TODOs diferidos: ninguno
 ### I. TypeScript Fullstack y Seguridad de Tipos
 
 Todo el código del proyecto — frontend, backend y scripts de infraestructura — DEBE estar escrito en
-TypeScript. La seguridad de tipos DEBE ser de extremo a extremo: los cambios en el esquema de base de
-datos (gestionados por Prisma) DEBEN propagarse automáticamente a través de todo el stack sin castings
-manuales inseguros. Está PROHIBIDO usar `any` excepto en puntos de integración externos debidamente
-justificados y documentados.
+TypeScript. La seguridad de tipos DEBE ser de extremo a extremo: los tipos del dominio se centralizan
+en el paquete interno `@valatino/types` (`packages/types`) y se consumen desde web y API sin
+duplicación; el esquema de datos se documenta en `schema.prisma` como referencia del modelo. Está
+PROHIBIDO usar `any` excepto en puntos de integración externos debidamente justificados y documentados.
 
 **Justificación**: Elimina una clase entera de errores en tiempo de ejecución, facilita el
 refactoring seguro y garantiza la mantenibilidad a largo plazo del proyecto.
@@ -87,10 +94,12 @@ tecnología principal DEBE pasar por el proceso de enmienda de esta Constitució
 | Frontend | Next.js (App Router) | 14+ |
 | Backend | NestJS | 10+ |
 | Base de datos y Auth | Supabase (PostgreSQL + RLS) | — |
-| ORM / Esquemas | Prisma | 5+ |
+| Acceso a datos | @supabase/supabase-js (service_role en API) | 2+ |
+| Modelo de datos / tipos | Prisma schema (referencia) + `@valatino/types` | 5+ |
 | Estilos | Tailwind CSS | 3+ |
-| Componentes UI | Shadcn/UI | último estable |
+| Componentes UI | Shadcn/UI (Radix + CVA) | último estable |
 | Animaciones | Framer Motion | 11+ |
+| Notificaciones UI | Sonner | — |
 | Monorepo | Turborepo | último estable |
 | Despliegue Frontend | Vercel | — |
 | Despliegue Backend | Render | — |
@@ -98,10 +107,12 @@ tecnología principal DEBE pasar por el proceso de enmienda de esta Constitució
 
 ## Estrategia de Integración y Comunicación
 
-- Los tipos compartidos entre `/apps/web` y `/apps/api` DEBEN residir en un paquete interno del
-  monorepo (ej. `packages/types`) para evitar duplicación.
-- Prisma actúa como puente de tipos entre la base de datos y la aplicación; los modelos de Prisma
-  son la única fuente de verdad para las entidades de datos.
+- Los tipos compartidos entre `/apps/web` y `/apps/api` DEBEN residir en el paquete interno
+  `@valatino/types` (`packages/types`) para evitar duplicación.
+- El modelo de datos se documenta en `schema.prisma` (referencia); el acceso a datos en runtime se
+  realiza con `@supabase/supabase-js` (service_role en la API), NO mediante ORM de Prisma.
+- Las migraciones son SQL versionado en `supabase/migrations`, aplicadas por la Management API de
+  Supabase. NO se usan `prisma migrate` ni `supabase db push`.
 - Las integraciones con Stripe y PayPal DEBEN gestionarse exclusivamente mediante Webhooks desde
   NestJS; el frontend NUNCA debe confirmar ni registrar pagos directamente.
 - Las consultas ligeras de datos en el frontend PUEDEN usar el cliente de Supabase directamente,
@@ -127,4 +138,4 @@ principios aquí definidos antes de fusionarse a la rama principal.
 **Revisión de cumplimiento**: Todo PR que toque lógica de negocio, seguridad o integración con
 terceros DEBE incluir un "Constitution Check" explícito en la descripción del PR.
 
-**Version**: 1.0.1 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-23
+**Version**: 1.1.0 | **Ratified**: 2026-07-02 | **Last Amended**: 2026-07-23
