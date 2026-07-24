@@ -17,7 +17,8 @@ export type StaffModulo =
   | "inventario"
   | "dashboard"
   | "compras"
-  | "gestion_humana";
+  | "gestion_humana"
+  | "ti";
 
 export const STAFF_MODULOS: readonly StaffModulo[] = [
   "pedidos",
@@ -26,6 +27,7 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
   "dashboard",
   "compras",
   "gestion_humana",
+  "ti",
 ];
 
 /** Categorías fijas del catálogo (selector del backoffice + validación API) */
@@ -328,7 +330,8 @@ export interface Empleado {
   numero_empleado: number;
   /** Código legible derivado del número: "EMP-0001". Único e inmutable. */
   codigo_empleado: string;
-  user_id: string;
+  /** Cuenta de acceso vinculada. null = pendiente de que TI la provisione. */
+  user_id: string | null;
   nombre_completo: string;
   documento: string;
   telefono: string | null;

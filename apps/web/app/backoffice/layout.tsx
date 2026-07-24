@@ -30,6 +30,13 @@ const NAV_ITEMS: {
     label: "Gestión Humana",
     iconKey: "gestion_humana",
   },
+  {
+    modulo: "ti",
+    href: "/backoffice/ti",
+    label: "TI",
+    iconKey: "ti",
+    children: [{ href: "/backoffice/ti/usuarios", label: "Usuarios", iconKey: "usuarios" }],
+  },
 ];
 
 export default async function BackofficeLayout({ children }: { children: React.ReactNode }) {
@@ -45,7 +52,6 @@ export default async function BackofficeLayout({ children }: { children: React.R
   return (
     <BackofficeShell
       items={visibles}
-      isAdmin={acceso.role === "admin"}
       showNoModulos={visibles.length === 0 && acceso.role === "asesor"}
       email={acceso.email}
       role={acceso.role ?? ""}

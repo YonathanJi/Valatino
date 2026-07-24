@@ -8,12 +8,7 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import type {
-  Cargo,
-  CuentaVinculable,
-  Empleado,
-  EmpleadoHistorialMensual,
-} from "@valatino/types";
+import type { Cargo, Empleado, EmpleadoHistorialMensual } from "@valatino/types";
 import type { CrearEmpleadoDto } from "./dto/crear-empleado.dto";
 import type { ActualizarEmpleadoDto } from "./dto/actualizar-empleado.dto";
 
@@ -42,32 +37,6 @@ export class GestionHumanaService {
       .order("codigo");
     if (error) throw new InternalServerErrorException("No se pudieron cargar los cargos");
     return (data ?? []) as Cargo[];
-  }
-
-  /** Cuentas de staff (admin/asesor) que aún no están vinculadas a un empleado. */
-  async cuentasVinculables(): Promise<CuentaVinculable[]> {
-    const { data: roles, error } = await this.supabase
-      .from("user_roles")
-      .select("user_id, roles!inner(nombre)")
-      .in("roles.nombre", ["admin", "asesor"]);
-    if (error) throw new InternalServerErrorException("No se pudieron cargar las cuentas");
-
-    const { data: emps } = await this.supabase.from("empleados").select("user_id");
-    const vinculados = new Set((emps ?? []).map((e) => (e as { user_id: string }).user_id));
-
-    const ids = (roles ?? [])
-      .map((r) => (r as { user_id: string }).user_id)
-      .filter((id) => !vinculados.has(id));
-    if (ids.length === 0) return [];
-
-    const { data: profiles } = await this.supabase
-      .from("profiles")
-      .select("id, email, nombre")
-      .in("id", ids);
-
-    return ((profiles ?? []) as { id: string; email: string | null; nombre: string | null }[]).map(
-      (p) => ({ user_id: p.id, email: p.email, nombre: p.nombre }),
-    );
   }
 
   async listarEmpleados(): Promise<Empleado[]> {
@@ -107,7 +76,6 @@ export class GestionHumanaService {
     const { data, error } = await this.supabase
       .from("empleados")
       .insert({
-        user_id: dto.userId,
         nombre_completo: dto.nombreCompleto,
         documento: dto.documento.trim(),
         telefono: dto.telefono ?? null,

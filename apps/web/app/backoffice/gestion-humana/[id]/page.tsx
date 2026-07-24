@@ -32,6 +32,7 @@ export default function EmpleadoDetallePage() {
   const [cargos, setCargos] = useState<Cargo[]>([]);
   const [historial, setHistorial] = useState<EmpleadoHistorialMensual[]>([]);
   const [codigo, setCodigo] = useState("");
+  const [tieneCuenta, setTieneCuenta] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
@@ -79,6 +80,7 @@ export default function EmpleadoDetallePage() {
       ]);
       hidratar(detalle.empleado);
       setCodigo(detalle.empleado.codigo_empleado);
+      setTieneCuenta(detalle.empleado.user_id != null);
       setHistorial(detalle.historial);
       setCargos(c);
     } catch (err) {
@@ -141,6 +143,19 @@ export default function EmpleadoDetallePage() {
         title={form.nombreCompleto || "Empleado"}
         description={`${codigo ? codigo + " · " : ""}${form.documento} · ${form.correoEmpresa}`}
       />
+
+      <div className="rounded-xl border bg-card p-4 text-sm">
+        <span className="text-muted-foreground">Cuenta de acceso: </span>
+        {tieneCuenta ? (
+          <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+            Activa
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+            Pendiente de TI
+          </span>
+        )}
+      </div>
 
       <form onSubmit={guardar} className="space-y-5 rounded-xl border bg-card p-6">
         <div className="grid gap-4 sm:grid-cols-2">

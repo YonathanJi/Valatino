@@ -33,11 +33,6 @@ export class GestionHumanaController {
     return this.service.listarCargos();
   }
 
-  @Get("cuentas-vinculables")
-  cuentasVinculables() {
-    return this.service.cuentasVinculables();
-  }
-
   @Get("empleados")
   listarEmpleados() {
     return this.service.listarEmpleados();

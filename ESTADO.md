@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-23
+**Última actualización**: 2026-07-24
 
 ---
 
@@ -12,11 +12,12 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **031** (código de empleado estable). Migraciones 024–031 nuevas esta racha.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **032** (flujo RRHH→TI). Migraciones 024–032 nuevas esta racha.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
-- **Módulo Gestión Humana (2026-07-23)**: nuevo módulo `gestion_humana` (empleados + cargos + histórico mensual). ⚠️ **Empleados vinculados 1:1 a una cuenta de acceso** (auth.users): para dar de alta un empleado, la cuenta debe existir antes en `/backoffice/usuarios`. Hoy hay 2 cuentas (admin + asesora) → máx. 2 empleados hasta crear más cuentas. El histórico se puebla con el botón «Generar histórico» (mes a mes). Ver sesión 2026-07-23.
+- **Flujo por capas RRHH → TI (2026-07-24)**: ⚠️ **cambio respecto a lo anterior** — ahora **Gestión Humana crea al empleado SIN cuenta** (persona + cargo; `empleados.user_id` es opcional) y después **TI** le **provisiona la cuenta** (correo + contraseña + módulos) y la vincula. "Usuarios" ya **no** es admin-only suelto: vive dentro del **módulo `ti`** (sidebar TI → Usuarios, ruta `/backoffice/ti/usuarios`). El **súper admin** (`admin`) conserva acceso a todo el core. **Cambiar rol (dar/quitar admin) sigue reservado a admin** (no un asesor de TI). Ver sesión 2026-07-24.
+- **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
@@ -26,6 +27,26 @@
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
 - Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-24 — Flujo por capas RRHH → TI (Usuarios pasa a ser el módulo TI)
+
+Reorganización para imitar el flujo real de empresa: **Gestión Humana contrata** (persona + cargo, sin cuenta) → **TI provisiona** (correo + contraseña + módulos) y vincula la cuenta. Commits desplegados. Migración **032**.
+
+### Decisiones (confirmadas con Jonathan)
+- Empleado **puede existir sin cuenta** (revierte la decisión del 23: ya no es 1:1 obligatorio). `empleados.user_id` **nullable**; FK a `auth.users` pasa a **ON DELETE SET NULL** (borrar la cuenta desvincula, no borra a la persona).
+- "Usuarios" deja de ser admin-only suelto → vive dentro del **módulo `ti`** (asignable). Un **asesor de TI** puede gestionar cuentas/contraseñas/módulos, **pero cambiar el ROL (dar/quitar admin) queda solo para admin** (evita escalada de privilegios).
+- Al provisionar, el correo de login se propone con el **`correo_empresa`** del empleado (editable).
+- **Súper admin**: el rol `admin` ya pasa por encima de todos los módulos → acceso a todo el core. Se conserva `jonathanduqee+admin@gmail.com`.
+
+### Cambios
+- **Migración 032** (aplicada): `empleados.user_id` nullable + FK ON DELETE SET NULL; CHECK de `staff_modulos` += `'ti'`.
+- **Tipos**: `StaffModulo` += `ti`; `Empleado.user_id` nullable.
+- **API**: `UsuariosController` pasa a `@Roles("admin","asesor") + @Modulo("ti")`; `updateRol` con `@Roles("admin")` a nivel de método (override → solo admin). Nuevos endpoints: `GET /admin/usuarios/empleados-pendientes` (empleados sin cuenta) y `POST /admin/usuarios/provisionar` (crea acceso asesor + módulos + vincula al empleado, con rollback si algo falla). GH: `crear` empleado ya **no** exige `userId`; se quitó `cuentas-vinculables`.
+- **Web**: `usuarios/` movido a **`/backoffice/ti/usuarios`** (con `ti/layout.tsx` guard de módulo y `ti/page.tsx` que redirige). Sidebar: **TI → Usuarios** (icono `Cpu`); se quitó el enlace admin suelto de Usuarios del shell. GH `nuevo` sin selector de cuenta; GH detalle muestra **estado de cuenta** (Activa / Pendiente de TI). TI/Usuarios: sección **"Empleados pendientes de cuenta"** + `ProvisionarCuentaModal` (correo prefijado, contraseña, módulos).
+- **Verificado**: typecheck types+API+web OK · build de producción OK · **E2E en vivo 17/17** (RRHH crea sin cuenta → pendiente → TI provisiona → vinculado y fuera de pendientes → login del nuevo acceso OK → módulos correctos → 409 al re-provisionar → **asesor TI no puede cambiar rol: 403**). Datos de prueba limpiados (0 empleados, 2 cuentas originales).
+- ⚠️ Recordatorio local: si al probar dan 404 rutas nuevas de la API, matar la instancia previa en el puerto 4000 antes de relanzar.
 
 ---
 

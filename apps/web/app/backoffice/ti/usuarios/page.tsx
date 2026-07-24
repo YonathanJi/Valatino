@@ -7,9 +7,13 @@ import { Button } from "@components/ui/button";
 import { EditarUsuarioModal } from "@components/backoffice/EditarUsuarioModal";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-import { Pencil, Trash2, Users } from "lucide-react";
+import { Pencil, Trash2, Users, UserPlus } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
+import {
+  ProvisionarCuentaModal,
+  type EmpleadoPendiente,
+} from "@components/backoffice/ProvisionarCuentaModal";
 
 interface StaffMiembro {
   user_id: string;
@@ -35,6 +39,10 @@ export default function BackofficeUsuariosPage() {
   const [editingUser, setEditingUser] = useState<StaffMiembro | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
 
+  // Empleados de RRHH pendientes de cuenta + provisión
+  const [pendientes, setPendientes] = useState<EmpleadoPendiente[]>([]);
+  const [provisionando, setProvisionando] = useState<EmpleadoPendiente | null>(null);
+
   const loadStaff = async () => {
     try {
       setStaff(await apiFetch<StaffMiembro[]>("/admin/usuarios"));
@@ -45,8 +53,17 @@ export default function BackofficeUsuariosPage() {
     }
   };
 
+  const loadPendientes = async () => {
+    try {
+      setPendientes(await apiFetch<EmpleadoPendiente[]>("/admin/usuarios/empleados-pendientes"));
+    } catch {
+      /* el layout protege la ruta */
+    }
+  };
+
   useEffect(() => {
     void loadStaff();
+    void loadPendientes();
     void (async () => {
       const {
         data: { user },
@@ -94,9 +111,43 @@ export default function BackofficeUsuariosPage() {
     <div className="p-6 space-y-6">
       <PageHeader
         icon={Users}
-        title="Gestión de Usuarios"
-        description="Crea asesores y decide qué módulos puede ver cada uno"
+        title="Usuarios"
+        description="Cuentas de acceso, contraseñas y módulos del personal (módulo TI)"
       />
+
+      {/* Empleados de RRHH pendientes de cuenta */}
+      {pendientes.length > 0 && (
+        <div className="rounded-xl border bg-card">
+          <div className="border-b p-4">
+            <h2 className="font-semibold">Empleados pendientes de cuenta ({pendientes.length})</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Personal creado por Gestión Humana que aún no tiene acceso al sistema
+            </p>
+          </div>
+          <ul className="divide-y">
+            {pendientes.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    <span className="mr-2 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
+                      {p.codigo_empleado}
+                    </span>
+                    {p.nombre_completo}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {p.correo_empresa}
+                    {p.cargo_codigo ? ` · ${p.cargo_codigo} — ${p.cargo_nombre}` : ""}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setProvisionando(p)}>
+                  <UserPlus className="mr-1.5 h-4 w-4" />
+                  Crear cuenta
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Crear asesor */}
       <form onSubmit={crearAsesor} className="rounded-xl border bg-card p-6 space-y-4">
@@ -268,6 +319,18 @@ export default function BackofficeUsuariosPage() {
           esUnoMismo={editingUser.user_id === myUserId}
           onClose={() => setEditingUser(null)}
           onUpdated={() => void loadStaff()}
+        />
+      )}
+
+      {provisionando && (
+        <ProvisionarCuentaModal
+          empleado={provisionando}
+          onClose={() => setProvisionando(null)}
+          onProvisioned={() => {
+            setProvisionando(null);
+            void loadStaff();
+            void loadPendientes();
+          }}
         />
       )}
     </div>

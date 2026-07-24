@@ -12,10 +12,8 @@ import {
 } from "class-validator";
 import { TIPOS_CONTRATACION, type TipoContratacion } from "@valatino/types";
 
+// El empleado se crea SIN cuenta de acceso (RRHH contrata; TI provisiona luego).
 export class CrearEmpleadoDto {
-  @IsUUID("4", { message: "userId debe ser un UUID válido" })
-  userId!: string;
-
   @IsString()
   @MinLength(2, { message: "nombreCompleto debe tener al menos 2 caracteres" })
   @MaxLength(200)

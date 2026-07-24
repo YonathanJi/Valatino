@@ -3,13 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Users, UserCircle } from "lucide-react";
+import { Menu, UserCircle } from "lucide-react";
 import { LogoutButton } from "@components/backoffice/LogoutButton";
 import { SidebarNav, type SidebarNavItem } from "@components/backoffice/SidebarNav";
 
 interface BackofficeShellProps {
   items: SidebarNavItem[];
-  isAdmin: boolean;
   showNoModulos: boolean;
   email: string | null;
   role: string;
@@ -18,7 +17,6 @@ interface BackofficeShellProps {
 
 export function BackofficeShell({
   items,
-  isAdmin,
   showNoModulos,
   email,
   role,
@@ -45,12 +43,6 @@ export function BackofficeShell({
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         <SidebarNav items={items} />
-        {isAdmin && (
-          <Link href="/backoffice/usuarios" className={darkLink}>
-            <Users className="h-[18px] w-[18px] shrink-0" />
-            Usuarios
-          </Link>
-        )}
         {showNoModulos && (
           <p className="px-3 py-2 text-xs text-zinc-500">
             No tienes módulos asignados. Contacta con un administrador.

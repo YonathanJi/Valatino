@@ -18,7 +18,9 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { JwtGuard } from "./guards/jwt.guard";
 import { RolesGuard } from "./guards/roles.guard";
+import { ModulosGuard } from "./guards/modulos.guard";
 import { Roles } from "./decorators/roles.decorator";
+import { Modulo } from "./decorators/modulo.decorator";
 import { CurrentUser } from "./decorators/current-user.decorator";
 import { AssignRoleDto } from "./dto/assign-role.dto";
 import { CreateAsesorDto } from "./dto/create-asesor.dto";
@@ -26,6 +28,7 @@ import { UpdateModulosDto } from "./dto/update-modulos.dto";
 import { UpdateUsuarioDto } from "./dto/update-usuario.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { UpdateRolDto } from "./dto/update-rol.dto";
+import { ProvisionarCuentaDto } from "./dto/provisionar-cuenta.dto";
 import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
 
 interface StaffMiembro {
@@ -37,9 +40,13 @@ interface StaffMiembro {
   created_at: string;
 }
 
+// Usuarios vive dentro del módulo "TI": admin siempre; un asesor de TI puede
+// gestionar cuentas, contraseñas y módulos. Cambiar el ROL (dar/quitar admin)
+// queda reservado a admin (ver @Roles("admin") en updateRol).
 @Controller("admin/usuarios")
-@UseGuards(JwtGuard, RolesGuard)
-@Roles("admin")
+@UseGuards(JwtGuard, RolesGuard, ModulosGuard)
+@Roles("admin", "asesor")
+@Modulo("ti")
 export class UsuariosController {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
@@ -146,6 +153,99 @@ export class UsuariosController {
     };
   }
 
+  /** Empleados creados por RRHH que aún no tienen cuenta de acceso. */
+  @Get("empleados-pendientes")
+  async empleadosPendientes() {
+    const { data, error } = await this.supabase
+      .from("empleados")
+      .select("id, codigo_empleado, nombre_completo, correo_empresa, cargos(codigo, nombre)")
+      .is("user_id", null)
+      .order("nombre_completo");
+    if (error) {
+      throw new InternalServerErrorException("No se pudieron cargar los empleados pendientes");
+    }
+    return (
+      (data ?? []) as unknown as {
+        id: string;
+        codigo_empleado: string;
+        nombre_completo: string;
+        correo_empresa: string;
+        cargos: { codigo: string; nombre: string } | null;
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      codigo_empleado: r.codigo_empleado,
+      nombre_completo: r.nombre_completo,
+      correo_empresa: r.correo_empresa,
+      cargo_codigo: r.cargos?.codigo ?? null,
+      cargo_nombre: r.cargos?.nombre ?? null,
+    }));
+  }
+
+  /** TI provisiona la cuenta de un empleado: crea el acceso, rol y módulos y lo vincula. */
+  @Post("provisionar")
+  async provisionarCuenta(
+    @Body() dto: ProvisionarCuentaDto,
+    @CurrentUser() creator: JwtPayload,
+  ) {
+    const { data: emp, error: empError } = await this.supabase
+      .from("empleados")
+      .select("id, user_id, nombre_completo")
+      .eq("id", dto.empleadoId)
+      .maybeSingle();
+    if (empError) throw new InternalServerErrorException("No se pudo comprobar el empleado");
+    if (!emp) throw new NotFoundException("Empleado no encontrado");
+    if ((emp as { user_id: string | null }).user_id) {
+      throw new ConflictException("El empleado ya tiene una cuenta asignada");
+    }
+
+    const { data: created, error: createError } = await this.supabase.auth.admin.createUser({
+      email: dto.email.toLowerCase(),
+      password: dto.password,
+      email_confirm: true,
+      user_metadata: { nombre: (emp as { nombre_completo: string }).nombre_completo },
+    });
+    if (createError) {
+      if (createError.code === "email_exists") {
+        throw new ConflictException("Ya existe un usuario con ese email");
+      }
+      throw new InternalServerErrorException(`No se pudo crear la cuenta: ${createError.message}`);
+    }
+    const userId = created.user.id;
+
+    try {
+      const { data: rolAsesor } = await this.supabase
+        .from("roles")
+        .select("id")
+        .eq("nombre", "asesor")
+        .single();
+      if (!rolAsesor) throw new InternalServerErrorException("Rol 'asesor' no encontrado");
+
+      // El trigger asigna 'cliente' por defecto: se reemplaza por 'asesor'.
+      await this.supabase.from("user_roles").delete().eq("user_id", userId);
+      const { error: rolError } = await this.supabase.from("user_roles").insert({
+        user_id: userId,
+        role_id: (rolAsesor as { id: string }).id,
+        asignado_por: creator.sub,
+      });
+      if (rolError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
+
+      await this.reemplazarModulos(userId, dto.modulos, creator.sub);
+
+      const { error: linkError } = await this.supabase
+        .from("empleados")
+        .update({ user_id: userId, updated_at: new Date().toISOString() })
+        .eq("id", dto.empleadoId);
+      if (linkError) throw new InternalServerErrorException("No se pudo vincular la cuenta");
+    } catch (e) {
+      // Rollback: si algo falla tras crear el acceso, se elimina para no dejar huérfanos.
+      await this.supabase.auth.admin.deleteUser(userId);
+      throw e;
+    }
+
+    return { message: "Cuenta provisionada", user_id: userId };
+  }
+
   @Patch(":id")
   async updateUsuario(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
@@ -211,6 +311,7 @@ export class UsuariosController {
   }
 
   @Patch(":id/rol")
+  @Roles("admin")
   async updateRol(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @Body() dto: UpdateRolDto,
