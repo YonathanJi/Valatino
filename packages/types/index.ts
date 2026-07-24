@@ -324,6 +324,10 @@ export interface Cargo {
 
 export interface Empleado {
   id: string;
+  /** Nº correlativo estable e inmutable (BD, identity). */
+  numero_empleado: number;
+  /** Código legible derivado del número: "EMP-0001". Único e inmutable. */
+  codigo_empleado: string;
   user_id: string;
   nombre_completo: string;
   documento: string;
@@ -348,6 +352,7 @@ export interface Empleado {
 export interface EmpleadoHistorialMensual {
   id: string;
   empleado_id: string;
+  codigo_empleado: string | null;
   anio: number;
   mes: number;
   nombre_completo: string;

@@ -147,8 +147,13 @@ export default function GestionHumanaPage() {
                 {empleados.map((e) => (
                   <tr key={e.id} className="border-b last:border-0">
                     <td className="px-4 py-3">
-                      <p className="font-medium">{e.nombre_completo}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs font-medium text-primary">
+                          {e.codigo_empleado}
+                        </span>
+                        <p className="font-medium">{e.nombre_completo}</p>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
                         {e.documento} · {e.correo_empresa}
                       </p>
                     </td>

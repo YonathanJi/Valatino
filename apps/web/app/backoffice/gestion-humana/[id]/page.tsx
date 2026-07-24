@@ -31,6 +31,7 @@ export default function EmpleadoDetallePage() {
 
   const [cargos, setCargos] = useState<Cargo[]>([]);
   const [historial, setHistorial] = useState<EmpleadoHistorialMensual[]>([]);
+  const [codigo, setCodigo] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
@@ -77,6 +78,7 @@ export default function EmpleadoDetallePage() {
         apiFetch<Cargo[]>("/admin/gestion-humana/cargos"),
       ]);
       hidratar(detalle.empleado);
+      setCodigo(detalle.empleado.codigo_empleado);
       setHistorial(detalle.historial);
       setCargos(c);
     } catch (err) {
@@ -137,7 +139,7 @@ export default function EmpleadoDetallePage() {
         icon={Briefcase}
         back={{ href: "/backoffice/gestion-humana", label: "Gestión Humana" }}
         title={form.nombreCompleto || "Empleado"}
-        description={`${form.documento} · ${form.correoEmpresa}`}
+        description={`${codigo ? codigo + " · " : ""}${form.documento} · ${form.correoEmpresa}`}
       />
 
       <form onSubmit={guardar} className="space-y-5 rounded-xl border bg-card p-6">
