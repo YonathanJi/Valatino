@@ -30,6 +30,18 @@
 
 ---
 
+## Sesión 2026-07-24 (cont.) — Bloqueo de cuentas y borrado por capas
+
+Acciones destructivas del staff, **solo súper admin**. Commit desplegado. Sin migración (bloqueo vía ban de Supabase; borrado de empleado sobre lo ya existente).
+
+- **Bloquear/desbloquear cuenta (TI)**: `PATCH /admin/usuarios/:id/bloqueo` (`@Roles("admin")`) usa `auth.admin.updateUserById` con `ban_duration` (`876000h` bloquea, `none` desbloquea). No puedes bloquearte a ti mismo; solo cuentas de asesor. `findAll` ahora trae `bloqueado` (de `listUsers().banned_until`). Web: badge "Bloqueada" + botón bloquear/desbloquear (icono `Ban`/`ShieldCheck`), solo admin.
+- **Eliminar cuenta (TI)**: `removeAsesor` pasa a `@Roles("admin")` (antes cualquier TI). Al borrar la cuenta, `empleados.user_id` queda a null (la persona sigue en RRHH).
+- **Eliminar empleado (GH)**: `DELETE /admin/gestion-humana/empleados/:id` (`@Roles("admin")`). ⚠️ **Bloqueado con 409 si el empleado aún tiene cuenta** → TI debe eliminarla primero (separación por capas, decisión de Jonathan). `GET /admin/gestion-humana/permisos` → `{ esAdmin }` para que la UI muestre el botón. Web: sección "Eliminar empleado" en el detalle (deshabilitada si tiene cuenta, con aviso).
+- **Verificado E2E en vivo 15/15**: empleado sin cuenta se elimina; con cuenta → 409; bloquear cuenta → el **login del usuario falla de verdad**; desbloquear → vuelve a entrar; quitar cuenta en TI → luego GH ya puede eliminar la ficha. Datos de prueba limpiados.
+- 🧹 **Pendiente menor (no urgente)**: existe un `auth.users` huérfano **`admin@valatino.es`** (creado 2026-07-03, **sin rol ni profile**, no accede a nada) previo a estas sesiones. Se puede borrar cuando se quiera; no se tocó por no haberlo creado nosotros.
+
+---
+
 ## Sesión 2026-07-24 — Flujo por capas RRHH → TI (Usuarios pasa a ser el módulo TI)
 
 Reorganización para imitar el flujo real de empresa: **Gestión Humana contrata** (persona + cargo, sin cuenta) → **TI provisiona** (correo + contraseña + módulos) y vincula la cuenta. Commits desplegados. Migración **032**.

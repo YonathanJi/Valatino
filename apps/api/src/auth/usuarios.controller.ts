@@ -29,6 +29,7 @@ import { UpdateUsuarioDto } from "./dto/update-usuario.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { UpdateRolDto } from "./dto/update-rol.dto";
 import { ProvisionarCuentaDto } from "./dto/provisionar-cuenta.dto";
+import { BloqueoDto } from "./dto/bloqueo.dto";
 import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
 
 interface StaffMiembro {
@@ -37,6 +38,7 @@ interface StaffMiembro {
   nombre: string | null;
   rol: UserRole;
   modulos: StaffModulo[];
+  bloqueado: boolean;
   created_at: string;
 }
 
@@ -68,10 +70,18 @@ export class UsuariosController {
 
     const userIds = rows.map((r) => r.user_id);
 
-    const [{ data: modulosData }, { data: profilesData }] = await Promise.all([
+    const [{ data: modulosData }, { data: profilesData }, { data: usersData }] = await Promise.all([
       this.supabase.from("staff_modulos").select("user_id, modulo").in("user_id", userIds),
       this.supabase.from("profiles").select("id, email, nombre").in("id", userIds),
+      this.supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
     ]);
+
+    const ahora = new Date();
+    const bloqueados = new Set(
+      ((usersData?.users ?? []) as { id: string; banned_until?: string | null }[])
+        .filter((u) => u.banned_until != null && new Date(u.banned_until) > ahora)
+        .map((u) => u.id),
+    );
 
     const modulosPorUsuario = new Map<string, StaffModulo[]>();
     for (const m of (modulosData ?? []) as { user_id: string; modulo: StaffModulo }[]) {
@@ -92,6 +102,7 @@ export class UsuariosController {
       nombre: perfilPorUsuario.get(r.user_id)?.nombre ?? null,
       rol: r.roles.nombre,
       modulos: r.roles.nombre === "admin" ? [] : (modulosPorUsuario.get(r.user_id) ?? []),
+      bloqueado: bloqueados.has(r.user_id),
       created_at: r.created_at,
     }));
   }
@@ -149,6 +160,7 @@ export class UsuariosController {
       nombre: dto.nombre,
       rol: "asesor",
       modulos: dto.modulos,
+      bloqueado: false,
       created_at: created.user.created_at,
     };
   }
@@ -400,7 +412,35 @@ export class UsuariosController {
     return { message: "Módulos actualizados", modulos: dto.modulos };
   }
 
+  @Patch(":id/bloqueo")
+  @Roles("admin")
+  async setBloqueo(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: BloqueoDto,
+    @CurrentUser() editor: JwtPayload,
+  ) {
+    if (id === editor.sub) throw new BadRequestException("No puedes bloquear tu propia cuenta");
+
+    const rol = await this.fetchRol(id);
+    if (rol !== "asesor") {
+      throw new BadRequestException("Solo se pueden bloquear cuentas de asesor");
+    }
+
+    const { error } = await this.supabase.auth.admin.updateUserById(id, {
+      // ban_duration "none" desbloquea; una duración larga bloquea el acceso.
+      ban_duration: dto.bloquear ? "876000h" : "none",
+    });
+    if (error) {
+      throw new InternalServerErrorException(`No se pudo actualizar el bloqueo: ${error.message}`);
+    }
+    return {
+      message: dto.bloquear ? "Cuenta bloqueada" : "Cuenta desbloqueada",
+      bloqueado: dto.bloquear,
+    };
+  }
+
   @Delete(":id")
+  @Roles("admin")
   async removeAsesor(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @CurrentUser() editor: JwtPayload,
@@ -415,7 +455,8 @@ export class UsuariosController {
     const { error } = await this.supabase.auth.admin.deleteUser(id);
     if (error) throw new InternalServerErrorException("No se pudo eliminar el asesor");
 
-    // user_roles y staff_modulos caen en cascada con auth.users.
+    // user_roles y staff_modulos caen en cascada con auth.users; empleados.user_id
+    // queda a null (ON DELETE SET NULL): la persona sigue en Gestión Humana.
     return { message: "Asesor eliminado" };
   }
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Briefcase } from "lucide-react";
+import { Briefcase, Trash2 } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { PageHeader } from "@components/backoffice/PageHeader";
@@ -33,8 +33,11 @@ export default function EmpleadoDetallePage() {
   const [historial, setHistorial] = useState<EmpleadoHistorialMensual[]>([]);
   const [codigo, setCodigo] = useState("");
   const [tieneCuenta, setTieneCuenta] = useState(false);
+  const [esAdmin, setEsAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const router = useRouter();
 
   const [form, setForm] = useState({
     nombreCompleto: "",
@@ -72,15 +75,17 @@ export default function EmpleadoDetallePage() {
 
   const cargar = async () => {
     try {
-      const [detalle, c] = await Promise.all([
+      const [detalle, c, permisos] = await Promise.all([
         apiFetch<{ empleado: Empleado; historial: EmpleadoHistorialMensual[] }>(
           `/admin/gestion-humana/empleados/${id}`,
         ),
         apiFetch<Cargo[]>("/admin/gestion-humana/cargos"),
+        apiFetch<{ esAdmin: boolean }>("/admin/gestion-humana/permisos"),
       ]);
       hidratar(detalle.empleado);
       setCodigo(detalle.empleado.codigo_empleado);
       setTieneCuenta(detalle.empleado.user_id != null);
+      setEsAdmin(permisos.esAdmin);
       setHistorial(detalle.historial);
       setCargos(c);
     } catch (err) {
@@ -120,6 +125,21 @@ export default function EmpleadoDetallePage() {
       toast.error(err instanceof ApiError ? err.message : "No se pudo guardar");
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const eliminar = async () => {
+    if (!window.confirm("¿Eliminar la ficha de este empleado? Esta acción no se puede deshacer."))
+      return;
+    setEliminando(true);
+    try {
+      await apiFetch(`/admin/gestion-humana/empleados/${id}`, { method: "DELETE" });
+      toast.success("Empleado eliminado");
+      router.push("/backoffice/gestion-humana");
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo eliminar");
+      setEliminando(false);
     }
   };
 
@@ -355,6 +375,31 @@ export default function EmpleadoDetallePage() {
           </div>
         )}
       </div>
+
+      {esAdmin && (
+        <div className="rounded-xl border border-red-200 bg-card p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="font-semibold text-red-700">Eliminar empleado</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {tieneCuenta
+                  ? "Este empleado tiene cuenta de acceso: TI debe eliminarla primero (TI → Usuarios)."
+                  : "Borra la ficha y su histórico. Acción irreversible."}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void eliminar()}
+              disabled={tieneCuenta || eliminando}
+              className="shrink-0 border-red-300 text-red-600 hover:bg-red-50"
+            >
+              <Trash2 className="mr-1.5 h-4 w-4" />
+              {eliminando ? "Eliminando…" : "Eliminar"}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

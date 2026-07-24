@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -16,9 +17,11 @@ import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
 import { Modulo } from "../auth/decorators/modulo.decorator";
+import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { CrearEmpleadoDto } from "./dto/crear-empleado.dto";
 import { ActualizarEmpleadoDto } from "./dto/actualizar-empleado.dto";
 import { GenerarHistorialDto } from "./dto/generar-historial.dto";
+import type { JwtPayload } from "@valatino/types";
 
 /** Gestión Humana — admin siempre; asesores solo con el módulo otorgado. */
 @Controller("admin/gestion-humana")
@@ -31,6 +34,12 @@ export class GestionHumanaController {
   @Get("cargos")
   listarCargos() {
     return this.service.listarCargos();
+  }
+
+  /** Para la UI: si el usuario actual es admin (puede eliminar fichas). */
+  @Get("permisos")
+  permisos(@CurrentUser() user: JwtPayload) {
+    return { esAdmin: user.role === "admin" };
   }
 
   @Get("empleados")
@@ -54,6 +63,12 @@ export class GestionHumanaController {
     @Body() dto: ActualizarEmpleadoDto,
   ) {
     return this.service.actualizar(id, dto);
+  }
+
+  @Delete("empleados/:id")
+  @Roles("admin")
+  eliminar(@Param("id", new ParseUUIDPipe({ version: "4" })) id: string) {
+    return this.service.eliminarEmpleado(id);
   }
 
   @Post("historial/generar")

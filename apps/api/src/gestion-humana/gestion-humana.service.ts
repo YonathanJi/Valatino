@@ -72,6 +72,27 @@ export class GestionHumanaService {
     };
   }
 
+  /** Elimina la ficha del empleado (y su histórico en cascada). Bloqueado si aún
+   *  tiene cuenta de acceso: TI debe eliminarla primero (separación por capas). */
+  async eliminarEmpleado(id: string): Promise<{ message: string }> {
+    const { data, error } = await this.supabase
+      .from("empleados")
+      .select("id, user_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (error) throw new InternalServerErrorException("No se pudo comprobar el empleado");
+    if (!data) throw new NotFoundException("Empleado no encontrado");
+    if ((data as { user_id: string | null }).user_id) {
+      throw new ConflictException(
+        "El empleado tiene una cuenta de acceso. Pide a TI que la elimine antes de borrar la ficha.",
+      );
+    }
+
+    const { error: delError } = await this.supabase.from("empleados").delete().eq("id", id);
+    if (delError) throw new InternalServerErrorException("No se pudo eliminar el empleado");
+    return { message: "Empleado eliminado" };
+  }
+
   async crear(dto: CrearEmpleadoDto): Promise<Empleado> {
     const { data, error } = await this.supabase
       .from("empleados")

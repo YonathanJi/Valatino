@@ -7,7 +7,7 @@ import { Button } from "@components/ui/button";
 import { EditarUsuarioModal } from "@components/backoffice/EditarUsuarioModal";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-import { Pencil, Trash2, Users, UserPlus } from "lucide-react";
+import { Pencil, Trash2, Users, UserPlus, Ban, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
 import {
@@ -21,6 +21,7 @@ interface StaffMiembro {
   nombre: string | null;
   rol: UserRole;
   modulos: StaffModulo[];
+  bloqueado: boolean;
   created_at: string;
 }
 
@@ -106,6 +107,25 @@ export default function BackofficeUsuariosPage() {
       toast.error(err instanceof ApiError ? err.message : "Error al eliminar");
     }
   };
+
+  const toggleBloqueo = async (miembro: StaffMiembro) => {
+    const bloquear = !miembro.bloqueado;
+    if (!window.confirm(`¿${bloquear ? "Bloquear" : "Desbloquear"} la cuenta de ${miembro.email}?`))
+      return;
+    try {
+      await apiFetch(`/admin/usuarios/${miembro.user_id}/bloqueo`, {
+        method: "PATCH",
+        body: JSON.stringify({ bloquear }),
+      });
+      toast.success(bloquear ? "Cuenta bloqueada" : "Cuenta desbloqueada");
+      void loadStaff();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al actualizar el bloqueo");
+    }
+  };
+
+  // Solo el súper admin ve las acciones destructivas (bloquear / eliminar).
+  const esAdmin = staff.some((u) => u.user_id === myUserId && u.rol === "admin");
 
   return (
     <div className="p-6 space-y-6">
@@ -251,6 +271,11 @@ export default function BackofficeUsuariosPage() {
                       >
                         {u.rol === "admin" ? "súper admin" : u.rol}
                       </span>
+                      {u.bloqueado && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                          Bloqueada
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {u.rol === "admin" ? (
@@ -292,16 +317,33 @@ export default function BackofficeUsuariosPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        {u.rol === "asesor" && u.user_id !== myUserId && (
-                          <button
-                            type="button"
-                            onClick={() => void eliminarAsesor(u)}
-                            title="Eliminar"
-                            aria-label={`Eliminar ${u.nombre ?? u.email ?? "asesor"}`}
-                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        {esAdmin && u.rol === "asesor" && u.user_id !== myUserId && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void toggleBloqueo(u)}
+                              title={u.bloqueado ? "Desbloquear" : "Bloquear"}
+                              aria-label={`${u.bloqueado ? "Desbloquear" : "Bloquear"} ${
+                                u.nombre ?? u.email ?? "cuenta"
+                              }`}
+                              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            >
+                              {u.bloqueado ? (
+                                <ShieldCheck className="h-4 w-4" />
+                              ) : (
+                                <Ban className="h-4 w-4" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void eliminarAsesor(u)}
+                              title="Eliminar"
+                              aria-label={`Eliminar ${u.nombre ?? u.email ?? "asesor"}`}
+                              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
