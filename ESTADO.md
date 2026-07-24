@@ -12,10 +12,11 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (script en scratchpad de la sesión / patrón `apply-migration.ps1`), NO `supabase db push`. Última aplicada: **029** (IVA en compras). Migraciones 024–029 nuevas esta racha.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **030** (Gestión Humana). Migraciones 024–030 nuevas esta racha.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
+- **Módulo Gestión Humana (2026-07-23)**: nuevo módulo `gestion_humana` (empleados + cargos + histórico mensual). ⚠️ **Empleados vinculados 1:1 a una cuenta de acceso** (auth.users): para dar de alta un empleado, la cuenta debe existir antes en `/backoffice/usuarios`. Hoy hay 2 cuentas (admin + asesora) → máx. 2 empleados hasta crear más cuentas. El histórico se puebla con el botón «Generar histórico» (mes a mes). Ver sesión 2026-07-23.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
@@ -75,6 +76,22 @@
 
 ### 🔒 Nota de seguridad (consultada por Jonathan, sin cambios de código)
 - "Sigo logueado como admin al reabrir la web" es **comportamiento normal** (persistencia de sesión por navegador/dispositivo), **no** un agujero remoto: un cliente desde su propio dispositivo nunca ve tu sesión. El acceso al panel está gateado **por rol y en el servidor** (middleware + layout que redirige a no-staff + guards `@Roles` de la API + rol leído de `user_roles`, nunca de metadata). Único riesgo real: **dispositivo compartido** sin cerrar sesión → mitigación: usar "Cerrar sesión". Jonathan decidió **dejarlo como está** (opciones ofrecidas: auto-logout por inactividad / ajustar duración de sesión).
+
+### ✅ Módulo de Gestión Humana (RRHH) — empleados, cargos e histórico mensual
+
+Nuevo módulo del backoffice `gestion_humana` (asignable a asesores; admin siempre). Commit `35883a7`, desplegado.
+
+- **Migración 030** (aplicada por Management API vía tool MCP `apply_migration`, verificada):
+  - **`cargos`**: los "roles" de RRHH con **identificador único** (`codigo`). Semilla de 6: `GER` Gerente General · `DIRCOM` Director Comercial · `DIROP` Director de Operaciones · `DIRADM` Director Administrativo y Financiero · `COORTH` Coordinador de Talento Humano · `ASECOM` Asesor Comercial.
+  - **`empleados`**: `user_id` NOT NULL UNIQUE → `auth.users` ON DELETE CASCADE (**cada empleado se vincula 1:1 a una cuenta de acceso**), documento (unique), teléfono, `correo_personal`, `correo_empresa` (unique), `cargo_id` FK, `tipo_contratacion` (CHECK, contexto España: Indefinido/Temporal/Prácticas/Formación en alternancia/Fijo discontinuo/Autónomo·Mercantil), `fecha_vinculacion`, `fecha_desvinculacion`, `salario` (opcional), `activo`, notas.
+  - **`empleado_historial_mensual`**: snapshot por `(empleado_id, anio, mes)` **unique** → historia mes a mes (nombre, cargo, contrato, correo, salario, estado, fecha vinculación). RPC **`generar_historial_gh(anio, mes)`** idempotente (upsert; solo empleados ya vinculados a fecha del mes). EXECUTE revocado de anon/authenticated.
+  - RLS activa **sin policies** en las 3 tablas (solo service_role). CHECK de `staff_modulos` ampliado con `'gestion_humana'`.
+- **Tipos** (`@valatino/types`): `StaffModulo` += `gestion_humana`; `TIPOS_CONTRATACION`, `Cargo`, `Empleado`, `EmpleadoHistorialMensual`, `CuentaVinculable`.
+- **API** (`apps/api/src/gestion-humana/`, `@Roles("admin","asesor")` + `@Modulo("gestion_humana")`): `GET cargos`, `GET cuentas-vinculables` (staff sin empleado), `GET/POST empleados`, `GET empleados/:id` (detalle + histórico), `PATCH empleados/:id`, `POST historial/generar`, `GET historial?anio=&mes=`. 409 en documento/correo_empresa/cuenta duplicados; 400 en cargo/cuenta inválidos.
+- **Web** (`/backoffice/gestion-humana`): lista + generador de histórico mensual (selector mes/año), alta (`nuevo` — vincula cuenta + datos), detalle (`[id]` — edición + histórico del empleado). Sidebar e icono `Briefcase` integrados; `PageHeader` en las 3 páginas.
+- **Verificado**: typecheck types+API+web OK · **build de producción OK** · **E2E en vivo (login admin real) 19/19** (alta, validaciones, edición de cargo/salario, generar histórico enero+julio idempotente, lectura de snapshots, 401 anónimo). Datos de prueba limpiados (0 empleados, 6 cargos).
+- ⚠️ **Decisión con impacto**: empleados vinculados a cuenta de login → sin cuenta previa (en `/backoffice/usuarios`) no se puede crear el empleado. Hoy 2 cuentas → máx. 2 empleados. Alternativa futura si se quiere: permitir empleados sin cuenta (hacer `user_id` opcional) o crear la cuenta desde el alta del empleado.
+- ⚠️ Incidencia de la sesión (resuelta): al probar E2E, un proceso viejo de la API seguía en el puerto 4000 sirviendo código antiguo (`EADDRINUSE`) → daba 404 en las rutas nuevas. Se mató el PID del 4000 y se relanzó. Recordatorio: si las rutas nuevas dan 404 en local, comprobar que no haya una instancia previa de la API ocupando el 4000.
 
 ---
 
