@@ -72,10 +72,22 @@ Del mismo principio sale el corte anti-duplicado del correo: el webhook solo avi
 - `SMTP_PORT` **por defecto 2525** (Render free bloquea 465/587) y **`requireTLS` obligatorio** cuando no es 465: en 2525 la conexión abre en claro y se eleva con STARTTLS, y sin exigirlo las credenciales podrían viajar sin cifrar.
 - Tests: **85** (8 suites). Nuevos: `reembolsos.service.spec.ts` (16) y `plantillas.spec.ts` (11).
 
-### Desplegado y verificado en línea (commit `749ab01`)
+### Desplegado y PROBADO end-to-end en producción (commit `749ab01`)
 `POST /admin/pedidos/:id/reembolso` pasó de **404 a 401** (la ruta existe y exige sesión) · `/health` 200 · catálogo público 200 · `/admin/pedidos` sin token 401 · tienda y `/admin` 200.
 
-⚠️ **Sin probar en vivo el flujo completo**: hace falta una **compra nueva**. El único pedido de la BD (`260725018055`) ya está en `REEMBOLSADO` de una prueba anterior, y ese es un estado final, así que no ofrece botón de reembolsar. Los pedidos nacen en `PROCESANDO` (migración 033), así que la secuencia a probar es: comprar → correo de confirmación → «Enviado» (correo *va en camino*) → «Entregado» → reembolso parcial (el pedido **no** cambia de estado, se ve `−X € devuelto`) → reembolso del resto (pasa a `REEMBOLSADO` y **el stock sube una sola vez**). Vale la pena mirar el inventario antes/después y contar que llega **un** correo por devolución, no dos.
+**Jonathan probó el flujo completo el 2026-07-25**: pedido `260725018467` (0,50 €, Nucita), correos recibidos y **reembolso aplicado de verdad en Stripe**. Los datos de la BD confirman el diseño mejor que cualquier test:
+
+| Hora | Evento | `evento_id` | Importe |
+| --- | --- | --- | --- |
+| 21:23:03 | `payment_intent.succeeded` | `evt_…0zbFI6Ao` | 0,50 |
+| 21:32:50.428 | `reembolso.backoffice` | **`re_`**`…0ha9sSGM` | 0,50 |
+| 21:32:51.323 | `charge.refunded` | **`evt_`**`…0Z9PJGiD` | 0,50 |
+
+- **El mismo reembolso quedó registrado dos veces**, con 0,9 s de diferencia y `evento_id` distinto (panel y webhook). Es exactamente el caso por el que `total_reembolsado` usa `MAX`: con `SUM` el panel diría «1,00 € devuelto» sobre un pedido de 0,50 € y bloquearía cualquier operación posterior.
+- **`pedidos.updated_at` = 21:32:50.18**, anterior a la fila del webhook. Si la llamada del webhook al RPC también hubiera actuado, esa marca sería de las 21:32:51.3. Devolvió `false` y no repuso stock por segunda vez.
+- **Stock verificado por descuadre**: Nucita tiene 36 disponibles y la factura de compra cargó 36 → **descuadre 0** con una unidad vendida y devuelta. Se repuso una sola vez.
+
+⚠️ **Descuadre preexistente de 1 unidad**: `Tostados la Gitana` tiene **2 de 3** compradas. Es del pedido `260725018055`, reembolsado a las **17:26**, cuatro horas antes de desplegar esto: pasó por el camino viejo (`actualizarEstadoPorReferencia`), que no reponía stock. Este cambio no puede arreglarlo hacia atrás. Si esa unidad sigue siendo vendible, **corregir desde Inventario** (+1) en lugar de con un UPDATE a mano, para que quede la traza del ajuste.
 
 ---
 
