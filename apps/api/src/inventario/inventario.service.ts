@@ -40,32 +40,11 @@ export interface CrearPedidoDto {
   direccionSnapshot?: DireccionSnapshotPedido;
 }
 
-// Códigos de método de pago para el número de pedido (01 stripe, 02 paypal;
-// reservados 03+ para futuros métodos). "00" = desconocido.
-const CODIGOS_METODO_PAGO: Record<string, string> = {
-  stripe: "01",
-  paypal: "02",
-};
-
 @Injectable()
 export class InventarioService {
   private readonly logger = new Logger(InventarioService.name);
 
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
-
-  /**
-   * Número de pedido legible: AAMMDD + código de método de pago + 4 dígitos
-   * aleatorios. Ej.: 260712016478 → 12/07/2026, stripe (01), sufijo 6478.
-   */
-  private generarNumeroPedido(metodoPago: string): string {
-    const ahora = new Date();
-    const aa = String(ahora.getFullYear() % 100).padStart(2, "0");
-    const mm = String(ahora.getMonth() + 1).padStart(2, "0");
-    const dd = String(ahora.getDate()).padStart(2, "0");
-    const codigo = CODIGOS_METODO_PAGO[metodoPago] ?? "00";
-    const sufijo = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
-    return `${aa}${mm}${dd}${codigo}${sufijo}`;
-  }
 
   /**
    * Idempotencia de webhooks: comprueba si un evento del proveedor de pagos
@@ -81,162 +60,38 @@ export class InventarioService {
     return Boolean(data);
   }
 
+  /**
+   * Confirma la venta con la RPC transaccional `confirmar_venta`: pedido +
+   * líneas + confirmación de stock + vaciado del carrito, todo o nada.
+   *
+   * Es idempotente por `referencia_pago` (con índice único en BD y lock por
+   * referencia): si el webhook se reintenta, devuelve el pedido ya creado en
+   * lugar de duplicarlo. Antes eran 6 llamadas sueltas y un fallo a mitad
+   * dejaba pedidos sin líneas o `stock_reservado` inflado.
+   */
   async confirmarVentaYCrearPedido(dto: CrearPedidoDto): Promise<string> {
-    // 1. Obtener ítems del carrito. Se localiza por el usuario AUTENTICADO
-    //    en el checkout (no por el dueño final del pedido: un invitado cuyo
-    //    email pertenece a una cuenta compró con el carrito de su sesión).
-    //    El carrito de invitado se filtra con user_id IS NULL: la misma
-    //    sesión puede tener además un carrito de usuario de un login previo.
-    const carritoQuery = dto.usuarioAutenticado
-      ? this.supabase.from("carritos").select("id").eq("user_id", dto.usuarioAutenticado).maybeSingle()
-      : this.supabase
-          .from("carritos")
-          .select("id")
-          .eq("session_id", dto.sessionId)
-          .is("user_id", null)
-          .maybeSingle();
-
-    const { data: carrito, error: carritoError } = await carritoQuery;
-    if (!carrito) {
-      this.logger.error(
-        `Carrito no encontrado al confirmar pago (session ${dto.sessionId}, auth ${dto.usuarioAutenticado ?? "-"})${carritoError ? `: ${carritoError.message}` : ""}`,
-      );
-      throw new UnprocessableEntityException("Carrito no encontrado al confirmar pago");
-    }
-
-    const carritoId = (carrito as { id: string }).id;
-
-    const { data: items } = await this.supabase
-      .from("carrito_items")
-      .select(`
-        cantidad,
-        precio_unitario,
-        producto:productos ( id, nombre, precio )
-      `)
-      .eq("carrito_id", carritoId);
-
-    if (!items || (items as unknown[]).length === 0) {
-      this.logger.error(
-        `Carrito vacío al confirmar pago (carrito ${carritoId}, session ${dto.sessionId}, auth ${dto.usuarioAutenticado ?? "-"})`,
-      );
-      throw new UnprocessableEntityException("Carrito vacío al confirmar pago");
-    }
-
-    type ItemConProducto = {
-      cantidad: number;
-      precio_unitario: number;
-      producto: { id: string; nombre: string; precio: number } | Array<{ id: string; nombre: string; precio: number }>;
-    };
-
-    const itemsTyped = items as unknown as ItemConProducto[];
-    const itemsFlatten = itemsTyped.map((i) => {
-      const prod = Array.isArray(i.producto) ? i.producto[0]! : i.producto;
-      return {
-        cantidad: i.cantidad,
-        precio_unitario: i.precio_unitario,
-        producto: prod,
-      };
-    });
-    const total = itemsFlatten.reduce(
-      (acc, i) => acc + Number(i.precio_unitario) * i.cantidad,
-      0,
-    );
-
-    // 2. Snapshot de dirección: si viene un id de dirección guardada, copiar
-    //    sus campos al pedido (protege el histórico ante ediciones/borrados)
-    let snapshot = dto.direccionSnapshot ?? null;
-    if (!snapshot && dto.direccionEnvioId) {
-      const { data: direccion } = await this.supabase
-        .from("direcciones_envio")
-        .select("nombre_destinatario, linea1, linea2, ciudad, codigo_postal, provincia, pais")
-        .eq("id", dto.direccionEnvioId)
-        .maybeSingle();
-
-      if (direccion) snapshot = direccion as DireccionSnapshotPedido;
-    }
-
-    // 3. Crear el pedido. El numero_pedido lleva un sufijo aleatorio de 4
-    //    dígitos con índice único: ante una colisión (23505) se reintenta
-    //    con un sufijo nuevo.
-    let pedidoId: string | null = null;
-
-    for (let intento = 0; intento < 5; intento++) {
-      const { data: pedido, error: pedidoError } = await this.supabase
-        .from("pedidos")
-        .insert({
-          numero_pedido: this.generarNumeroPedido(dto.metodoPago),
-          user_id: dto.userId || null,
-          estado: "PROCESANDO",
-          total,
-          metodo_pago: dto.metodoPago,
-          referencia_pago: dto.referenciaPago,
-          direccion_envio_id: dto.direccionEnvioId || null,
-          email_cliente: dto.emailCliente?.toLowerCase() || null,
-          documento_cliente: dto.documentoCliente || null,
-          envio_nombre: snapshot?.nombre_destinatario ?? null,
-          envio_linea1: snapshot?.linea1 ?? null,
-          envio_linea2: snapshot?.linea2 ?? null,
-          envio_ciudad: snapshot?.ciudad ?? null,
-          envio_codigo_postal: snapshot?.codigo_postal ?? null,
-          envio_provincia: snapshot?.provincia ?? null,
-          envio_pais: snapshot?.pais ?? null,
-        })
-        .select("id")
-        .single();
-
-      if (pedido) {
-        pedidoId = (pedido as { id: string }).id;
-        break;
-      }
-
-      if (pedidoError?.code === "23505" && pedidoError.message.includes("numero_pedido")) {
-        this.logger.warn(`Colisión de numero_pedido (intento ${intento + 1}); se reintenta`);
-        continue;
-      }
-
-      this.logger.error(`Error al crear pedido (ref ${dto.referenciaPago}): ${pedidoError?.message}`);
-      throw new UnprocessableEntityException("Error al crear el pedido");
-    }
-
-    if (!pedidoId) {
-      this.logger.error(`No se pudo generar numero_pedido único (ref ${dto.referenciaPago})`);
-      throw new UnprocessableEntityException("Error al crear el pedido");
-    }
-
-    // 4. Crear pedido_items (snapshot histórico)
-    const pedidoItems = itemsFlatten.map((i) => ({
-      pedido_id: pedidoId,
-      producto_id: i.producto.id,
-      nombre_producto: i.producto.nombre,
-      cantidad: i.cantidad,
-      precio_unitario: i.precio_unitario,
-    }));
-
-    const { error: itemsError } = await this.supabase.from("pedido_items").insert(pedidoItems);
-    if (itemsError) {
-      this.logger.error(`Error al crear pedido_items del pedido ${pedidoId}: ${itemsError.message}`);
-      throw new UnprocessableEntityException("Error al registrar los ítems del pedido");
-    }
-
-    // 5. Confirmar stock: eliminar reservas SOLO de los productos de este
-    //    pedido (no barrer toda la sesión: podría haber reservas de otros
-    //    intentos de checkout aún vigentes)
-    // Las reservas se crearon en el checkout con el usuario autenticado (o
-    // la sesión de invitado), no con el dueño final del pedido.
-    const { error: confirmarError } = await this.supabase.rpc("confirmar_stock", {
+    const { data, error } = await this.supabase.rpc("confirmar_venta", {
       p_session_id: dto.sessionId,
-      p_user_id: dto.usuarioAutenticado ?? null,
-      p_producto_ids: itemsFlatten.map((i) => i.producto.id),
+      p_usuario_autenticado: dto.usuarioAutenticado ?? null,
+      p_user_id: dto.userId ?? null,
+      p_metodo_pago: dto.metodoPago,
+      p_referencia_pago: dto.referenciaPago,
+      p_direccion_envio_id: dto.direccionEnvioId ?? null,
+      p_email_cliente: dto.emailCliente ?? null,
+      p_documento_cliente: dto.documentoCliente ?? null,
+      p_envio: dto.direccionSnapshot ?? null,
     });
 
-    if (confirmarError) {
-      this.logger.error(`Error al confirmar stock del pedido ${pedidoId}: ${confirmarError.message}`);
+    if (error || !data) {
+      this.logger.error(
+        `Error al confirmar la venta (ref ${dto.referenciaPago}, sesión ${dto.sessionId}, auth ${dto.usuarioAutenticado ?? "-"}): ${error?.message ?? "sin id de pedido"}`,
+      );
+      throw new UnprocessableEntityException(
+        error?.message ?? "No se pudo registrar el pedido",
+      );
     }
 
-    // 6. Vaciar el carrito
-    await this.supabase.from("carrito_items").delete().eq("carrito_id", carritoId);
-
-    return pedidoId;
+    return data as string;
   }
 
   /**
@@ -371,17 +226,20 @@ export class InventarioService {
   }
 
   /**
-   * Busca un pedido por id (utilidad para verificación post-pago).
+   * Busca un pedido por la referencia del proveedor de pago. El total sirve
+   * para distinguir un reembolso parcial de uno completo.
    */
-  async findPedidoPorReferencia(referenciaPago: string): Promise<{ id: string; estado: string } | null> {
+  async findPedidoPorReferencia(
+    referenciaPago: string,
+  ): Promise<{ id: string; estado: string; total: number } | null> {
     const { data } = await this.supabase
       .from("pedidos")
-      .select("id, estado")
+      .select("id, estado, total")
       .eq("referencia_pago", referenciaPago)
       .maybeSingle();
 
     if (!data) return null;
-    return data as { id: string; estado: string };
+    return data as { id: string; estado: string; total: number };
   }
 
   /**
