@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   InternalServerErrorException,
@@ -9,10 +10,20 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { transicionesPermitidas } from "@valatino/types";
 import type { PaginatedResponse, PedidoEstado } from "@valatino/types";
+import { InventarioService } from "../inventario/inventario.service";
+import { EmailService } from "../email/email.service";
+import { ReembolsosService } from "./reembolsos.service";
 
 @Injectable()
 export class PedidosService {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  private readonly logger = new Logger(PedidosService.name);
+
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly inventario: InventarioService,
+    private readonly email: EmailService,
+    private readonly reembolsos: ReembolsosService,
+  ) {}
 
   async findByUser(userId: string, page = 1, limit = 20): Promise<PaginatedResponse<unknown>> {
     const offset = (page - 1) * limit;
@@ -66,7 +77,19 @@ export class PedidosService {
       .range(offset, offset + limit - 1);
 
     if (error) throw new InternalServerErrorException("No se pudieron cargar los pedidos");
-    return { data: data ?? [], total: count ?? 0, page, limit };
+
+    // Lo ya devuelto de cada pedido, en UNA consulta para toda la página: el
+    // panel necesita saber cuánto queda por reembolsar y consultarlo fila a
+    // fila serían 20 viajes extra.
+    const pedidos = (data ?? []) as Array<{ id: string }>;
+    const reembolsados = await this.reembolsos.totalesReembolsados(pedidos.map((p) => p.id));
+
+    return {
+      data: pedidos.map((p) => ({ ...p, total_reembolsado: reembolsados.get(p.id) ?? 0 })),
+      total: count ?? 0,
+      page,
+      limit,
+    };
   }
 
   async vincularPorEmail(userId: string): Promise<{ vinculados: number }> {
@@ -137,6 +160,46 @@ export class PedidosService {
       .single();
 
     if (updateError) throw new InternalServerErrorException("No se pudo actualizar el pedido");
+
+    // Sin await a propósito: un envío SMTP tarda segundos (y en Render puede
+    // agotar los 20 s de timeout). El estado ya está guardado, así que hacer
+    // esperar al panel solo conseguiría que pareciera roto. Los fallos quedan
+    // en el log, nunca tumban la transición.
+    void this.notificarCambioEstado(pedidoId, nuevoEstado);
+
     return updated;
+  }
+
+  /** Avisa al cliente del nuevo estado de su pedido. No propaga errores. */
+  private async notificarCambioEstado(
+    pedidoId: string,
+    nuevoEstado: PedidoEstado,
+  ): Promise<void> {
+    try {
+      const pedido = await this.inventario.getPedidoConItems(pedidoId);
+      if (!pedido?.email_cliente) {
+        this.logger.debug(`Pedido ${pedidoId} sin email de cliente; no se avisa del cambio`);
+        return;
+      }
+
+      await this.email.enviarCambioEstado({
+        pedidoId: pedido.id,
+        numeroPedido: pedido.numero_pedido,
+        email: pedido.email_cliente,
+        nombre: pedido.envio_nombre,
+        estado: nuevoEstado,
+        items: pedido.items,
+        total: Number(pedido.total),
+        fecha: new Date(pedido.created_at).toLocaleDateString("es-ES", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo avisar del cambio a ${nuevoEstado} (pedido ${pedidoId}): ${(err as Error).message}`,
+      );
+    }
   }
 }

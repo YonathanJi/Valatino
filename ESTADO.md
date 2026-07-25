@@ -12,13 +12,14 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **036** (2026-07-25, módulo Clientes). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **037** (2026-07-25, reembolso total repone stock). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
 - **Flujo por capas RRHH → TI (2026-07-24)**: ⚠️ **cambio respecto a lo anterior** — ahora **Gestión Humana crea al empleado SIN cuenta** (persona + cargo; `empleados.user_id` es opcional) y después **TI** le **provisiona la cuenta** (correo + contraseña + módulos) y la vincula. "Usuarios" ya **no** es admin-only suelto: vive dentro del **módulo `ti`** (sidebar TI → Usuarios, ruta `/backoffice/ti/usuarios`). El **súper admin** (`admin`) conserva acceso a todo el core. **Cambiar rol (dar/quitar admin) sigue reservado a admin** (no un asesor de TI). Ver sesión 2026-07-24.
 - **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
+- **Avisos de estado y reembolsos (2026-07-25)**: cada cambio de estado en el panel **envía correo al cliente** (en preparación / en camino / entregado / cancelado), y el reembolso es una acción propia (`POST /admin/pedidos/:id/reembolso`, solo admin) que **cobra en Stripe** de verdad, total o parcial. ⚠️ **REEMBOLSADO ya no es una transición del desplegable**: antes elegirlo marcaba el pedido sin mover un euro. Ver sesión 2026-07-25 (cont. 3).
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre y el documento reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
@@ -29,7 +30,47 @@
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
-- Pendientes de fondo de siempre: ~~tests (0%)~~ → **42 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+- Pendientes de fondo de siempre: ~~tests (0%)~~ → **85 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-25 (cont. 3) — Avisos por email al cambiar de estado y reembolsos reales
+
+### El fallo de fondo que se arregla
+Elegir **«Reembolsado»** en el desplegable del panel **solo cambiaba la columna `estado`**: no movía un euro en Stripe ni avisaba al cliente. El panel aparentaba reembolsar sin reembolsar, y el dinero solo salía si alguien entraba a mano en el dashboard de Stripe. Por eso **REEMBOLSADO desaparece de `TRANSICIONES_PEDIDO`**: ya no es un estado que se teclea, es la consecuencia de haber devuelto el dinero.
+
+### Aviso al cliente en cada cambio de estado
+`PATCH /admin/pedidos/:id/estado` envía correo tras guardar. Textos en `email/templates/estado-pedido.ts` (`COPIAS_ESTADO`):
+
+| Estado | Asunto |
+| --- | --- |
+| `PROCESANDO` | Estamos preparando tu pedido |
+| `ENVIADO` | Tu pedido va en camino |
+| `ENTREGADO` | Tu pedido ya está en casa |
+| `CANCELADO` | Tu pedido ha sido cancelado |
+
+`COPIAS_ESTADO` es un `Partial` a propósito: **el estado que no figura no genera correo**. `PENDIENTE_PAGO` queda fuera porque nadie transiciona *hacia* él, y `REEMBOLSADO` porque lo avisa el correo de reembolso, que además dice el importe.
+
+- **Envío sin `await`** (`void this.notificarCambioEstado(...)`): el estado ya está guardado y un SMTP lento (o los 20 s de timeout) no debe hacer que el panel parezca roto. Los fallos van al log y **nunca** tumban la transición — hay test que lo fija.
+- El andamiaje HTML (cabecera, banner, pie) se extrajo a `email/templates/formato.ts`. Antes cada plantilla llevaba su copia; con dos plantillas eso ya divergía seguro.
+
+### Reembolsos: `POST /admin/pedidos/:id/reembolso` (solo admin)
+Modal en el panel con **total o importe parcial**, motivo interno opcional, y el aviso de que la acción no se puede deshacer. Orden deliberado: **primero se cobra en Stripe y solo después se toca la BD**, para no dejar nunca un pedido marcado como reembolsado sin dinero devuelto.
+
+- **Doble clic no cobra dos veces**: la `idempotencyKey` de Stripe es `reembolso:<pedido>:<yaDevuelto>:<importe>`. Misma situación + mismo importe = Stripe devuelve el reembolso que ya creó. Lleva `yaDevuelto` para que dos parciales iguales *seguidos* (10 € y otros 10 €) sí se cobren los dos.
+- **Reembolso total** → RPC `reembolsar_pedido_total` (migración **037**): marca `REEMBOLSADO` **y repone el stock**, bajo lock de fila y **solo una vez**. El cambio de estado es lo que da permiso a reponer, así que el webhook `charge.refunded` que Stripe manda *por el reembolso que acabamos de pedir* encuentra el estado ya puesto, devuelve `false` y no vuelve a sumar. Verificado contra el remoto en transacción revertida: stock 10 → **13**, estado `REEMBOLSADO`; segunda llamada **13** y `false`.
+- **Reembolso parcial** → no cambia el estado (el envío sigue su curso) y **no repone stock**: el importe no dice qué unidades vuelven. El ajuste se hace a mano desde Inventario. Asimetría decidida por Jonathan.
+- **PayPal se rechaza** con un 400 explicativo (hay que devolverlo desde su panel; el webhook luego actualiza y avisa). El botón tampoco se ofrece para esos pedidos.
+
+### ⚠️ `total_reembolsado` se calcula con MAX, no con SUM
+Cada fila de reembolso en `transacciones_pago` guarda el **acumulado** devuelto, no el incremento (así lo informa `charge.amount_refunded` de Stripe). El mismo reembolso se registra **dos veces** por caminos distintos —el panel al pedirlo (`evento_id` = id del refund) y el webhook al confirmarlo (`evento_id` = id del evento)— así que la restricción de unicidad no los deduplica. **Sumar contaría el doble** y bloquearía devoluciones legítimas; quedarse con el máximo es idempotente. Hay un test que fija esta decisión para que nadie la «arregle» convirtiéndola en un `SUM`.
+
+Del mismo principio sale el corte anti-duplicado del correo: el webhook solo avisa si el acumulado **sube** respecto a lo ya conocido. Sin eso, el cliente recibía dos correos por la misma devolución.
+
+### Detalles de plomería
+- `StripeService` pasa a su propio `StripeModule`: lo necesitan `PagosModule` y `PedidosModule`, y `PagosModule` ya importa `PedidosModule` — importarlo al revés sería circular. `PagosModule` lo re-exporta para no romper a nadie.
+- `SMTP_PORT` **por defecto 2525** (Render free bloquea 465/587) y **`requireTLS` obligatorio** cuando no es 465: en 2525 la conexión abre en claro y se eleva con STARTTLS, y sin exigirlo las credenciales podrían viajar sin cifrar.
+- Tests: **85** (8 suites). Nuevos: `reembolsos.service.spec.ts` (16) y `plantillas.spec.ts` (11).
 
 ---
 

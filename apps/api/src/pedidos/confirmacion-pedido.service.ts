@@ -3,6 +3,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
+import { ReembolsosService } from "./reembolsos.service";
 
 /**
  * Pago confirmado por un proveedor, ya verificado y normalizado por el
@@ -44,6 +45,7 @@ export class ConfirmacionPedidoService {
     private readonly inventarioService: InventarioService,
     private readonly emailService: EmailService,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly reembolsos: ReembolsosService,
   ) {}
 
   async confirmarPago(pago: PagoConfirmado): Promise<string> {
@@ -101,10 +103,14 @@ export class ConfirmacionPedidoService {
    * Reembolso notificado por el proveedor. Devuelve el id del pedido o null si
    * no existe.
    *
-   * Solo un reembolso por el importe completo cambia el estado a REEMBOLSADO:
-   * uno parcial se registra en transacciones_pago (traza contable) y deja el
-   * pedido en su estado, porque el envío sigue su curso. Antes cualquier
-   * importe, aunque fuese de 1 €, marcaba el pedido entero como reembolsado.
+   * `reembolso.importe` es el ACUMULADO devuelto del cargo, no el incremento:
+   * así lo informa `charge.amount_refunded` de Stripe.
+   *
+   * Solo un reembolso por el importe completo cambia el estado a REEMBOLSADO (y
+   * repone stock): uno parcial se registra en transacciones_pago (traza
+   * contable) y deja el pedido en su estado, porque el envío sigue su curso.
+   * Antes cualquier importe, aunque fuese de 1 €, marcaba el pedido entero como
+   * reembolsado.
    */
   async procesarReembolso(reembolso: ReembolsoNotificado): Promise<string | null> {
     const pedido = await this.inventarioService.findPedidoPorReferencia(reembolso.referenciaPago);
@@ -114,13 +120,22 @@ export class ConfirmacionPedidoService {
     }
 
     // Céntimos: evita que 49.99 !== 49.99 por coma flotante
-    const esTotal = Math.round(reembolso.importe * 100) >= Math.round(Number(pedido.total) * 100);
+    const acumuladoCents = Math.round(reembolso.importe * 100);
+    const esTotal = acumuladoCents >= Math.round(Number(pedido.total) * 100);
+
+    /*
+     * ¿Nos enteramos ahora del reembolso, o es el eco del que acabamos de lanzar
+     * desde el backoffice? Stripe notifica charge.refunded también cuando la
+     * devolución la pedimos nosotros, y ese camino ya avisó al cliente. Sin esta
+     * comprobación el cliente recibiría dos correos por la misma devolución.
+     */
+    const yaConocidoCents = Math.round((await this.reembolsos.totalReembolsado(pedido.id)) * 100);
+    const esNuevo = acumuladoCents > yaConocidoCents;
 
     if (esTotal) {
-      await this.inventarioService.actualizarEstadoPorReferencia(
-        reembolso.referenciaPago,
-        "REEMBOLSADO",
-      );
+      // Cambia el estado y repone el stock, una sola vez aunque el panel ya lo
+      // hubiera hecho (migración 037).
+      await this.reembolsos.marcarReembolsadoYReponerStock(pedido.id);
     } else {
       this.logger.log(
         `Reembolso parcial de ${reembolso.importe} € sobre ${pedido.total} € (pedido ${pedido.id}): se registra sin cambiar el estado`,
@@ -137,12 +152,25 @@ export class ConfirmacionPedidoService {
       reembolso.payloadRaw,
     );
 
-    if (esTotal) await this.enviarEmailPedido(pedido.id, true);
+    if (esNuevo) {
+      // También en los parciales: a quien le devuelven 10 € de 50 € hay que
+      // decírselo, y con el importe.
+      await this.enviarEmailPedido(pedido.id, true, reembolso.importe);
+    } else {
+      this.logger.debug(
+        `Reembolso de ${reembolso.importe} € del pedido ${pedido.id} ya conocido; no se reenvía el aviso`,
+      );
+    }
+
     return pedido.id;
   }
 
   /** Email transaccional de confirmación o reembolso (no bloqueante). */
-  private async enviarEmailPedido(pedidoId: string, esReembolso: boolean): Promise<void> {
+  private async enviarEmailPedido(
+    pedidoId: string,
+    esReembolso: boolean,
+    importeReembolsado?: number,
+  ): Promise<void> {
     try {
       const pedido = await this.inventarioService.getPedidoConItems(pedidoId);
       if (!pedido || !pedido.email_cliente || pedido.items.length === 0) return;
@@ -174,7 +202,7 @@ export class ConfirmacionPedidoService {
       };
 
       if (esReembolso) {
-        await this.emailService.enviarReembolso({ ...datos, esReembolso: true });
+        await this.emailService.enviarReembolso({ ...datos, esReembolso: true, importeReembolsado });
       } else {
         await this.emailService.enviarConfirmacionPedido(datos);
       }

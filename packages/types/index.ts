@@ -83,24 +83,45 @@ export const PEDIDO_ESTADO_LABELS: Record<PedidoEstado, string> = {
  * transición y el backoffice para ofrecer solo las que van a funcionar. Estaba
  * duplicada a mano en EstadoSelector y ya había divergido (le faltaba
  * REEMBOLSADO y ofrecía CANCELADO a los asesores, que no pueden ejecutarlo).
+ *
+ * REEMBOLSADO no aparece como destino a propósito: no es un estado que se
+ * teclee, es la consecuencia de haber devuelto el dinero. Se alcanza por
+ * POST /admin/pedidos/:id/reembolso (que cobra en Stripe) o por el webhook
+ * charge.refunded si el reembolso se hizo desde el panel de Stripe. Cuando
+ * estaba aquí, elegirlo en el desplegable marcaba el pedido como reembolsado
+ * sin mover un euro.
  */
 export const TRANSICIONES_PEDIDO: Record<PedidoEstado, PedidoEstado[]> = {
   PENDIENTE_PAGO: ["PROCESANDO", "CANCELADO"],
-  PROCESANDO: ["ENVIADO", "CANCELADO", "REEMBOLSADO"],
-  ENVIADO: ["ENTREGADO", "REEMBOLSADO"],
-  ENTREGADO: ["REEMBOLSADO"],
+  PROCESANDO: ["ENVIADO", "CANCELADO"],
+  ENVIADO: ["ENTREGADO"],
+  ENTREGADO: [],
   CANCELADO: [],
   REEMBOLSADO: [],
 };
 
-/** El asesor solo avanza el envío: cancelar y reembolsar quedan para el admin. */
+/**
+ * El asesor solo avanza el envío: cancelar queda para el admin (y reembolsar
+ * ya no es una transición para nadie). Solo se listan los estados en los que
+ * difiere del admin, para que añadir una transición nueva no obligue a
+ * recordar tocar las dos tablas.
+ */
 export const TRANSICIONES_PEDIDO_ASESOR: Record<PedidoEstado, PedidoEstado[]> = {
   ...TRANSICIONES_PEDIDO,
   PENDIENTE_PAGO: ["PROCESANDO"],
   PROCESANDO: ["ENVIADO"],
-  ENVIADO: ["ENTREGADO"],
-  ENTREGADO: [],
 };
+
+/**
+ * Estados en los que el dinero está cobrado y por tanto se puede devolver.
+ * PENDIENTE_PAGO no tiene cobro y CANCELADO/REEMBOLSADO ya no tienen nada
+ * pendiente de devolver.
+ */
+export const ESTADOS_REEMBOLSABLES: readonly PedidoEstado[] = [
+  "PROCESANDO",
+  "ENVIADO",
+  "ENTREGADO",
+];
 
 export function transicionesPermitidas(
   estado: PedidoEstado,
@@ -215,6 +236,26 @@ export interface Pedido {
   created_at: string;
   updated_at: string;
   pedido_items?: PedidoItem[];
+  /**
+   * Importe ya devuelto al cliente, acumulado. Lo calcula la API a partir de
+   * transacciones_pago; no es una columna de `pedidos`. Ausente en los
+   * listados del storefront.
+   */
+  total_reembolsado?: number;
+}
+
+/** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */
+export interface ResultadoReembolso {
+  pedido_id: string;
+  /** Lo devuelto en esta operación */
+  importe: number;
+  /** Lo devuelto en total, contando reembolsos anteriores */
+  total_reembolsado: number;
+  /** Si con esto se ha devuelto el pedido completo */
+  es_total: boolean;
+  estado: PedidoEstado;
+  /** Unidades repuestas al inventario (solo en reembolso total) */
+  stock_repuesto: boolean;
 }
 
 /** Snapshot de dirección para checkout de invitados (sin cuenta) */

@@ -1,3 +1,5 @@
+import { escapeHtml, formatEUR, layoutEmail, aviso } from "./formato";
+
 export interface ItemPedidoEmail {
   nombre_producto: string;
   cantidad: number;
@@ -23,13 +25,13 @@ export interface DatosEmailPedido {
   estado: string;
   fecha: string;
   esReembolso?: boolean;
+  /**
+   * Importe devuelto, solo en emails de reembolso. Si es menor que el total, el
+   * correo lo explica como devolución parcial: decirle "reembolsado" a secas a
+   * quien ha recibido 10 € de 50 € genera una reclamación garantizada.
+   */
+  importeReembolsado?: number;
 }
-
-const formatEUR = (n: number): string =>
-  new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
-
-const escapeHtml = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const renderItems = (items: ItemPedidoEmail[]): string =>
   items
@@ -70,47 +72,30 @@ const renderDireccion = (direccion: DatosEmailPedido["direccionEnvio"]): string 
 
 export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
   const esReembolso = datos.esReembolso ?? false;
-  const titulo = esReembolso ? "Reembolso procesado" : "¡Gracias por tu compra!";
-  const bannerColor = esReembolso ? "#ff9500" : "#34c759";
-  const bannerText = esReembolso ? "REEMBOLSADO" : "PAGADO";
   const metodoPagoLabel = datos.metodoPago === "stripe" ? "Tarjeta (Stripe)" : "PayPal";
   const numeroPedido = datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
 
-  return `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${escapeHtml(titulo)}</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f7;">
-    <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);max-width:600px;">
+  // Céntimos: 49.99 !== 49.99 en coma flotante según de dónde venga cada cifra
+  const devuelto = datos.importeReembolsado ?? datos.total;
+  const esParcial =
+    esReembolso && Math.round(devuelto * 100) < Math.round(datos.total * 100);
 
-          <!-- Header -->
-          <tr>
-            <td style="padding:32px 40px 0;">
-              <h1 style="font-size:28px;font-weight:700;color:#1d1d1f;margin:0;letter-spacing:-0.5px;">Valatino</h1>
-              <p style="font-size:13px;color:#86868b;margin:4px 0 0;">Productos latinoamericanos en España</p>
-            </td>
-          </tr>
+  const titulo = esReembolso
+    ? esParcial
+      ? "Te hemos devuelto parte de tu pedido"
+      : "Reembolso procesado"
+    : "¡Gracias por tu compra!";
 
-          <!-- Banner de estado -->
-          <tr>
-            <td style="padding:24px 40px 0;">
-              <div style="display:inline-block;padding:6px 14px;background-color:${bannerColor};color:#ffffff;font-size:12px;font-weight:600;border-radius:999px;letter-spacing:0.5px;">${bannerText}</div>
-            </td>
-          </tr>
-
-          <!-- Título -->
-          <tr>
-            <td style="padding:16px 40px 8px;">
-              <h2 style="font-size:24px;font-weight:700;color:#1d1d1f;margin:0;letter-spacing:-0.3px;">${escapeHtml(titulo)}</h2>
-              <p style="font-size:15px;color:#86868b;margin:8px 0 0;">Tu pedido <strong style="color:#1d1d1f;">#${escapeHtml(numeroPedido)}</strong> — ${escapeHtml(datos.fecha)}</p>
-            </td>
-          </tr>
+  const cuerpo = `
+          ${
+            esReembolso
+              ? aviso(
+                  esParcial
+                    ? `Hemos devuelto <strong>${formatEUR(devuelto)}</strong> de los ${formatEUR(datos.total)} de tu pedido. El resto del pedido sigue su curso con normalidad.<br><br>El importe aparecerá en tu cuenta en un plazo de <strong>5 a 10 días laborables</strong>, según tu banco.`
+                    : `Hemos devuelto el importe completo de tu pedido: <strong>${formatEUR(devuelto)}</strong>.<br><br>Aparecerá en tu cuenta en un plazo de <strong>5 a 10 días laborables</strong>, según tu banco.`,
+                )
+              : ""
+          }
 
           <!-- Items -->
           <tr>
@@ -134,6 +119,14 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
                   <td style="font-size:16px;color:#1d1d1f;font-weight:600;">Total</td>
                   <td style="font-size:22px;color:#1d1d1f;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;">${formatEUR(datos.total)}</td>
                 </tr>
+                ${
+                  esReembolso
+                    ? `<tr>
+                  <td style="font-size:14px;color:#ff9500;font-weight:600;padding-top:6px;">Reembolsado</td>
+                  <td style="font-size:16px;color:#ff9500;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;padding-top:6px;">−${formatEUR(devuelto)}</td>
+                </tr>`
+                    : ""
+                }
               </table>
             </td>
           </tr>
@@ -160,29 +153,18 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
           ${
             esReembolso
               ? ""
-              : `<tr>
-            <td style="padding:8px 40px 32px;">
-              <p style="font-size:14px;color:#1d1d1f;background-color:#f5f5f7;padding:16px 20px;border-radius:12px;margin:0;line-height:1.6;">
-                Puedes ver el estado de tu pedido en cualquier momento iniciando sesión en tu cuenta.
-              </p>
-            </td>
-          </tr>`
-          }
+              : aviso(
+                  "Puedes ver el estado de tu pedido en cualquier momento iniciando sesión en tu cuenta.",
+                )
+          }`;
 
-          <!-- Footer -->
-          <tr>
-            <td style="padding:24px 40px 32px;border-top:1px solid #f0f0f0;">
-              <p style="font-size:12px;color:#86868b;margin:0;line-height:1.5;text-align:center;">
-                Este email se envió a ${escapeHtml(datos.email)} porque se procesó un pago en valatino.es.<br>
-                Si tienes preguntas, responde a este correo.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return layoutEmail({
+    titulo,
+    bannerTexto: esReembolso ? (esParcial ? "REEMBOLSO PARCIAL" : "REEMBOLSADO") : "PAGADO",
+    bannerColor: esReembolso ? "#ff9500" : "#34c759",
+    subtitulo: `Tu pedido <strong style="color:#1d1d1f;">#${escapeHtml(numeroPedido)}</strong> — ${escapeHtml(datos.fecha)}`,
+    cuerpo,
+    email: datos.email,
+    motivo: "se procesó un pago",
+  });
 }

@@ -7,17 +7,20 @@ import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { ReembolsoModal } from "@components/backoffice/ReembolsoModal";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   PEDIDO_ESTADO_LABELS,
   type Pedido,
   type PaginatedResponse,
   type PedidoEstado,
+  type ResultadoReembolso,
 } from "@valatino/types";
 
 export function PedidosPanel({ rol }: { rol: "admin" | "asesor" }) {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [reembolsando, setReembolsando] = useState<Pedido | null>(null);
   const supabase = createSupabaseBrowserClient();
 
   const loadPedidos = async () => {
@@ -98,6 +101,21 @@ export function PedidosPanel({ rol }: { rol: "admin" | "asesor" }) {
     }
   };
 
+  /**
+   * Refresca la fila con lo que devolvió la API. Realtime avisa del cambio de
+   * estado, pero `total_reembolsado` se calcula en la API y no viaja en el
+   * evento de Postgres, así que ese dato solo llega por aquí.
+   */
+  const handleReembolsado = (r: ResultadoReembolso) => {
+    setPedidos((prev) =>
+      prev.map((p) =>
+        p.id === r.pedido_id
+          ? { ...p, estado: r.estado, total_reembolsado: r.total_reembolsado }
+          : p,
+      ),
+    );
+  };
+
   return (
     <div className="p-6 space-y-4">
       <PageHeader
@@ -116,7 +134,18 @@ export function PedidosPanel({ rol }: { rol: "admin" | "asesor" }) {
         isLoading={isLoading}
         rol={rol}
         onEstadoChange={handleEstadoChange}
+        // Devolver dinero es cosa de admin: la API rechaza al asesor con un 403,
+        // así que tampoco se le ofrece el botón.
+        onReembolsar={rol === "admin" ? setReembolsando : undefined}
       />
+
+      {reembolsando && (
+        <ReembolsoModal
+          pedido={reembolsando}
+          onClose={() => setReembolsando(null)}
+          onReembolsado={handleReembolsado}
+        />
+      )}
     </div>
   );
 }

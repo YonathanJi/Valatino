@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createTransport, type Transporter } from "nodemailer";
 import { renderConfirmacionPedido, type DatosEmailPedido } from "./templates/confirmacion-pedido";
+import { renderCambioEstado, type DatosEmailEstado } from "./templates/estado-pedido";
 
 @Injectable()
 export class EmailService {
@@ -12,14 +13,20 @@ export class EmailService {
     const host = process.env.SMTP_HOST;
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
-    const port = Number(process.env.SMTP_PORT ?? 465);
+    // 2525 por defecto: Render (plan free) bloquea la salida por 465 y 587, así
+    // que un puerto "estándar" deja los correos colgados hasta el timeout.
+    const port = Number(process.env.SMTP_PORT ?? 2525);
     this.fromEmail = process.env.EMAIL_FROM ?? "Valatino <noreply@valatino.es>";
 
     if (host && user && pass) {
       this.transporter = createTransport({
         host,
         port,
+        // TLS implícito solo en 465. En 2525/587 la conexión abre en claro y se
+        // eleva con STARTTLS: `requireTLS` aborta si el servidor no lo ofrece,
+        // en lugar de enviar las credenciales sin cifrar.
         secure: port === 465,
+        requireTLS: port !== 465,
         auth: { user, pass },
         // Fallar rápido si el proveedor estrangula la salida SMTP (Render free
         // cuelga 465/587; usar 2525). Sin esto, un envío colgado bloquea el
@@ -46,11 +53,34 @@ export class EmailService {
 
   async enviarReembolso(datos: DatosEmailPedido): Promise<void> {
     const html = renderConfirmacionPedido({ ...datos, esReembolso: true });
+    const devuelto = datos.importeReembolsado ?? datos.total;
+    const esParcial = Math.round(devuelto * 100) < Math.round(datos.total * 100);
+
     await this.enviar({
       to: datos.email,
-      subject: `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`,
+      subject: esParcial
+        ? `Devolución de ${this.importeVisible(devuelto)} — Pedido #${this.numeroVisible(datos)}`
+        : `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`,
       html,
     });
+  }
+
+  /**
+   * Aviso de cambio de estado (en preparación, en camino, entregado…).
+   * Los estados sin texto definido no generan correo: ver COPIAS_ESTADO.
+   */
+  async enviarCambioEstado(datos: DatosEmailEstado): Promise<void> {
+    const render = renderCambioEstado(datos);
+    if (!render) {
+      this.logger.debug(`Estado ${datos.estado} sin aviso al cliente definido; no se envía email`);
+      return;
+    }
+
+    await this.enviar({ to: datos.email, subject: render.asunto, html: render.html });
+  }
+
+  private importeVisible(n: number): string {
+    return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
   }
 
   private numeroVisible(datos: DatosEmailPedido): string {
