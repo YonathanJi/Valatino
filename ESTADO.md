@@ -73,6 +73,30 @@ Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo enco
 
 ---
 
+## Sesión 2026-07-25 (cont.) — Dos fallos vistos en una compra real
+
+Jonathan compró en producción con el código **anterior** al de la rama `fix/auditoria-2026-07-25` (que sigue sin desplegar). El backend se portó bien: pedido `260725018055` creado, 1 línea, 1 transacción, email enviado, `stock_reservado` a 0, y el pedido **se vinculó solo** a la cuenta al registrarse (rol `cliente` y `profiles` creados por sus triggers). Los dos fallos eran de la capa cliente.
+
+### 1. Tras verificar el código OTP se quedaba en la pantalla del código
+Reconstruido con los logs de Auth y PostgREST (todo en el minuto 14:00):
+`:04.7` `POST /verify` **200**, sesión creada · `:05.3–:08.0` `vincular` + `fusionar` contra Render · `:08.3–:08.5` `getUser()` + `obtenerRol` · `:09.4–:09.8` el layout de `/cuenta` renderiza (**el `router.push` sí se ejecutó**) · **20 s de silencio** · `:22.9` `POST /verify` **403 `otp_expired`** ← el usuario, sin ver nada moverse, reenvía el código · `:30–:31` Render por fin responde `/direcciones` y `/pedidos`.
+
+Cuatro cosas encadenadas en `handleVerify`:
+- `setIsLoading(false)` se ejecutaba **antes** del trabajo pesado → botón activo y sin indicador durante toda la espera.
+- `await Promise.allSettled([vincular, fusionar])` bloqueaba la navegación (el comentario decía «no bloqueante» pero había un `await`). Van contra Render, que en plan free duerme y tarda decenas de segundos en despertar.
+- `getUser()` + `obtenerRol()` añadían dos peticiones más antes de poder navegar, **siendo redundantes**: el enrutado por rol ya lo hacen los layouts server-side (el de `/cuenta` manda al staff a `/backoffice/perfil`).
+- Y lo que lo volvía irrecuperable: al reenviar el código, el OTP ya estaba consumido → `otp_expired` → `toast.error("Código inválido o expirado")` + `return`, **aunque la sesión ya existía**.
+
+Arreglado: el trabajo posterior al login se lanza sin esperar (es idempotente), se navega con `router.replace` en cuanto hay sesión, se elimina la consulta de rol del camino crítico, se añade la fase `entrando` (botón deshabilitado + aviso «Ya estás dentro. Preparando tu cuenta…») y, si `verifyOtp` falla, **se comprueba si ya hay sesión y se continúa** en vez de dar error.
+
+### 2. Guardar dirección daba error
+Es el bug F1 de la auditoría (DTO camelCase vs snake_case), **ya arreglado en la rama pero sin desplegar**. Se confirma en los logs: hay `GET direcciones_envio` (200) pero ningún `POST`, porque la petición muere en el `ValidationPipe` de la API antes de tocar Supabase. En la BD, el usuario tenía 0 direcciones.
+
+### Nota de datos
+`envio_ciudad` del pedido llegó como `"españa"`: el ruido de direcciones que ya estaba anotado como pendiente (campos de texto libre sin validar).
+
+---
+
 ## Sesión 2026-07-24 (cont.) — Bloqueo de cuentas y borrado por capas
 
 Acciones destructivas del staff, **solo súper admin**. Commit desplegado. Sin migración (bloqueo vía ban de Supabase; borrado de empleado sobre lo ya existente).
