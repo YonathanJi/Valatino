@@ -12,7 +12,7 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **032** (flujo RRHH→TI). ⚠️ **033, 034 y 035 están escritas pero SIN APLICAR** (ver sesión 2026-07-25): hasta aplicarlas, el checkout y el webhook de pago fallan porque llaman a RPC que aún no existen en el remoto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **035** (2026-07-25). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
@@ -32,7 +32,7 @@
 
 ## Sesión 2026-07-25 — Auditoría completa y correcciones
 
-Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo encontrado. **Migraciones 033–035 pendientes de aplicar al remoto.**
+Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo encontrado. **Migraciones 033–035 aplicadas y verificadas en el remoto.**
 
 ### Seguridad
 - **Escalada de privilegios (crítica)**: `POST /admin/usuarios/roles` permitía a un asesor con módulo `ti` asignarse rol `admin`, saltándose los controles de `updateRol` (no degradar al último admin, no cambiar tu propio rol), y con `upsert` dejaba roles duplicados. Era código muerto: **eliminado** junto a `AssignRoleDto`.
