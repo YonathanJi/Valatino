@@ -12,16 +12,19 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **035** (2026-07-25). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
-- **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **036** (2026-07-25, módulo Clientes). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
+- **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
 - **Flujo por capas RRHH → TI (2026-07-24)**: ⚠️ **cambio respecto a lo anterior** — ahora **Gestión Humana crea al empleado SIN cuenta** (persona + cargo; `empleados.user_id` es opcional) y después **TI** le **provisiona la cuenta** (correo + contraseña + módulos) y la vincula. "Usuarios" ya **no** es admin-only suelto: vive dentro del **módulo `ti`** (sidebar TI → Usuarios, ruta `/backoffice/ti/usuarios`). El **súper admin** (`admin`) conserva acceso a todo el core. **Cambiar rol (dar/quitar admin) sigue reservado a admin** (no un asesor de TI). Ver sesión 2026-07-24.
 - **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
+- **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre y el documento reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
-1. **Regenerar los tokens de Render (`rnd_...`) y Vercel (`vcp_...`)** al pasar a producción real (ahora se reutilizan a propósito, estamos en test).
-2. **Paso a producción real** (ver "Plan de producción" en la sesión 2026-07-22): API en región **EU (Frankfurt) + plan de pago** (quita el "dormir" y el cruce transatlántico Render-Oregon ↔ Supabase-Irlanda), dominio propio, claves **Stripe `live`** + recrear el webhook con el nuevo signing secret, actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
+1. **`NODE_ENV` está en `development` en Render**, aunque `render.yaml` dice `production`. Verificado que **ningún código depende de esa variable** (solo un comentario en `session.middleware.ts` explicando que a propósito no se depende de ella), así que cambiarlo es seguro: Render → servicio Valatino → Environment → Save (dispara redeploy). No se hizo por API porque los tokens ya estaban revocados.
+2. ~~Regenerar los tokens expuestos~~ → **hecho el 2026-07-25**: todos revocados.
+3. **Paso a producción real** (ver "Plan de producción" en la sesión 2026-07-22): API en región **EU (Frankfurt) + plan de pago** (quita el "dormir" y el cruce transatlántico Render-Oregon ↔ Supabase-Irlanda), dominio propio, claves **Stripe `live`** + recrear el webhook con el nuevo signing secret, actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
@@ -30,9 +33,74 @@
 
 ---
 
+## Sesión 2026-07-25 (cont. 2) — Despliegue a producción y módulo Clientes
+
+### Despliegue de la auditoría
+Merge de `fix/auditoria-2026-07-25` a `main` y push (Render y Vercel auto-despliegan). **Verificado en línea**: `/health` 200 · catálogo público 200 · `?soloActivos=false` sin token **403** (antes 200) · `POST /admin/usuarios/roles` **404** (la ruta de escalada ya no existe) · CORS permite el dominio y las previews del proyecto y **bloquea un `vercel.app` ajeno** · la web sirve el código nuevo (confirmado buscando el texto «Entrando en tu cuenta» en el chunk de `/login`) · middleware redirige `/cuenta/*` a `/login` y `/backoffice/*` a `/admin`.
+
+**Hallazgo al configurar Render**: `CORS_ORIGIN` estaba en `http://localhost:3000` en producción. La web funcionaba **solo** porque el código viejo aceptaba cualquier `*.vercel.app` — justo el agujero que se cerraba. Desplegar sin corregirlo habría roto la pantalla de confirmación de pedido (el polling del número de pedido es la única llamada del navegador que va directa a Render y sí manda `Origin`). Configuración final:
+
+| Variable | Valor |
+| --- | --- |
+| `CORS_ORIGIN` | `https://valatino-api-steel.vercel.app,http://localhost:3000` |
+| `CORS_VERCEL_PREVIEW_PREFIX` | `valatino-api-steel` |
+| `SUPABASE_JWT_SECRET` | **eliminada** (no se usaba) |
+| `NODE_ENV` | `development` ← pendiente de cambiar a `production` |
+
+⚠️ **Orden que importa**: `SUPABASE_JWT_SECRET` se borró **después** de desplegar. El código viejo la exigía con `getOrThrow`, así que borrarla antes habría dejado la API sin arrancar.
+
+**Fallo encontrado al verificar**: bloquear un origen ajeno devolvía **500**, porque pasar un `Error` al callback de CORS lo convierte en excepción. Cualquiera podía llenar los logs de errores internos desde fuera. Corregido con `callback(null, false)` en un segundo deploy.
+
+### Módulo Clientes (migración 036)
+Nuevo módulo asignable `clientes`, mismo patrón que el resto (`@Modulo` en la API + layout con `puedeVerModulo` + entrada en el sidebar). Endpoints en `/admin/clientes`: listado, ficha, `PATCH` de contacto y `DELETE` (solo admin).
+
+Dos particularidades que resuelve la RPC `listar_clientes`:
+1. **`profiles` está casi vacío** (registro por OTP → solo email). El nombre y el documento reales viven en el pedido, y la RPC los toma del más reciente. Sin eso el listado saldría con emails y nada más — comprobado: el único cliente muestra `Yonathan Jiménez Duque` y documento `z4194001w`, que **solo existen en su pedido**.
+2. **Clientes sin cuenta** (compraron como invitados): se agrupan por email y se marcan `tiene_cuenta = false`. Se ven y cuentan, pero no admiten edición ni borrado.
+
+La agregación va en SQL a propósito: en Node habría que traerse todos los pedidos y PostgREST corta en 1000 filas en silencio (la deuda ya anotada del dashboard).
+
+Decisiones de alcance (elegidas por Jonathan):
+- **Editar**: nombre, teléfono, documento. **El email NO**: es el usuario de acceso (recibe el OTP) y el trigger de vinculación reasignaría pedidos al cambiarlo, pudiendo quitarle o regalarle el historial de otra persona. En la UI aparece deshabilitado con el motivo a la vista.
+- **Eliminar**: borra la cuenta de auth; **los pedidos se conservan** (`user_id` es ON DELETE SET NULL y el pedido guarda su snapshot), que es lo que exige la conservación documental de las ventas. Las direcciones guardadas sí caen. Reservado a **admin**. El aviso dice cuántos pedidos se conservan y que **si el cliente vuelve a registrarse con el mismo correo recupera su historial** (el borrado no es un «derecho al olvido» completo).
+- **No toca cuentas del staff**: si el id apunta a admin o asesor responde 400 y remite a TI → Usuarios, para que Clientes no sea una puerta trasera al equipo.
+
+Tests: **53** en total (11 nuevos). Sin paginación en el listado a propósito: con los volúmenes actuales sobra y la RPC ya agrega en SQL.
+
+### Sin verificar en vivo
+- **Editar y eliminar un cliente con sesión de admin** (no hay credenciales en la sesión de trabajo). La lógica está cubierta por tests; falta abrir la ficha y guardar.
+- **`capture-order` de PayPal**: responde 503 porque PayPal no está configurado en Render, así que la comprobación nueva de «esta orden es de tu sesión» no se pudo ejercitar.
+- **Las tres pruebas de Jonathan**: login con código (reenviándolo a propósito), guardar dirección en `/cuenta/perfil`, y reenviar el webhook del pedido `260725018055` para confirmar que sigue habiendo un solo pedido.
+
+---
+
+## Sesión 2026-07-25 (cont.) — Dos fallos vistos en una compra real
+
+Jonathan compró en producción con el código **anterior** al de la rama `fix/auditoria-2026-07-25` (que sigue sin desplegar). El backend se portó bien: pedido `260725018055` creado, 1 línea, 1 transacción, email enviado, `stock_reservado` a 0, y el pedido **se vinculó solo** a la cuenta al registrarse (rol `cliente` y `profiles` creados por sus triggers). Los dos fallos eran de la capa cliente.
+
+### 1. Tras verificar el código OTP se quedaba en la pantalla del código
+Reconstruido con los logs de Auth y PostgREST (todo en el minuto 14:00):
+`:04.7` `POST /verify` **200**, sesión creada · `:05.3–:08.0` `vincular` + `fusionar` contra Render · `:08.3–:08.5` `getUser()` + `obtenerRol` · `:09.4–:09.8` el layout de `/cuenta` renderiza (**el `router.push` sí se ejecutó**) · **20 s de silencio** · `:22.9` `POST /verify` **403 `otp_expired`** ← el usuario, sin ver nada moverse, reenvía el código · `:30–:31` Render por fin responde `/direcciones` y `/pedidos`.
+
+Cuatro cosas encadenadas en `handleVerify`:
+- `setIsLoading(false)` se ejecutaba **antes** del trabajo pesado → botón activo y sin indicador durante toda la espera.
+- `await Promise.allSettled([vincular, fusionar])` bloqueaba la navegación (el comentario decía «no bloqueante» pero había un `await`). Van contra Render, que en plan free duerme y tarda decenas de segundos en despertar.
+- `getUser()` + `obtenerRol()` añadían dos peticiones más antes de poder navegar, **siendo redundantes**: el enrutado por rol ya lo hacen los layouts server-side (el de `/cuenta` manda al staff a `/backoffice/perfil`).
+- Y lo que lo volvía irrecuperable: al reenviar el código, el OTP ya estaba consumido → `otp_expired` → `toast.error("Código inválido o expirado")` + `return`, **aunque la sesión ya existía**.
+
+Arreglado: el trabajo posterior al login se lanza sin esperar (es idempotente), se navega con `router.replace` en cuanto hay sesión, se elimina la consulta de rol del camino crítico, se añade la fase `entrando` (botón deshabilitado + aviso «Ya estás dentro. Preparando tu cuenta…») y, si `verifyOtp` falla, **se comprueba si ya hay sesión y se continúa** en vez de dar error.
+
+### 2. Guardar dirección daba error
+Es el bug F1 de la auditoría (DTO camelCase vs snake_case), **ya arreglado en la rama pero sin desplegar**. Se confirma en los logs: hay `GET direcciones_envio` (200) pero ningún `POST`, porque la petición muere en el `ValidationPipe` de la API antes de tocar Supabase. En la BD, el usuario tenía 0 direcciones.
+
+### Nota de datos
+`envio_ciudad` del pedido llegó como `"españa"`: el ruido de direcciones que ya estaba anotado como pendiente (campos de texto libre sin validar).
+
+---
+
 ## Sesión 2026-07-25 — Auditoría completa y correcciones
 
-Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo encontrado. **Migraciones 033–035 aplicadas y verificadas en el remoto.**
+Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo encontrado. **Todo desplegado y verificado en producción el 2026-07-25** (ver sesión cont. 2); migraciones 033–035 aplicadas y probadas contra el remoto.
 
 ### Seguridad
 - **Escalada de privilegios (crítica)**: `POST /admin/usuarios/roles` permitía a un asesor con módulo `ti` asignarse rol `admin`, saltándose los controles de `updateRol` (no degradar al último admin, no cambiar tu propio rol), y con `upsert` dejaba roles duplicados. Era código muerto: **eliminado** junto a `AssignRoleDto`.
@@ -70,30 +138,6 @@ Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo enco
 - Fusión de carrito no transaccional; `numero_pedido` con 4 dígitos aleatorios (colisión ~12% con 50 pedidos/día, se salva con reintentos).
 - Marcar dirección como predeterminada **desde `/cuenta/perfil`** sigue sin poderse: el formulario no envía `es_predeterminada` (el backend ya lo soporta).
 - La **web sigue sin tests**.
-
----
-
-## Sesión 2026-07-25 (cont.) — Dos fallos vistos en una compra real
-
-Jonathan compró en producción con el código **anterior** al de la rama `fix/auditoria-2026-07-25` (que sigue sin desplegar). El backend se portó bien: pedido `260725018055` creado, 1 línea, 1 transacción, email enviado, `stock_reservado` a 0, y el pedido **se vinculó solo** a la cuenta al registrarse (rol `cliente` y `profiles` creados por sus triggers). Los dos fallos eran de la capa cliente.
-
-### 1. Tras verificar el código OTP se quedaba en la pantalla del código
-Reconstruido con los logs de Auth y PostgREST (todo en el minuto 14:00):
-`:04.7` `POST /verify` **200**, sesión creada · `:05.3–:08.0` `vincular` + `fusionar` contra Render · `:08.3–:08.5` `getUser()` + `obtenerRol` · `:09.4–:09.8` el layout de `/cuenta` renderiza (**el `router.push` sí se ejecutó**) · **20 s de silencio** · `:22.9` `POST /verify` **403 `otp_expired`** ← el usuario, sin ver nada moverse, reenvía el código · `:30–:31` Render por fin responde `/direcciones` y `/pedidos`.
-
-Cuatro cosas encadenadas en `handleVerify`:
-- `setIsLoading(false)` se ejecutaba **antes** del trabajo pesado → botón activo y sin indicador durante toda la espera.
-- `await Promise.allSettled([vincular, fusionar])` bloqueaba la navegación (el comentario decía «no bloqueante» pero había un `await`). Van contra Render, que en plan free duerme y tarda decenas de segundos en despertar.
-- `getUser()` + `obtenerRol()` añadían dos peticiones más antes de poder navegar, **siendo redundantes**: el enrutado por rol ya lo hacen los layouts server-side (el de `/cuenta` manda al staff a `/backoffice/perfil`).
-- Y lo que lo volvía irrecuperable: al reenviar el código, el OTP ya estaba consumido → `otp_expired` → `toast.error("Código inválido o expirado")` + `return`, **aunque la sesión ya existía**.
-
-Arreglado: el trabajo posterior al login se lanza sin esperar (es idempotente), se navega con `router.replace` en cuanto hay sesión, se elimina la consulta de rol del camino crítico, se añade la fase `entrando` (botón deshabilitado + aviso «Ya estás dentro. Preparando tu cuenta…») y, si `verifyOtp` falla, **se comprueba si ya hay sesión y se continúa** en vez de dar error.
-
-### 2. Guardar dirección daba error
-Es el bug F1 de la auditoría (DTO camelCase vs snake_case), **ya arreglado en la rama pero sin desplegar**. Se confirma en los logs: hay `GET direcciones_envio` (200) pero ningún `POST`, porque la petición muere en el `ValidationPipe` de la API antes de tocar Supabase. En la BD, el usuario tenía 0 direcciones.
-
-### Nota de datos
-`envio_ciudad` del pedido llegó como `"españa"`: el ruido de direcciones que ya estaba anotado como pendiente (campos de texto libre sin validar).
 
 ---
 
