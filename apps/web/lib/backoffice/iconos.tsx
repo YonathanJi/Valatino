@@ -9,6 +9,7 @@ import {
   UserCircle,
   Briefcase,
   Cpu,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import type { StaffModulo } from "@valatino/types";
@@ -20,6 +21,7 @@ export const MODULO_LABELS: Record<StaffModulo, string> = {
   catalogo: "Catálogo",
   inventario: "Inventario",
   compras: "Compras",
+  clientes: "Clientes",
   gestion_humana: "Gestión Humana",
   ti: "TI",
 };
@@ -31,6 +33,7 @@ export const MODULO_ICONOS: Record<StaffModulo, LucideIcon> = {
   catalogo: Store,
   inventario: Boxes,
   compras: ShoppingBag,
+  clientes: UsersRound,
   gestion_humana: Briefcase,
   ti: Cpu,
 };
@@ -46,6 +49,7 @@ export const NAV_ICONOS: Record<string, LucideIcon> = {
   inventario: Boxes,
   compras: ShoppingBag,
   proveedores: Truck,
+  clientes: UsersRound,
   usuarios: Users,
   perfil: UserCircle,
   gestion_humana: Briefcase,

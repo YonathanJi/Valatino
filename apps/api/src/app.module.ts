@@ -13,6 +13,7 @@ import { InventarioModule } from "./inventario/inventario.module";
 import { EmailModule } from "./email/email.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { ComprasModule } from "./compras/compras.module";
+import { ClientesModule } from "./clientes/clientes.module";
 import { GestionHumanaModule } from "./gestion-humana/gestion-humana.module";
 import { HealthController } from "./health.controller";
 import { SessionMiddleware } from "./carrito/session.middleware";
@@ -32,6 +33,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
     EmailModule,
     DashboardModule,
     ComprasModule,
+    ClientesModule,
     GestionHumanaModule,
   ],
   controllers: [HealthController],

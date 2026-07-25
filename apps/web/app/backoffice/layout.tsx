@@ -24,6 +24,7 @@ const NAV_ITEMS: {
       { href: "/backoffice/compras/proveedores", label: "Proveedores", iconKey: "proveedores" },
     ],
   },
+  { modulo: "clientes", href: "/backoffice/clientes", label: "Clientes", iconKey: "clientes" },
   {
     modulo: "gestion_humana",
     href: "/backoffice/gestion-humana",

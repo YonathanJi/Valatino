@@ -17,6 +17,7 @@ export type StaffModulo =
   | "inventario"
   | "dashboard"
   | "compras"
+  | "clientes"
   | "gestion_humana"
   | "ti";
 
@@ -26,6 +27,7 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
   "inventario",
   "dashboard",
   "compras",
+  "clientes",
   "gestion_humana",
   "ti",
 ];
@@ -131,6 +133,36 @@ export interface Profile {
   documento: string | null;
   avatar_url: string | null;
   updated_at: string;
+}
+
+/**
+ * Cliente de la tienda tal y como lo lista el backoffice.
+ *
+ * `nombre` y `documento` pueden venir del pedido más reciente en lugar del
+ * perfil: el registro es por OTP y solo captura el email, así que `profiles`
+ * suele tenerlos vacíos.
+ *
+ * `tiene_cuenta = false` es quien compró como invitado y nunca se registró: no
+ * tiene `user_id`, se identifica por email y no admite edición ni borrado.
+ */
+export interface Cliente {
+  user_id: string | null;
+  email: string;
+  nombre: string | null;
+  telefono: string | null;
+  documento: string | null;
+  tiene_cuenta: boolean;
+  cliente_desde: string;
+  pedidos: number;
+  total_gastado: number;
+  ultimo_pedido: string | null;
+}
+
+/** Ficha de un cliente con cuenta: sus datos, pedidos y direcciones guardadas */
+export interface ClienteDetalle {
+  cliente: Cliente;
+  pedidos: Pedido[];
+  direcciones: DireccionEnvio[];
 }
 
 export interface Rol {

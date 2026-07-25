@@ -1,17 +1,9 @@
 import { getStaffAcceso, esStaff } from "@lib/auth/staff";
 import { UserCircle } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
-import type { StaffModulo } from "@valatino/types";
-
-const MODULO_LABELS: Record<StaffModulo, string> = {
-  pedidos: "Pedidos",
-  catalogo: "Catálogo",
-  inventario: "Inventario",
-  dashboard: "Dashboard",
-  compras: "Compras",
-  gestion_humana: "Gestión Humana",
-  ti: "TI",
-};
+// Etiquetas compartidas: antes había una copia aquí que se olvidaba al añadir
+// un módulo nuevo.
+import { MODULO_LABELS } from "@lib/backoffice/iconos";
 
 // Perfil del empleado (server component). El layout del backoffice ya
 // garantiza que solo llega aquí el staff autenticado.
