@@ -7,11 +7,15 @@ import {
   MaxLength,
 } from "class-validator";
 
+// Los campos van en snake_case: es el formato en el que la API devuelve las
+// direcciones (filas de la tabla) y el que ya usa DireccionSnapshotDto en el
+// checkout. Antes eran camelCase y el ValidationPipe global (whitelist +
+// forbidNonWhitelisted) rechazaba con 400 todo lo que enviaba /cuenta/perfil.
 export class CreateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  nombreDestinatario!: string;
+  nombre_destinatario!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -31,7 +35,7 @@ export class CreateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
-  codigoPostal!: string;
+  codigo_postal!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -45,7 +49,7 @@ export class CreateDireccionDto {
 
   @IsOptional()
   @IsBoolean()
-  esPredeterminada?: boolean;
+  es_predeterminada?: boolean;
 }
 
 export class UpdateDireccionDto {
@@ -53,7 +57,7 @@ export class UpdateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
-  nombreDestinatario?: string;
+  nombre_destinatario?: string;
 
   @IsOptional()
   @IsString()
@@ -76,7 +80,7 @@ export class UpdateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
-  codigoPostal?: string;
+  codigo_postal?: string;
 
   @IsOptional()
   @IsString()
@@ -91,5 +95,5 @@ export class UpdateDireccionDto {
 
   @IsOptional()
   @IsBoolean()
-  esPredeterminada?: boolean;
+  es_predeterminada?: boolean;
 }
