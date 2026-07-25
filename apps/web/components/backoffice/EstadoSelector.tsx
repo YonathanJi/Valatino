@@ -1,64 +1,56 @@
 "use client";
 
 import { useState } from "react";
-import { toast } from "sonner";
-
-const SIGUIENTES_ESTADOS: Record<string, string[]> = {
-  PENDIENTE_PAGO: ["PROCESANDO", "CANCELADO"],
-  PROCESANDO: ["ENVIADO", "CANCELADO"],
-  ENVIADO: ["ENTREGADO"],
-  ENTREGADO: [],
-  CANCELADO: [],
-};
-
-const ESTADO_LABELS: Record<string, string> = {
-  PROCESANDO: "Procesando",
-  ENVIADO: "Enviado",
-  ENTREGADO: "Entregado",
-  CANCELADO: "Cancelado",
-};
+import {
+  PEDIDO_ESTADO_LABELS,
+  transicionesPermitidas,
+  type PedidoEstado,
+} from "@valatino/types";
 
 interface EstadoSelectorProps {
   pedidoId: string;
   estadoActual: string;
-  onCambiar: (pedidoId: string, nuevoEstado: string) => void;
+  /** Rol del usuario: acota las transiciones ofrecidas (el asesor no cancela ni reembolsa) */
+  rol: "admin" | "asesor";
+  /** Debe resolver a true solo si el cambio se guardó: el aviso depende de eso */
+  onCambiar: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
 }
 
-export function EstadoSelector({ pedidoId, estadoActual, onCambiar }: EstadoSelectorProps) {
+export function EstadoSelector({ pedidoId, estadoActual, rol, onCambiar }: EstadoSelectorProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const siguientes = SIGUIENTES_ESTADOS[estadoActual] ?? [];
+  // Tabla compartida con la API (@valatino/types): lo que se ofrece aquí es
+  // exactamente lo que el backend va a autorizar.
+  const siguientes = transicionesPermitidas(estadoActual as PedidoEstado, rol);
 
   if (siguientes.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const nuevoEstado = e.target.value;
+    const nuevoEstado = e.target.value as PedidoEstado;
     if (!nuevoEstado) return;
 
+    const select = e.currentTarget;
     setIsLoading(true);
-    try {
-      onCambiar(pedidoId, nuevoEstado);
-      toast.success(`Estado actualizado a ${ESTADO_LABELS[nuevoEstado] ?? nuevoEstado}`);
-    } catch {
-      toast.error("Error al actualizar el estado");
-    } finally {
-      setIsLoading(false);
-      e.target.value = "";
-    }
+    // El aviso lo emite quien conoce el resultado real de la llamada. Antes se
+    // lanzaba el toast de éxito sin esperarla, así que una transición rechazada
+    // se anunciaba como guardada.
+    await onCambiar(pedidoId, nuevoEstado);
+    setIsLoading(false);
+    select.value = "";
   };
 
   return (
     <select
-      onChange={handleChange}
+      onChange={(e) => void handleChange(e)}
       disabled={isLoading}
       defaultValue=""
       className="text-xs rounded border bg-background px-2 py-1 text-muted-foreground disabled:opacity-50"
     >
       <option value="" disabled>
-        Cambiar a…
+        {isLoading ? "Guardando…" : "Cambiar a…"}
       </option>
       {siguientes.map((estado) => (
         <option key={estado} value={estado}>
-          {ESTADO_LABELS[estado] ?? estado}
+          {PEDIDO_ESTADO_LABELS[estado]}
         </option>
       ))}
     </select>

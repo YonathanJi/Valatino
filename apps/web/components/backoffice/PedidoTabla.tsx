@@ -2,15 +2,16 @@ import { EstadoBadge } from "./EstadoBadge";
 import { EstadoSelector } from "./EstadoSelector";
 import { Skeleton } from "@components/ui/Skeleton";
 import { formatEUR } from "@lib/utils";
-import type { Pedido } from "@valatino/types";
+import type { Pedido, PedidoEstado } from "@valatino/types";
 
 interface PedidoTablaProps {
   pedidos: Pedido[];
   isLoading: boolean;
-  onEstadoChange: (pedidoId: string, nuevoEstado: string) => void;
+  rol: "admin" | "asesor";
+  onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
 }
 
-export function PedidoTabla({ pedidos, isLoading, onEstadoChange }: PedidoTablaProps) {
+export function PedidoTabla({ pedidos, isLoading, rol, onEstadoChange }: PedidoTablaProps) {
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -44,7 +45,7 @@ export function PedidoTabla({ pedidos, isLoading, onEstadoChange }: PedidoTablaP
         </thead>
         <tbody className="divide-y">
           {pedidos.map((p) => (
-            <PedidoFila key={p.id} pedido={p} onEstadoChange={onEstadoChange} />
+            <PedidoFila key={p.id} pedido={p} rol={rol} onEstadoChange={onEstadoChange} />
           ))}
         </tbody>
       </table>
@@ -54,10 +55,11 @@ export function PedidoTabla({ pedidos, isLoading, onEstadoChange }: PedidoTablaP
 
 interface PedidoFilaProps {
   pedido: Pedido;
-  onEstadoChange: (pedidoId: string, nuevoEstado: string) => void;
+  rol: "admin" | "asesor";
+  onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
 }
 
-export function PedidoFila({ pedido, onEstadoChange }: PedidoFilaProps) {
+export function PedidoFila({ pedido, rol, onEstadoChange }: PedidoFilaProps) {
   return (
     <tr className="hover:bg-muted/30 transition-colors">
       <td className="p-3 font-mono text-xs">{pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}</td>
@@ -73,6 +75,7 @@ export function PedidoFila({ pedido, onEstadoChange }: PedidoFilaProps) {
         <EstadoSelector
           pedidoId={pedido.id}
           estadoActual={pedido.estado}
+          rol={rol}
           onCambiar={onEstadoChange}
         />
       </td>

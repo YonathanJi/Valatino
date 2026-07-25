@@ -10,23 +10,17 @@ import { formatEUR } from "@lib/utils";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import type { Pedido, PaginatedResponse } from "@valatino/types";
+import { PEDIDO_ESTADO_LABELS, type Pedido, type PaginatedResponse } from "@valatino/types";
 
 // Escala de grises coherente con la lista de pedidos: el estado se distingue
 // por intensidad, no por tono.
-const ESTADO_LABELS: Record<string, string> = {
-  PENDIENTE_PAGO: "Pendiente de pago",
-  PROCESANDO: "Procesando",
-  ENVIADO: "Enviado",
-  ENTREGADO: "Entregado",
-  CANCELADO: "Cancelado",
-};
 const ESTADO_COLORS: Record<string, string> = {
   PENDIENTE_PAGO: "bg-neutral-100 text-neutral-500",
   PROCESANDO: "bg-neutral-200 text-neutral-700",
   ENVIADO: "bg-neutral-300 text-neutral-800",
   ENTREGADO: "bg-neutral-900 text-neutral-50",
   CANCELADO: "bg-neutral-100 text-neutral-400",
+  REEMBOLSADO: "bg-neutral-200 text-neutral-500",
 };
 const ESTADOS_PAGADOS = ["PROCESANDO", "ENVIADO", "ENTREGADO"];
 const ESTADOS_EN_CURSO = ["PROCESANDO", "ENVIADO"];
@@ -245,7 +239,7 @@ export default function PerfilPage() {
                   ESTADO_COLORS[ultimoPedido.estado] ?? "bg-muted text-muted-foreground"
                 }`}
               >
-                {ESTADO_LABELS[ultimoPedido.estado] ?? ultimoPedido.estado}
+                {PEDIDO_ESTADO_LABELS[ultimoPedido.estado] ?? ultimoPedido.estado}
               </span>
             </div>
             <div className="flex items-center justify-between mt-2">

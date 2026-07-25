@@ -30,13 +30,20 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
   "ti",
 ];
 
-/** Categorías fijas del catálogo (selector del backoffice + validación API) */
+/**
+ * Categorías fijas del catálogo (selector del backoffice + validación API).
+ * Salsas y Licores estaban en los datos desde el seed pero faltaban aquí, así
+ * que el selector no las ofrecía y @IsIn rechazaba el PATCH: esos productos no
+ * se podían editar sin cambiarles la categoría.
+ */
 export const CATEGORIAS_PRODUCTO = [
   "Dulces",
   "Galletas",
   "Bebidas",
   "Snacks",
   "Café",
+  "Salsas",
+  "Licores",
   "Despensa",
 ] as const;
 
@@ -49,6 +56,57 @@ export type PedidoEstado =
   | "ENTREGADO"
   | "CANCELADO"
   | "REEMBOLSADO";
+
+export const PEDIDO_ESTADOS: readonly PedidoEstado[] = [
+  "PENDIENTE_PAGO",
+  "PROCESANDO",
+  "ENVIADO",
+  "ENTREGADO",
+  "CANCELADO",
+  "REEMBOLSADO",
+];
+
+/** Etiqueta legible de cada estado (misma en storefront y backoffice) */
+export const PEDIDO_ESTADO_LABELS: Record<PedidoEstado, string> = {
+  PENDIENTE_PAGO: "Pendiente de pago",
+  PROCESANDO: "Procesando",
+  ENVIADO: "Enviado",
+  ENTREGADO: "Entregado",
+  CANCELADO: "Cancelado",
+  REEMBOLSADO: "Reembolsado",
+};
+
+/**
+ * Máquina de estados del pedido. Fuente ÚNICA: la API la usa para autorizar la
+ * transición y el backoffice para ofrecer solo las que van a funcionar. Estaba
+ * duplicada a mano en EstadoSelector y ya había divergido (le faltaba
+ * REEMBOLSADO y ofrecía CANCELADO a los asesores, que no pueden ejecutarlo).
+ */
+export const TRANSICIONES_PEDIDO: Record<PedidoEstado, PedidoEstado[]> = {
+  PENDIENTE_PAGO: ["PROCESANDO", "CANCELADO"],
+  PROCESANDO: ["ENVIADO", "CANCELADO", "REEMBOLSADO"],
+  ENVIADO: ["ENTREGADO", "REEMBOLSADO"],
+  ENTREGADO: ["REEMBOLSADO"],
+  CANCELADO: [],
+  REEMBOLSADO: [],
+};
+
+/** El asesor solo avanza el envío: cancelar y reembolsar quedan para el admin. */
+export const TRANSICIONES_PEDIDO_ASESOR: Record<PedidoEstado, PedidoEstado[]> = {
+  ...TRANSICIONES_PEDIDO,
+  PENDIENTE_PAGO: ["PROCESANDO"],
+  PROCESANDO: ["ENVIADO"],
+  ENVIADO: ["ENTREGADO"],
+  ENTREGADO: [],
+};
+
+export function transicionesPermitidas(
+  estado: PedidoEstado,
+  rol: "admin" | "asesor",
+): PedidoEstado[] {
+  const tabla = rol === "admin" ? TRANSICIONES_PEDIDO : TRANSICIONES_PEDIDO_ASESOR;
+  return tabla[estado] ?? [];
+}
 
 export interface Producto {
   id: string;
