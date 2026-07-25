@@ -55,8 +55,11 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Peticiones sin Origin (curl, health checks, server-to-server) se permiten
       if (!origin) return callback(null, true);
-      const permitido = origenPermitido(origin);
-      callback(permitido ? null : new Error(`Origen no permitido por CORS: ${origin}`), permitido);
+      // Se deniega sin lanzar: pasar un Error aquí lo convierte en un 500, y un
+      // origen no autorizado no es un fallo del servidor. Sin la cabecera
+      // Access-Control-Allow-Origin el navegador bloquea igual, pero la
+      // respuesta es limpia y no llena los logs de errores internos.
+      callback(null, origenPermitido(origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
