@@ -7,24 +7,8 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { transicionesPermitidas } from "@valatino/types";
 import type { PaginatedResponse, PedidoEstado } from "@valatino/types";
-
-const TRANSICIONES_VALIDAS: Record<PedidoEstado, PedidoEstado[]> = {
-  PENDIENTE_PAGO: ["PROCESANDO", "CANCELADO"],
-  PROCESANDO: ["ENVIADO", "CANCELADO", "REEMBOLSADO"],
-  ENVIADO: ["ENTREGADO", "REEMBOLSADO"],
-  ENTREGADO: ["REEMBOLSADO"],
-  CANCELADO: [],
-  REEMBOLSADO: [],
-};
-
-// El Asesor no puede cancelar ni reembolsar: solo avanzar el envío
-const TRANSICIONES_ASESOR: Record<PedidoEstado, PedidoEstado[]> = {
-  ...TRANSICIONES_VALIDAS,
-  PROCESANDO: ["ENVIADO"],
-  ENVIADO: ["ENTREGADO"],
-  ENTREGADO: [],
-};
 
 @Injectable()
 export class PedidosService {
@@ -138,10 +122,8 @@ export class PedidosService {
     if (error || !pedido) throw new NotFoundException("Pedido no encontrado");
 
     const estadoActual = (pedido as { estado: PedidoEstado }).estado;
-    const transicionesPermitidas =
-      rolUsuario === "admin" ? TRANSICIONES_VALIDAS : TRANSICIONES_ASESOR;
 
-    if (!(transicionesPermitidas[estadoActual] ?? []).includes(nuevoEstado)) {
+    if (!transicionesPermitidas(estadoActual, rolUsuario).includes(nuevoEstado)) {
       throw new ForbiddenException(
         `Transición ${estadoActual} → ${nuevoEstado} no está permitida para el rol ${rolUsuario}`,
       );

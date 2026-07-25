@@ -21,6 +21,7 @@ import { CarritoService } from "../carrito/carrito.service";
 import { ConfirmacionPedidoService } from "../pedidos/confirmacion-pedido.service";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
 import { CrearPagoDto } from "./dto/crear-pago.dto";
+import { CapturarOrdenDto } from "./dto/capturar-orden.dto";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import Stripe from "stripe";
@@ -142,13 +143,30 @@ export class PagosController {
   // PayPal: capturar orden aprobada por el comprador
   // ──────────────────────────────────────────────
 
+  /**
+   * Solo se captura una orden creada por esta misma sesión de checkout: el
+   * `custom_id` que se grabó al crearla (`session|user`) tiene que coincidir con
+   * la sesión que llama. Antes el endpoint no tenía guard ni DTO y aceptaba
+   * cualquier orderID de PayPal que se conociera.
+   */
   @Post("paypal/capture-order")
+  @UseGuards(OptionalJwtGuard)
   @HttpCode(HttpStatus.OK)
-  async capturePaypalOrder(@Body("order_id") orderId: string) {
-    if (!orderId || typeof orderId !== "string") {
-      throw new BadRequestException("order_id es obligatorio");
+  async capturePaypalOrder(@Req() req: SessionRequest, @Body() dto: CapturarOrdenDto) {
+    const sessionId = req.sessionId ?? "";
+    const userId = req.user?.sub;
+
+    const propietario = await this.paypalService.getOrderCustomId(dto.order_id);
+    const esperado = [sessionId, userId ?? ""].join("|");
+
+    if (propietario !== esperado) {
+      this.logger.warn(
+        `Intento de capturar la orden PayPal ${dto.order_id} desde otra sesión (esperado ${esperado}, orden ${propietario ?? "sin custom_id"})`,
+      );
+      throw new ForbiddenException("Esta orden de pago no pertenece a tu sesión");
     }
-    return this.paypalService.captureOrder(orderId);
+
+    return this.paypalService.captureOrder(dto.order_id);
   }
 
   // ──────────────────────────────────────────────

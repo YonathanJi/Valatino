@@ -6,15 +6,7 @@ import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import Link from "next/link";
-import type { Pedido, PaginatedResponse } from "@valatino/types";
-
-const ESTADO_LABELS: Record<string, string> = {
-  PENDIENTE_PAGO: "Pendiente de pago",
-  PROCESANDO: "Procesando",
-  ENVIADO: "Enviado",
-  ENTREGADO: "Entregado",
-  CANCELADO: "Cancelado",
-};
+import { PEDIDO_ESTADO_LABELS, type Pedido, type PaginatedResponse } from "@valatino/types";
 
 // Escala de grises: cada estado se distingue por intensidad, no por tono
 const ESTADO_COLORS: Record<string, string> = {
@@ -23,6 +15,7 @@ const ESTADO_COLORS: Record<string, string> = {
   ENVIADO: "bg-neutral-300 text-neutral-800",
   ENTREGADO: "bg-neutral-900 text-neutral-50",
   CANCELADO: "bg-neutral-100 text-neutral-400",
+  REEMBOLSADO: "bg-neutral-200 text-neutral-500",
 };
 
 export default function MisPedidosPage() {
@@ -95,7 +88,7 @@ export default function MisPedidosPage() {
                     ESTADO_COLORS[pedido.estado] ?? "bg-muted text-muted-foreground"
                   }`}
                 >
-                  {ESTADO_LABELS[pedido.estado] ?? pedido.estado}
+                  {PEDIDO_ESTADO_LABELS[pedido.estado] ?? pedido.estado}
                 </span>
               </div>
 

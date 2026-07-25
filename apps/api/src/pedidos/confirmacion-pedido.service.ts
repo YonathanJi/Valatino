@@ -97,26 +97,48 @@ export class ConfirmacionPedidoService {
     return pedidoId;
   }
 
-  /** Reembolso notificado por el proveedor. Devuelve el id del pedido o null si no existe. */
+  /**
+   * Reembolso notificado por el proveedor. Devuelve el id del pedido o null si
+   * no existe.
+   *
+   * Solo un reembolso por el importe completo cambia el estado a REEMBOLSADO:
+   * uno parcial se registra en transacciones_pago (traza contable) y deja el
+   * pedido en su estado, porque el envío sigue su curso. Antes cualquier
+   * importe, aunque fuese de 1 €, marcaba el pedido entero como reembolsado.
+   */
   async procesarReembolso(reembolso: ReembolsoNotificado): Promise<string | null> {
-    const pedidoId = await this.inventarioService.actualizarEstadoPorReferencia(
-      reembolso.referenciaPago,
-      "REEMBOLSADO",
-    );
-    if (!pedidoId) return null;
+    const pedido = await this.inventarioService.findPedidoPorReferencia(reembolso.referenciaPago);
+    if (!pedido) {
+      this.logger.warn(`Reembolso sin pedido asociado (ref ${reembolso.referenciaPago})`);
+      return null;
+    }
+
+    // Céntimos: evita que 49.99 !== 49.99 por coma flotante
+    const esTotal = Math.round(reembolso.importe * 100) >= Math.round(Number(pedido.total) * 100);
+
+    if (esTotal) {
+      await this.inventarioService.actualizarEstadoPorReferencia(
+        reembolso.referenciaPago,
+        "REEMBOLSADO",
+      );
+    } else {
+      this.logger.log(
+        `Reembolso parcial de ${reembolso.importe} € sobre ${pedido.total} € (pedido ${pedido.id}): se registra sin cambiar el estado`,
+      );
+    }
 
     await this.inventarioService.registrarTransaccion(
-      pedidoId,
+      pedido.id,
       reembolso.proveedor,
       reembolso.eventoId,
       reembolso.tipoEvento,
-      "reembolsado",
+      esTotal ? "reembolsado" : "reembolsado_parcial",
       reembolso.importe,
       reembolso.payloadRaw,
     );
 
-    await this.enviarEmailPedido(pedidoId, true);
-    return pedidoId;
+    if (esTotal) await this.enviarEmailPedido(pedido.id, true);
+    return pedido.id;
   }
 
   /** Email transaccional de confirmación o reembolso (no bloqueante). */

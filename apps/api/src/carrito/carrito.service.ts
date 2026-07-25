@@ -35,8 +35,21 @@ export class CarritoService {
       .select("id")
       .single();
 
-    if (error) throw new InternalServerErrorException("No se pudo crear el carrito");
-    return (created as { id: string }).id;
+    if (created) return (created as { id: string }).id;
+
+    // 23505: otra petición concurrente del mismo usuario ganó la carrera (hay
+    // índice único parcial en carritos.user_id). Antes esto era un 500.
+    if (error?.code === "23505" && userId) {
+      const { data: ganador } = await this.supabase
+        .from("carritos")
+        .select("id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (ganador) return (ganador as { id: string }).id;
+    }
+
+    throw new InternalServerErrorException("No se pudo crear el carrito");
   }
 
   async getCarrito(sessionId: string, userId?: string): Promise<CarritoConItems> {

@@ -1,12 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseServerClient } from "@lib/supabase/server";
+import { destinoSeguro } from "@lib/auth/redirect";
+
+const DESTINO_POR_DEFECTO = "/cuenta/pedidos";
 
 export async function GET(request: NextRequest) {
   const { origin } = new URL(request.url);
   const code = request.nextUrl.searchParams.get("code");
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
   const type = request.nextUrl.searchParams.get("type");
-  const redirectTo = request.nextUrl.searchParams.get("redirectTo") ?? "/cuenta/pedidos";
+  const redirectTo = destinoSeguro(
+    request.nextUrl.searchParams.get("redirectTo"),
+    DESTINO_POR_DEFECTO,
+  );
 
   const supabase = createSupabaseServerClient();
 
@@ -18,8 +24,7 @@ export async function GET(request: NextRequest) {
       url.searchParams.set("error", error.message);
       return NextResponse.redirect(url);
     }
-    const safeRedirect = redirectTo.startsWith("/") ? redirectTo : "/cuenta/pedidos";
-    return NextResponse.redirect(new URL(safeRedirect, origin));
+    return NextResponse.redirect(new URL(redirectTo, origin));
   }
 
   // Flujo token_hash (otp email recovery)
@@ -33,8 +38,7 @@ export async function GET(request: NextRequest) {
       url.searchParams.set("error", error.message);
       return NextResponse.redirect(url);
     }
-    const safeRedirect = redirectTo.startsWith("/") ? redirectTo : "/cuenta/pedidos";
-    return NextResponse.redirect(new URL(safeRedirect, origin));
+    return NextResponse.redirect(new URL(redirectTo, origin));
   }
 
   // Sin parámetros: redirigir a login

@@ -59,9 +59,10 @@ function useNumeroPedido(referencia: string, activo: boolean): string | null {
 function resolverEstado(redirectStatus: string | null): EstadoPago {
   // Stripe: succeeded | processing | requires_payment_method | failed
   // PayPal (nuestro capture): succeeded | failed
+  // Sin parámetro no hay nada que confirmar (alguien abrió la URL a pelo): no
+  // se anuncia un pedido que quizá no existe.
   if (redirectStatus === "succeeded") return "exitoso";
   if (redirectStatus === "processing") return "procesando";
-  if (redirectStatus === null) return "exitoso"; // compat: enlaces antiguos
   return "fallido";
 }
 

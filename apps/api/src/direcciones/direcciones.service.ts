@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import type { CreateDireccionDto } from "./dto/direccion.dto";
+import type { CreateDireccionDto, UpdateDireccionDto } from "./dto/direccion.dto";
 
 @Injectable()
 export class DireccionesService {
@@ -14,58 +14,55 @@ export class DireccionesService {
       .eq("user_id", userId)
       .order("es_predeterminada", { ascending: false });
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la direcci�n");
+    if (error) throw new InternalServerErrorException("No se pudieron cargar tus direcciones");
     return data;
   }
 
   async create(userId: string, dto: CreateDireccionDto) {
-    if (dto.esPredeterminada) {
-      await this.supabase
-        .from("direcciones_envio")
-        .update({ es_predeterminada: false })
-        .eq("user_id", userId);
+    if (dto.es_predeterminada) {
+      await this.quitarPredeterminada(userId);
     }
 
     const { data, error } = await this.supabase
       .from("direcciones_envio")
       .insert({
         user_id: userId,
-        nombre_destinatario: dto.nombreDestinatario,
+        nombre_destinatario: dto.nombre_destinatario,
         linea1: dto.linea1,
         linea2: dto.linea2 ?? null,
         ciudad: dto.ciudad,
-        codigo_postal: dto.codigoPostal,
+        codigo_postal: dto.codigo_postal,
         provincia: dto.provincia,
         pais: dto.pais ?? "ES",
-        es_predeterminada: dto.esPredeterminada ?? false,
+        es_predeterminada: dto.es_predeterminada ?? false,
       })
       .select()
       .single();
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la direcci�n");
+    if (error) throw new InternalServerErrorException("No se pudo guardar la dirección");
     return data;
   }
 
-  async update(userId: string, id: string, dto: Partial<CreateDireccionDto>) {
-    if (dto.esPredeterminada) {
-      await this.supabase
-        .from("direcciones_envio")
-        .update({ es_predeterminada: false })
-        .eq("user_id", userId)
-        .neq("id", id);
+  async update(userId: string, id: string, dto: UpdateDireccionDto) {
+    if (dto.es_predeterminada) {
+      await this.quitarPredeterminada(userId, id);
     }
 
     const { data, error } = await this.supabase
       .from("direcciones_envio")
       .update({
-        ...(dto.nombreDestinatario && { nombre_destinatario: dto.nombreDestinatario }),
-        ...(dto.linea1 && { linea1: dto.linea1 }),
+        ...(dto.nombre_destinatario !== undefined && {
+          nombre_destinatario: dto.nombre_destinatario,
+        }),
+        ...(dto.linea1 !== undefined && { linea1: dto.linea1 }),
         ...(dto.linea2 !== undefined && { linea2: dto.linea2 }),
-        ...(dto.ciudad && { ciudad: dto.ciudad }),
-        ...(dto.codigoPostal && { codigo_postal: dto.codigoPostal }),
-        ...(dto.provincia && { provincia: dto.provincia }),
-        ...(dto.pais && { pais: dto.pais }),
-        ...(dto.esPredeterminada !== undefined && { es_predeterminada: dto.esPredeterminada }),
+        ...(dto.ciudad !== undefined && { ciudad: dto.ciudad }),
+        ...(dto.codigo_postal !== undefined && { codigo_postal: dto.codigo_postal }),
+        ...(dto.provincia !== undefined && { provincia: dto.provincia }),
+        ...(dto.pais !== undefined && { pais: dto.pais }),
+        ...(dto.es_predeterminada !== undefined && {
+          es_predeterminada: dto.es_predeterminada,
+        }),
       })
       .eq("id", id)
       .eq("user_id", userId)
@@ -83,6 +80,18 @@ export class DireccionesService {
       .eq("id", id)
       .eq("user_id", userId);
 
-    if (error) throw new InternalServerErrorException("Error al gestionar la direcci�n");
+    if (error) throw new InternalServerErrorException("No se pudo eliminar la dirección");
+  }
+
+  /** Solo una dirección predeterminada por usuario (`excluirId` conserva la que se está guardando). */
+  private async quitarPredeterminada(userId: string, excluirId?: string): Promise<void> {
+    let qb = this.supabase
+      .from("direcciones_envio")
+      .update({ es_predeterminada: false })
+      .eq("user_id", userId);
+
+    if (excluirId) qb = qb.neq("id", excluirId);
+
+    await qb;
   }
 }

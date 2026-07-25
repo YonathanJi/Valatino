@@ -11,6 +11,7 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   InternalServerErrorException,
   Inject,
 } from "@nestjs/common";
@@ -22,7 +23,6 @@ import { ModulosGuard } from "./guards/modulos.guard";
 import { Roles } from "./decorators/roles.decorator";
 import { Modulo } from "./decorators/modulo.decorator";
 import { CurrentUser } from "./decorators/current-user.decorator";
-import { AssignRoleDto } from "./dto/assign-role.dto";
 import { CreateAsesorDto } from "./dto/create-asesor.dto";
 import { UpdateModulosDto } from "./dto/update-modulos.dto";
 import { UpdateUsuarioDto } from "./dto/update-usuario.dto";
@@ -43,8 +43,9 @@ interface StaffMiembro {
 }
 
 // Usuarios vive dentro del módulo "TI": admin siempre; un asesor de TI puede
-// gestionar cuentas, contraseñas y módulos. Cambiar el ROL (dar/quitar admin)
-// queda reservado a admin (ver @Roles("admin") en updateRol).
+// gestionar cuentas, contraseñas y módulos DE ASESORES. Sobre una cuenta admin
+// solo actúa otro admin (ver asegurarStaffEditable), y cambiar el ROL, bloquear
+// o eliminar queda reservado a admin (ver @Roles("admin") en esos handlers).
 @Controller("admin/usuarios")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
 @Roles("admin", "asesor")
@@ -262,11 +263,9 @@ export class UsuariosController {
   async updateUsuario(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @Body() dto: UpdateUsuarioDto,
+    @CurrentUser() editor: JwtPayload,
   ) {
-    const rol = await this.fetchRol(id);
-    if (rol !== "admin" && rol !== "asesor") {
-      throw new NotFoundException("Usuario no encontrado en el staff");
-    }
+    await this.asegurarStaffEditable(id, editor);
 
     const authUpdate: {
       email?: string;
@@ -305,11 +304,9 @@ export class UsuariosController {
   async resetPassword(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @Body() dto: ResetPasswordDto,
+    @CurrentUser() editor: JwtPayload,
   ) {
-    const rol = await this.fetchRol(id);
-    if (rol !== "admin" && rol !== "asesor") {
-      throw new NotFoundException("Usuario no encontrado en el staff");
-    }
+    await this.asegurarStaffEditable(id, editor);
 
     const { error } = await this.supabase.auth.admin.updateUserById(id, {
       password: dto.password,
@@ -460,24 +457,23 @@ export class UsuariosController {
     return { message: "Asesor eliminado" };
   }
 
-  @Post("roles")
-  async assignRole(@Body() dto: AssignRoleDto, @CurrentUser() assigner: JwtPayload) {
-    const { data: rol } = await this.supabase
-      .from("roles")
-      .select("id")
-      .eq("nombre", dto.role)
-      .single();
-
-    if (!rol) throw new NotFoundException(`Rol '${dto.role}' no encontrado`);
-
-    const { error } = await this.supabase.from("user_roles").upsert({
-      user_id: dto.user_id,
-      role_id: (rol as { id: string }).id,
-      asignado_por: assigner.sub,
-    });
-
-    if (error) throw new InternalServerErrorException("No se pudo asignar el rol");
-    return { message: `Rol ${dto.role} asignado correctamente` };
+  /**
+   * Comprueba que el objetivo es staff y que el editor puede tocarlo.
+   * Un asesor de TI gestiona cuentas de asesor, pero NO las de un admin: si
+   * pudiera cambiarle el email o la contraseña se apropiaría de la cuenta y el
+   * `@Roles("admin")` de updateRol/setBloqueo/removeAsesor no valdría de nada.
+   */
+  private async asegurarStaffEditable(userId: string, editor: JwtPayload): Promise<UserRole> {
+    const rol = await this.fetchRol(userId);
+    if (rol !== "admin" && rol !== "asesor") {
+      throw new NotFoundException("Usuario no encontrado en el staff");
+    }
+    if (rol === "admin" && editor.role !== "admin") {
+      throw new ForbiddenException(
+        "Solo un administrador puede modificar la cuenta de otro administrador",
+      );
+    }
+    return rol;
   }
 
   private async fetchRol(userId: string): Promise<UserRole | null> {
