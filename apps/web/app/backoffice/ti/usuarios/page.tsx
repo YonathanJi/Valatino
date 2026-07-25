@@ -308,15 +308,19 @@ export default function BackofficeUsuariosPage() {
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="flex justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setEditingUser(u)}
-                          title="Editar"
-                          aria-label={`Editar ${u.nombre ?? u.email ?? "usuario"}`}
-                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
+                        {/* Sobre una cuenta admin solo actúa otro admin: la API
+                            responde 403 igualmente (asegurarStaffEditable). */}
+                        {(esAdmin || u.rol !== "admin") && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingUser(u)}
+                            title="Editar"
+                            aria-label={`Editar ${u.nombre ?? u.email ?? "usuario"}`}
+                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        )}
                         {esAdmin && u.rol === "asesor" && u.user_id !== myUserId && (
                           <>
                             <button
