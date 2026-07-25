@@ -72,6 +72,11 @@ Del mismo principio sale el corte anti-duplicado del correo: el webhook solo avi
 - `SMTP_PORT` **por defecto 2525** (Render free bloquea 465/587) y **`requireTLS` obligatorio** cuando no es 465: en 2525 la conexión abre en claro y se eleva con STARTTLS, y sin exigirlo las credenciales podrían viajar sin cifrar.
 - Tests: **85** (8 suites). Nuevos: `reembolsos.service.spec.ts` (16) y `plantillas.spec.ts` (11).
 
+### Desplegado y verificado en línea (commit `749ab01`)
+`POST /admin/pedidos/:id/reembolso` pasó de **404 a 401** (la ruta existe y exige sesión) · `/health` 200 · catálogo público 200 · `/admin/pedidos` sin token 401 · tienda y `/admin` 200.
+
+⚠️ **Sin probar en vivo el flujo completo**: hace falta una **compra nueva**. El único pedido de la BD (`260725018055`) ya está en `REEMBOLSADO` de una prueba anterior, y ese es un estado final, así que no ofrece botón de reembolsar. Los pedidos nacen en `PROCESANDO` (migración 033), así que la secuencia a probar es: comprar → correo de confirmación → «Enviado» (correo *va en camino*) → «Entregado» → reembolso parcial (el pedido **no** cambia de estado, se ve `−X € devuelto`) → reembolso del resto (pasa a `REEMBOLSADO` y **el stock sube una sola vez**). Vale la pena mirar el inventario antes/después y contar que llega **un** correo por devolución, no dos.
+
 ---
 
 ## Sesión 2026-07-25 (cont. 2) — Despliegue a producción y módulo Clientes
