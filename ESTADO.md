@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-24
+**Última actualización**: 2026-07-25
 
 ---
 
@@ -12,7 +12,7 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **032** (flujo RRHH→TI). Migraciones 024–032 nuevas esta racha.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **032** (flujo RRHH→TI). ⚠️ **033, 034 y 035 están escritas pero SIN APLICAR** (ver sesión 2026-07-25): hasta aplicarlas, el checkout y el webhook de pago fallan porque llaman a RPC que aún no existen en el remoto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. Jonathan confirmó (2026-07-22) que **NO ha regenerado** los tokens expuestos porque seguimos en test; se reutilizan tal cual. Regenerarlos al pasar a producción real.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
 - **Panel admin modernizado (2026-07-23)**: sidebar oscuro + canvas claro premium (scope `.theme-admin`), **iconos Lucide** en todo el panel (mapa compartido `lib/backoffice/iconos.tsx`; adiós emoji), **cabeceras `PageHeader`** con icono de marca en las 10 páginas, y responsive en móvil (drawer con hamburguesa). El súper admin ya edita usuarios del staff (nombre/correo, contraseña, rol admin↔asesor, módulos). Ver sesión 2026-07-23.
@@ -26,7 +26,50 @@
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
-- Pendientes de fondo de siempre: **tests (0%)**, CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+- Pendientes de fondo de siempre: ~~tests (0%)~~ → **42 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-25 — Auditoría completa y correcciones
+
+Revisión de toda la aplicación (API, web, 32 migraciones) y arreglo de lo encontrado. **Migraciones 033–035 pendientes de aplicar al remoto.**
+
+### Seguridad
+- **Escalada de privilegios (crítica)**: `POST /admin/usuarios/roles` permitía a un asesor con módulo `ti` asignarse rol `admin`, saltándose los controles de `updateRol` (no degradar al último admin, no cambiar tu propio rol), y con `upsert` dejaba roles duplicados. Era código muerto: **eliminado** junto a `AssignRoleDto`.
+- **Toma de cuenta admin**: un asesor de TI podía cambiar email/contraseña de un admin y entrar como él. Nuevo `asegurarStaffEditable` en `updateUsuario`/`resetPassword`: sobre una cuenta `admin` solo actúa otro admin (403). En la web se oculta el lápiz de las filas admin a quien no es admin.
+- **CORS**: se admitía **cualquier** `*.vercel.app` con `credentials: true` (bastaba desplegar ahí para manipular carrito/checkout de invitados). Ahora solo los orígenes exactos de `CORS_ORIGIN` y, si se define `CORS_VERCEL_PREVIEW_PREFIX`, las previews de este proyecto.
+- **Open redirect** en `/auth/callback`: `startsWith("/")` aceptaba `//evil.com`. Saneado en `lib/auth/redirect.ts`, compartido con `AuthForms` (que hacía `router.push` del mismo valor).
+- **`POST /pagos/paypal/capture-order`** no tenía guard ni DTO. Ahora valida el formato del `order_id` y **comprueba que el `custom_id` de la orden es de la sesión que llama** (403 si no).
+- **Catálogo inactivo público**: `GET /productos?soloActivos=false` exponía borradores a cualquiera. Ahora exige staff.
+- **RLS**: la migración 018 dejó sin querer las policies de escritura de `direcciones_envio`, y `direcciones_update_own` no tenía `WITH CHECK` (se podía reasignar `user_id` a otra cuenta con la anon key). **035** las elimina.
+
+### Corrección de datos y dinero
+- **Un pago = un pedido (033)**: no había índice único en `pedidos.referencia_pago`. Dos reintentos concurrentes del webhook creaban **dos pedidos** y descontaban stock dos veces; y como `actualizarEstadoPorReferencia`/`findResumenPorReferencia` usan `.maybeSingle()`, un duplicado rompía los reembolsos y la pantalla de confirmación. Añadido índice único + **RPC `confirmar_venta`** que hace pedido + líneas + stock + vaciado de carrito **en una transacción**, idempotente por referencia (lock por referencia; si ya existe devuelve el pedido). Antes eran 6 llamadas sueltas y un fallo a mitad dejaba pedidos sin líneas o `stock_reservado` inflado para siempre (solo se logueaba).
+- **Reserva de checkout atómica (034)**: nueva **RPC `reservar_carrito`** (libera previas + comprueba todo el stock + reserva, todo o nada) con advisory lock por sesión. **Desaparece el `Map` en memoria `reservasEnVuelo`** de `CheckoutService`, que dejaba de proteger en cuanto hubiera más de una instancia (Principio V de la constitución). Índice único `(session_id, producto_id)`.
+- **Reembolso parcial**: cualquier importe, aunque fuese 1 € de 50 €, marcaba el pedido entero como `REEMBOLSADO` y avisaba al cliente. Ahora solo el reembolso completo cambia el estado; el parcial se registra como `reembolsado_parcial` en `transacciones_pago`.
+
+### Funcionalidad que estaba rota
+- **Guardar direcciones desde `/cuenta/perfil` devolvía 400 siempre**: el front enviaba snake_case y los DTO esperaban camelCase, y el `ValidationPipe` global (`whitelist + forbidNonWhitelisted`) lo rechazaba. Los DTO pasan a **snake_case**, alineados con lo que la API devuelve y con `DireccionSnapshotDto` del checkout.
+- **`REEMBOLSADO` no existía en la UI**: al cliente se le mostraba el literal en gris y **el admin no podía marcar un reembolso** pese a que el backend lo permitía. La máquina de estados vive ahora en `@valatino/types` (`TRANSICIONES_PEDIDO`, `PEDIDO_ESTADO_LABELS`, `transicionesPermitidas`) y la consumen API y web: se acabó la tabla duplicada de `EstadoSelector`, que ya había divergido.
+- **Cambio de estado con éxito falso**: `EstadoSelector` cantaba "Estado actualizado" sin esperar la llamada y la página se tragaba el error, así que un 403 se anunciaba como guardado. Ahora `onEstadoChange` devuelve el resultado real y el aviso depende de él. `/backoffice/pedidos` pasa a server component para resolver el rol y acotar las transiciones ofrecidas (`PedidosPanel`).
+- **Categorías**: `Salsas` y `Licores` estaban en los datos desde el seed pero no en `CATEGORIAS_PRODUCTO`, así que esos productos **no se podían editar** (el selector no las ofrecía y `@IsIn` rechazaba el PATCH). Añadidas.
+- **`/checkout/confirmacion` sin parámetros** anunciaba "¡Pedido confirmado!". Ya no.
+
+### Limpieza
+- **`SUPABASE_JWT_SECRET` era obligatoria y no se usaba**: `JwtModule` la exigía con `getOrThrow` (la API no arrancaba sin ella) pero `JwtService` no se inyectaba en ningún sitio — los tokens se verifican contra el JWKS. Fuera del módulo, de `.env.example` y de `render.yaml`.
+- Carrera al crear carrito (dos peticiones concurrentes → 500 por el índice único de `carritos.user_id`): se resuelve reintentando la lectura.
+- `ParseUUIDPipe` en las rutas de productos que no lo tenían; mojibake `"direcci�n"` en `DireccionesService`; deduplicada la lógica de "quitar predeterminada".
+
+### Tests (F7) — de 0 a 42
+`jest.config.js` + `tsconfig.spec.json` + `tsconfig.build.json` (para que los `.spec` no acaben en `dist`). Cubren la máquina de estados y `updateEstado` por rol, los DTO de dirección (regresión del 400), reembolso parcial vs total, `CheckoutService` contra la nueva RPC, y validación de líneas de compra (4 decimales, IVA 4/10/21).
+
+### Deuda consciente (no tocada)
+- **Dashboard**: `getPedidosPagados` no pagina y PostgREST corta en 1000 filas → los KPI se quedarán cortos en silencio pasados ~1000 pedidos/mes; `getTopProductos` mete todos los IDs en un `.in(...)`. Hay que agregar en SQL. No afecta al volumen actual.
+- **`listUsers({perPage:200})`** en TI: el flag `bloqueado` deja de calcularse bien pasados 200 usuarios de auth.
+- Rol resuelto en BD en **cada** petición autenticada (1–2 consultas); cachear o llevarlo en el JWT.
+- Fusión de carrito no transaccional; `numero_pedido` con 4 dígitos aleatorios (colisión ~12% con 50 pedidos/día, se salva con reintentos).
+- Marcar dirección como predeterminada **desde `/cuenta/perfil`** sigue sin poderse: el formulario no envía `es_predeterminada` (el backend ya lo soporta).
+- La **web sigue sin tests**.
 
 ---
 
