@@ -29,8 +29,26 @@
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD limpiada a "arranque real" (2026-07-22)**: borrados todos los pedidos/carritos/transacciones de prueba y las 3 cuentas de **cliente** de prueba. Quedan solo los **13 productos**, la **primera factura** y el **inventario restaurado a las cantidades de esa factura** (`reservado=0`). Usuarios que quedan: **admin** `jonathanduqee+admin@gmail.com` y **asesor** `jhoannamendoza46@valatino.com`. Los clientes reales se crearán solos al comprar. ⚠️ Secciones antiguas de este archivo que mencionen clientes de prueba (jonathanduqee@gmail.com/@hotmail.com, jhoannamendoza46@gmail.com) quedan desactualizadas.
+- **BD limpiada a "arranque real" — última vez el 2026-07-25** (ver sesión cont. 4). Quedan **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** y el **stock igual a esa factura** (`reservado=0`). **0 pedidos, 0 carritos, 0 transacciones, 0 direcciones, 0 clientes.** Los clientes se crearán solos al comprar.
+- **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil "Admin Valatino"). ⚠️ **El asesor `jhoannamendoza46@valatino.com` ya NO existe** — este archivo lo daba por vivo hasta el 2026-07-25; se comprobó que en `auth.users` no está. `empleados` y `staff_modulos` están a 0, así que Gestión Humana y TI arrancan vacíos. Para probar el flujo de asesor hay que crear la cuenta otra vez (RRHH crea empleado → TI le provisiona cuenta).
 - Pendientes de fondo de siempre: ~~tests (0%)~~ → **85 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-25 (cont. 4) — Limpieza de la BD a «arranque real»
+
+A petición de Jonathan, tras validar el flujo de reembolsos: fuera clientes y pedidos, dentro el inventario tal como lo dejó la factura.
+
+**Borrado** (hijos antes que padres, en un solo bloque atómico): `transacciones_pago`, `pedido_items`, `pedidos`, `carrito_items`, `carritos` (22 filas de sesiones de prueba), `stock_reservas`, `checkout_datos`, y las cuentas con **rol `cliente`** de `auth.users` — que arrastran en cascada `profiles`, `user_roles`, `direcciones_envio`, `identities` y `sessions`.
+
+**Conservado**: 13 productos · factura 202521188 con sus 11 líneas · 1 proveedor · 6 cargos · el **súper admin** con su perfil.
+
+**Stock fijado a la factura** (`stock_disponible = suma de factura_compra_items`, `stock_reservado = 0`). Verificado: **descuadre 0 en los 13 productos**. Eso resolvió de paso el `−1` de `Tostados la Gitana` (2 → 3) que había dejado el reembolso del camino viejo.
+
+Dos detalles que conviene no olvidar si hay que repetir esto:
+
+- El borrado se filtra por **rol `cliente`**, nunca por lista de correos: así no hay forma de llevarse al admin por descuido. Se comprobó después que el admin sigue con su perfil y con la factura a su nombre.
+- `facturas_compra.creado_por` es **FK a `auth.users` con `ON DELETE SET NULL`**: borrar al admin dejaría la factura sin autor. Otra razón para no tocar esa cuenta.
 
 ---
 
@@ -87,7 +105,7 @@ Del mismo principio sale el corte anti-duplicado del correo: el webhook solo avi
 - **`pedidos.updated_at` = 21:32:50.18**, anterior a la fila del webhook. Si la llamada del webhook al RPC también hubiera actuado, esa marca sería de las 21:32:51.3. Devolvió `false` y no repuso stock por segunda vez.
 - **Stock verificado por descuadre**: Nucita tiene 36 disponibles y la factura de compra cargó 36 → **descuadre 0** con una unidad vendida y devuelta. Se repuso una sola vez.
 
-⚠️ **Descuadre preexistente de 1 unidad**: `Tostados la Gitana` tiene **2 de 3** compradas. Es del pedido `260725018055`, reembolsado a las **17:26**, cuatro horas antes de desplegar esto: pasó por el camino viejo (`actualizarEstadoPorReferencia`), que no reponía stock. Este cambio no puede arreglarlo hacia atrás. Si esa unidad sigue siendo vendible, **corregir desde Inventario** (+1) en lugar de con un UPDATE a mano, para que quede la traza del ajuste.
+~~⚠️ **Descuadre preexistente de 1 unidad**~~ → **resuelto** en la limpieza de la BD (cont. 4). Venía del pedido `260725018055`, reembolsado a las **17:26**, cuatro horas antes de desplegar esto: pasó por el camino viejo (`actualizarEstadoPorReferencia`), que no reponía stock. Dejaba `Tostados la Gitana` en 2 de 3. Al fijar el stock a la factura quedó en 3.
 
 ---
 
