@@ -21,15 +21,18 @@ services:
       - key: NODE_ENV
         value: production
       # Origen(es) permitidos para CORS: la URL de tu web en Vercel.
-      # Admite varias separadas por comas. Los *.vercel.app se permiten solos.
+      # Admite varias separadas por comas.
       - key: CORS_ORIGIN
+        sync: false
+      # Preview URLs de Vercel: solo las de este proyecto, por prefijo
+      # ("valatino" habilita https://valatino-<hash>.vercel.app). Sin esta
+      # variable solo valen los origenes exactos de CORS_ORIGIN.
+      - key: CORS_VERCEL_PREVIEW_PREFIX
         sync: false
       # --- Supabase ---
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: SUPABASE_JWT_SECRET
         sync: false
       # --- Stripe ---
       - key: STRIPE_SECRET_KEY

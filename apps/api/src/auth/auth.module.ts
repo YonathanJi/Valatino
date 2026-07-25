@@ -1,24 +1,16 @@
 import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
-import { ConfigModule, ConfigService } from "@nestjs/config";
 import { JwtStrategy } from "./strategies/jwt.strategy";
 import { JwtGuard } from "./guards/jwt.guard";
 import { RolesGuard } from "./guards/roles.guard";
 import { UsuariosController } from "./usuarios.controller";
 
+// No se registra JwtModule: la API no firma tokens, solo verifica los de
+// Supabase — y eso lo hace JwtStrategy contra el JWKS del proyecto. El
+// JwtModule que había aquí exigía SUPABASE_JWT_SECRET con getOrThrow (la API no
+// arrancaba sin ella) pero JwtService no se inyectaba en ninguna parte.
 @Module({
-  imports: [
-    PassportModule.register({ defaultStrategy: "jwt" }),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.getOrThrow<string>("SUPABASE_JWT_SECRET"),
-        signOptions: { expiresIn: "1h" },
-      }),
-    }),
-  ],
+  imports: [PassportModule.register({ defaultStrategy: "jwt" })],
   controllers: [UsuariosController],
   providers: [JwtStrategy, JwtGuard, RolesGuard],
   exports: [JwtGuard, RolesGuard, PassportModule],
