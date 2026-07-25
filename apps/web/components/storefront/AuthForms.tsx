@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { obtenerRol, esRolStaff } from "@lib/auth/rol";
+import { destinoSeguro } from "@lib/auth/redirect";
 import { apiFetch } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
@@ -14,13 +15,15 @@ type Step = "request" | "verify";
 
 export function AuthForm({
   defaultEmail = "",
-  redirectTo = "/cuenta/perfil",
+  redirectTo: redirectToRaw = "/cuenta/perfil",
 }: {
   defaultEmail?: string;
   redirectTo?: string;
 }) {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
+  // `redirectTo` viene de la query string: solo se aceptan rutas internas.
+  const redirectTo = destinoSeguro(redirectToRaw, "/cuenta/perfil");
   const [step, setStep] = useState<Step>("request");
   const [email, setEmail] = useState(defaultEmail);
   const [token, setToken] = useState("");

@@ -24,19 +24,38 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // CORS_ORIGIN admite una lista separada por comas (localhost + dominio de
-  // producción). Además se permiten los despliegues de Vercel (*.vercel.app)
-  // para que las preview URLs funcionen sin reconfigurar en cada deploy.
+  // producción).
   const origenesPermitidos = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
     .split(",")
     .map((o) => o.trim())
     .filter(Boolean);
 
+  // Preview URLs de Vercel: se aceptan SOLO las del propio proyecto, indicando
+  // su prefijo en CORS_VERCEL_PREVIEW_PREFIX (p.ej. "valatino" habilita
+  // https://valatino-<hash>.vercel.app). Antes se admitía cualquier
+  // *.vercel.app, así que bastaba con desplegar ahí para hablar con esta API
+  // con `credentials: true` y manipular carrito y checkout de invitados.
+  const prefijoPreview = process.env.CORS_VERCEL_PREVIEW_PREFIX?.trim();
+  const previewVercel = prefijoPreview
+    ? new RegExp(`^${prefijoPreview.replace(/[^a-zA-Z0-9-]/g, "")}-[a-z0-9-]+\\.vercel\\.app$`)
+    : null;
+
+  const origenPermitido = (origin: string): boolean => {
+    if (origenesPermitidos.includes(origin)) return true;
+    if (!previewVercel) return false;
+    try {
+      const { hostname, protocol } = new URL(origin);
+      return protocol === "https:" && previewVercel.test(hostname);
+    } catch {
+      return false; // Origin malformado
+    }
+  };
+
   app.enableCors({
     origin: (origin, callback) => {
       // Peticiones sin Origin (curl, health checks, server-to-server) se permiten
       if (!origin) return callback(null, true);
-      const permitido =
-        origenesPermitidos.includes(origin) || /\.vercel\.app$/.test(new URL(origin).hostname);
+      const permitido = origenPermitido(origin);
       callback(permitido ? null : new Error(`Origen no permitido por CORS: ${origin}`), permitido);
     },
     credentials: true,

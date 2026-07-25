@@ -89,6 +89,30 @@ export class PaypalService {
   }
 
   /**
+   * `custom_id` con el que se creó la orden ("session|user"), para comprobar
+   * que quien pide capturarla es quien la inició. Devuelve null si la orden no
+   * existe o no lo lleva.
+   */
+  async getOrderCustomId(orderId: string): Promise<string | null> {
+    const token = await this.getAccessToken();
+
+    const res = await fetch(`${this.baseUrl}/v2/checkout/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) {
+      this.logger.warn(`No se pudo leer la orden de PayPal ${orderId} (HTTP ${res.status})`);
+      return null;
+    }
+
+    const orden = (await res.json()) as {
+      purchase_units?: Array<{ custom_id?: string }>;
+    };
+
+    return orden.purchase_units?.[0]?.custom_id ?? null;
+  }
+
+  /**
    * Captura una orden aprobada por el comprador. Sin este paso el pago
    * nunca se completa (y el webhook PAYMENT.CAPTURE.COMPLETED nunca llega).
    */

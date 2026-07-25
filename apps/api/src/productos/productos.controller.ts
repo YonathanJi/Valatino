@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Post,
   Patch,
@@ -22,9 +23,12 @@ import { ProductosService, EXTENSION_POR_MIME } from "./productos.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
+import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
 import { Modulo } from "../auth/decorators/modulo.decorator";
+import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { CreateProductoDto, UpdateProductoDto, AjustarStockDto } from "./dto/producto.dto";
+import type { JwtPayload } from "@valatino/types";
 
 const MAX_IMAGEN_BYTES = 5 * 1024 * 1024; // 5 MB
 
@@ -48,25 +52,34 @@ function esImagenValida(buffer: Buffer, mimetype: string): boolean {
 export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
 
+  // Catálogo público, pero `soloActivos=false` (que revela borradores y
+  // productos despublicados) queda reservado al staff del backoffice.
   @Get()
+  @UseGuards(OptionalJwtGuard)
   findAll(
+    @CurrentUser() user: JwtPayload | undefined,
     @Query("page", new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query("limit", new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query("categoria") categoria?: string,
     @Query("q") q?: string,
     @Query("soloActivos") soloActivos?: string,
   ) {
+    const incluirInactivos = soloActivos === "false";
+    if (incluirInactivos && user?.role !== "admin" && user?.role !== "asesor") {
+      throw new ForbiddenException("Solo el personal autorizado puede ver productos inactivos");
+    }
+
     return this.productosService.findAll({
       page,
       limit,
       categoria,
       q,
-      soloActivos: soloActivos !== "false",
+      soloActivos: !incluirInactivos,
     });
   }
 
   @Get(":id")
-  findOne(@Param("id") id: string) {
+  findOne(@Param("id", ParseUUIDPipe) id: string) {
     return this.productosService.findOne(id);
   }
 
@@ -103,7 +116,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("catalogo")
-  update(@Param("id") id: string, @Body() dto: UpdateProductoDto) {
+  update(@Param("id", ParseUUIDPipe) id: string, @Body() dto: UpdateProductoDto) {
     return this.productosService.update(id, dto);
   }
 
@@ -121,7 +134,7 @@ export class ProductosController {
   @Roles("admin", "asesor")
   @Modulo("inventario")
   @HttpCode(HttpStatus.OK)
-  ajustarStock(@Param("id") id: string, @Body() dto: AjustarStockDto) {
+  ajustarStock(@Param("id", ParseUUIDPipe) id: string, @Body() dto: AjustarStockDto) {
     return this.productosService.ajustarStock(id, dto.cantidad);
   }
 }
