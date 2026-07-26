@@ -12,7 +12,7 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **038** (2026-07-26, niveles de permiso y plantillas por cargo) más su corrección `038_fix_tipo_nombre_en_aplicar_plantilla`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **039** (2026-07-26, historial de eventos del pedido) más su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -21,6 +21,7 @@
 - **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
 - **Avisos de estado y reembolsos (2026-07-25)**: cada cambio de estado en el panel **envía correo al cliente** (en preparación / en camino / entregado / cancelado), y el reembolso es una acción propia (`POST /admin/pedidos/:id/reembolso`, solo admin) que **cobra en Stripe** de verdad, total o parcial. ⚠️ **REEMBOLSADO ya no es una transición del desplegable**: antes elegirlo marcaba el pedido sin mover un euro. Ver sesión 2026-07-25 (cont. 3).
 - **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
+- **Ficha del pedido e historial (2026-07-26)**: en el panel, **pinchar un pedido** abre su ficha con los artículos, el cliente, la dirección y una **línea de tiempo** de todo lo que le ha pasado —alta, cambios de estado, pagos, reembolsos y correos— **con el nombre de quién lo hizo**. Lo ve todo el equipo, incluso con solo lectura en Pedidos; el cliente **no**. El registro va por **trigger**, así que ningún cambio de estado se escapa. Ver sesión 2026-07-26 (cont.).
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre y el documento reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
@@ -34,6 +35,50 @@
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día.
 - **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil "Admin Valatino"). ⚠️ **El asesor `jhoannamendoza46@valatino.com` ya NO existe** — este archivo lo daba por vivo hasta el 2026-07-25; se comprobó que en `auth.users` no está. `empleados` y `staff_modulos` están a 0, así que Gestión Humana y TI arrancan vacíos. Para probar el flujo de asesor hay que crear la cuenta otra vez (RRHH crea empleado → TI le provisiona cuenta).
 - Pendientes de fondo de siempre: ~~tests (0%)~~ → **85 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-26 (cont.) — Ficha del pedido y trazabilidad de quién lo tocó
+
+Dos peticiones de Jonathan: poder **abrir un pedido y ver sus artículos**, y saber **quién cambió cada estado**, visible para todo el equipo.
+
+### El problema técnico que decidió el diseño
+El estado de un pedido se cambia por **cuatro caminos**, y **dos ocurren dentro de SQL**: `PATCH /admin/pedidos/:id/estado` (persona), el webhook por referencia de pago (sistema), la RPC `confirmar_venta` del checkout (sistema) y la RPC `reembolsar_pedido_total` (persona). Registrar el historial desde Node dejaría fuera los dos últimos. **Un trigger es la única forma de que no se escape ninguno**, ni hoy ni cuando alguien añada un quinto camino.
+
+⚠️ **Hacen falta DOS triggers**: el checkout **no actualiza** el estado, **inserta** el pedido ya en `PROCESANDO`. Sin el de `INSERT`, la línea de tiempo empezaría en blanco y el pedido parecería haber aparecido de la nada.
+
+### Migración 039 (+ una corrección)
+Tabla **`pedido_eventos`** con toda la línea de tiempo: alta, cambios de estado, pagos, reembolsos y correos. Nuevas RPC `cambiar_estado_pedido`, `registrar_evento_pedido` y `reembolsar_pedido_total` con autor.
+
+- **El autor viaja en una variable de transacción** (`app.actor_id`) que fijan las RPC que saben quién actúa. Un `UPDATE` suelto no la trae y el evento queda como `sistema` — que es la verdad del webhook, no un hueco.
+- **El nombre y el correo se copian, no se referencian**: si mañana se da de baja a un asesor y se borra su cuenta, el historial sigue diciendo que fue él. Mismo criterio que `pedidos.envio_*`.
+- **`reembolsar_pedido_total` cambió de firma**, así que hubo que **soltar la versión de un argumento**: `create or replace` distingue las funciones por su lista de parámetros y habrían quedado las dos vivas, con la llamada de un argumento ambigua.
+
+⚠️ **Dos fallos que cazó la prueba en seco** (corregidos como `039_fix_orden_y_fuga_de_actor`):
+1. **Fuga de autor**: `set_config(..., true)` dura **toda la transacción**, no solo la sentencia siguiente. Un cambio posterior en la misma transacción heredaba el autor de la RPC anterior y el historial **atribuía a una persona algo que hizo el sistema**. Las RPC ahora limpian la variable en cuanto han hecho su update.
+2. **Orden descolocado**: `created_at` usaba `now()`, que devuelve la hora de **inicio de la transacción**; los eventos empataban y el desempate lo decidía un UUID aleatorio. Ahora es `clock_timestamp()`.
+
+### Los eventos que un trigger no puede ver
+`EventosPedidoService` (módulo propio, porque lo necesitan `PedidosModule` y `EmailModule` y el primero ya importa al segundo — al revés sería circular, igual que pasó con `StripeService`):
+- **Pagos y reembolsos** se anotan dentro de `registrarTransaccion`, el **único** sitio donde se escribe en `transacciones_pago`: ahí no puede desincronizarse con el registro contable.
+- **Correos**: `EmailService.enviar` pasa a devolver si el correo salió de verdad, y **solo entonces** se anota. Anunciar en el historial un correo que nunca llegó es peor que no anotarlo, porque nadie iría a comprobarlo.
+- **Registrar un evento nunca tumba la operación que lo provocó**: el historial es la consecuencia del hecho, no el hecho.
+
+### La ficha
+`GET /admin/pedidos/:id` con **nivel `lectura`** — que el equipo entero pueda ver quién tocó un pedido es el objetivo. Pinchar una fila abre el modal con cabecera, cliente y envío, artículos con subtotales, y la línea de tiempo.
+
+⚠️ **La celda de acciones lleva `stopPropagation`**: ahí viven el desplegable de estado y el botón de reembolso, y abrir la ficha al usarlos sería un incordio. La fila es accesible por teclado (`role="button"`, Enter/Espacio) y el modal cierra con Escape.
+
+**El cliente NO ve el historial**: `findByUser` y `findOneByUser` seleccionan `pedido_items` y `direcciones_envio`, nunca `pedido_eventos`. Los nombres del personal no salen de la casa.
+
+### Verificado end-to-end contra el Supabase real
+Con un pedido de prueba de 2 líneas y una cuenta de asesor con `pedidos:edicion` (**todo borrado después**: 0 pedidos, 0 eventos, 0 direcciones, 1 usuario):
+- La ficha devolvió artículos, cliente, documento y dirección completa.
+- Cambiar a `ENVIADO` → **200**; intentar `CANCELADO` (exige `total`) → **403**.
+- La línea de tiempo salió: `(alta) → PROCESANDO` *Sistema (checkout)* · `PROCESANDO → ENVIADO` **Jhoanna Mendoza** · `correo «Tu pedido va en camino»`.
+- En transacción revertida: un `UPDATE` suelto saltándose la RPC **también** queda registrado, y un update que no toca el estado no genera nada.
+
+**Tests: 147** en la API (13 nuevos).
 
 ---
 
