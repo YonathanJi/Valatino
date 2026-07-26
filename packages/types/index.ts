@@ -304,6 +304,51 @@ export interface Pedido {
   total_reembolsado?: number;
 }
 
+// ============================================================
+// Historial del pedido
+// ============================================================
+
+export type TipoEventoPedido = "estado" | "pago" | "reembolso" | "email";
+
+/** De dónde salió el evento. `sistema` y `checkout`/`webhook` no tienen persona. */
+export type OrigenEvento = "panel" | "checkout" | "webhook" | "sistema";
+
+/**
+ * Una línea de la historia del pedido. Se guarda el nombre y el correo del
+ * autor como copia, no como referencia: si mañana se elimina la cuenta de un
+ * asesor, el historial debe seguir diciendo que fue él.
+ */
+export interface PedidoEvento {
+  id: string;
+  pedido_id: string;
+  tipo: TipoEventoPedido;
+  actor_user_id: string | null;
+  actor_nombre: string | null;
+  actor_email: string | null;
+  origen: OrigenEvento;
+  estado_anterior: PedidoEstado | null;
+  estado_nuevo: PedidoEstado | null;
+  importe: number | null;
+  /** Asunto del correo, tipo de evento de Stripe… según el tipo. */
+  detalle: string | null;
+  created_at: string;
+}
+
+/** Cómo se presenta cada origen cuando no hay una persona detrás. */
+export const ORIGEN_LABELS: Record<OrigenEvento, string> = {
+  panel: "desde el panel",
+  checkout: "al confirmarse el pago",
+  webhook: "aviso de la pasarela de pago",
+  sistema: "automático",
+};
+
+/** Ficha completa de un pedido para el backoffice (GET /admin/pedidos/:id). */
+export interface PedidoDetalle {
+  pedido: Pedido;
+  items: PedidoItem[];
+  eventos: PedidoEvento[];
+}
+
 /** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */
 export interface ResultadoReembolso {
   pedido_id: string;

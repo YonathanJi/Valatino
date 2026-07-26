@@ -97,6 +97,8 @@ export class ReembolsosService {
     pedidoId: string,
     dto: CrearReembolsoDto,
     solicitadoPor: string,
+    /** Id de quien lo pide, para que su nombre quede en el historial. */
+    actorId?: string,
   ): Promise<ResultadoReembolso> {
     const pedido = await this.cargarPedido(pedidoId);
 
@@ -162,7 +164,7 @@ export class ReembolsosService {
     let stockRepuesto = false;
 
     if (esTotal) {
-      stockRepuesto = await this.marcarReembolsadoYReponerStock(pedidoId);
+      stockRepuesto = await this.marcarReembolsadoYReponerStock(pedidoId, actorId);
     }
 
     try {
@@ -174,6 +176,7 @@ export class ReembolsosService {
         esTotal ? "reembolsado" : "reembolsado_parcial",
         acumuladoCents / 100,
         { refund: refund as unknown as object, motivo: dto.motivo, solicitado_por: solicitadoPor },
+        { tipo: "reembolso", actorId, origen: "panel" },
       );
     } catch (err) {
       this.logger.error(
@@ -202,9 +205,11 @@ export class ReembolsosService {
    * Marca REEMBOLSADO y repone stock en una sola transacción (migración 037).
    * Devuelve si actuó: `false` significa que ya estaba reembolsado, no un fallo.
    */
-  async marcarReembolsadoYReponerStock(pedidoId: string): Promise<boolean> {
+  async marcarReembolsadoYReponerStock(pedidoId: string, actorId?: string): Promise<boolean> {
     const { data, error } = await this.supabase.rpc("reembolsar_pedido_total", {
       p_pedido_id: pedidoId,
+      // Sin actor cuando llega por el webhook: el historial lo dirá así.
+      p_actor_id: actorId ?? null,
     });
 
     if (error) {

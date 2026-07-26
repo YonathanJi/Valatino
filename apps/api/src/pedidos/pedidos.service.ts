@@ -9,7 +9,15 @@ import {
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { NIVEL_LABELS, transicionesPermitidas } from "@valatino/types";
-import type { NivelPermiso, PaginatedResponse, PedidoEstado } from "@valatino/types";
+import type {
+  NivelPermiso,
+  PaginatedResponse,
+  Pedido,
+  PedidoDetalle,
+  PedidoEstado,
+  PedidoEvento,
+  PedidoItem,
+} from "@valatino/types";
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
@@ -131,7 +139,49 @@ export class PedidosService {
     return (data as { numero_pedido: string | null; estado: string } | null) ?? null;
   }
 
-  async updateEstado(pedidoId: string, nuevoEstado: PedidoEstado, nivelUsuario: NivelPermiso) {
+  /**
+   * Ficha completa para el panel: el pedido con sus líneas y todo lo que le ha
+   * pasado. El historial lo ve cualquiera con lectura en el módulo — la idea es
+   * justamente que el equipo entero sepa quién tocó qué.
+   */
+  async findOneDetalle(pedidoId: string): Promise<PedidoDetalle> {
+    const { data, error } = await this.supabase
+      .from("pedidos")
+      .select("*, pedido_items(*)")
+      .eq("id", pedidoId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException("No se pudo cargar el pedido");
+    if (!data) throw new NotFoundException("Pedido no encontrado");
+
+    const { pedido_items: items = [], ...pedido } = data as Record<string, unknown> & {
+      pedido_items?: unknown[];
+    };
+
+    const [{ data: eventos, error: errorEventos }, reembolsados] = await Promise.all([
+      this.supabase
+        .from("pedido_eventos")
+        .select("*")
+        .eq("pedido_id", pedidoId)
+        .order("created_at", { ascending: true }),
+      this.reembolsos.totalesReembolsados([pedidoId]),
+    ]);
+
+    if (errorEventos) throw new InternalServerErrorException("No se pudo cargar el historial");
+
+    return {
+      pedido: { ...pedido, total_reembolsado: reembolsados.get(pedidoId) ?? 0 } as Pedido,
+      items: items as PedidoItem[],
+      eventos: (eventos ?? []) as PedidoEvento[],
+    };
+  }
+
+  async updateEstado(
+    pedidoId: string,
+    nuevoEstado: PedidoEstado,
+    nivelUsuario: NivelPermiso,
+    actorId?: string,
+  ) {
     const { data: pedido, error } = await this.supabase
       .from("pedidos")
       .select("estado")
@@ -148,12 +198,14 @@ export class PedidosService {
       );
     }
 
-    const { data: updated, error: updateError } = await this.supabase
-      .from("pedidos")
-      .update({ estado: nuevoEstado, updated_at: new Date().toISOString() })
-      .eq("id", pedidoId)
-      .select()
-      .single();
+    // Por RPC y no con un update suelto: así el cambio y su registro en el
+    // historial ocurren en la misma transacción, y es la RPC la que sabe pasarle
+    // al trigger quién lo está haciendo.
+    const { data: updated, error: updateError } = await this.supabase.rpc("cambiar_estado_pedido", {
+      p_pedido_id: pedidoId,
+      p_estado: nuevoEstado,
+      p_actor_id: actorId ?? null,
+    });
 
     if (updateError) throw new InternalServerErrorException("No se pudo actualizar el pedido");
 
