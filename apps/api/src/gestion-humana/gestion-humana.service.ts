@@ -11,6 +11,7 @@ import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import type { Cargo, Empleado, EmpleadoHistorialMensual } from "@valatino/types";
 import type { CrearEmpleadoDto } from "./dto/crear-empleado.dto";
 import type { ActualizarEmpleadoDto } from "./dto/actualizar-empleado.dto";
+import type { CrearCargoDto, ActualizarCargoDto } from "./dto/cargo.dto";
 
 interface EmpleadoRow extends Record<string, unknown> {
   cargos: { codigo: string; nombre: string } | null;
@@ -37,6 +38,57 @@ export class GestionHumanaService {
       .order("codigo");
     if (error) throw new InternalServerErrorException("No se pudieron cargar los cargos");
     return (data ?? []) as Cargo[];
+  }
+
+  /**
+   * Crea un cargo. RRHH decide qué cargos existen; los permisos que lleva cada
+   * uno los configura TI aparte (TI → Cargos), para que quien gestiona personas
+   * no pueda concederse acceso al sistema creando un cargo a medida.
+   */
+  async crearCargo(dto: CrearCargoDto): Promise<Cargo> {
+    const { data, error } = await this.supabase
+      .from("cargos")
+      .insert({
+        codigo: dto.codigo.toUpperCase(),
+        nombre: dto.nombre,
+        descripcion: dto.descripcion ?? null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === "23505") throw new ConflictException("Ya existe un cargo con ese código");
+      throw new InternalServerErrorException(`No se pudo crear el cargo: ${error.message}`);
+    }
+    return data as Cargo;
+  }
+
+  /**
+   * Actualiza un cargo. No hay borrado físico: `empleados.cargo_id` es NOT NULL
+   * con clave ajena, así que eliminarlo rompería fichas y el histórico mensual.
+   * Desactivarlo (`activo: false`) lo retira del selector de altas y conserva
+   * a quien ya lo ocupa.
+   */
+  async actualizarCargo(id: string, dto: ActualizarCargoDto): Promise<Cargo> {
+    const cambios: Record<string, unknown> = {};
+    if (dto.nombre !== undefined) cambios.nombre = dto.nombre;
+    if (dto.descripcion !== undefined) cambios.descripcion = dto.descripcion;
+    if (dto.activo !== undefined) cambios.activo = dto.activo;
+
+    if (Object.keys(cambios).length === 0) {
+      throw new BadRequestException("No hay nada que actualizar");
+    }
+
+    const { data, error } = await this.supabase
+      .from("cargos")
+      .update(cambios)
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(`No se pudo actualizar: ${error.message}`);
+    if (!data) throw new NotFoundException("Cargo no encontrado");
+    return data as Cargo;
   }
 
   async listarEmpleados(): Promise<Empleado[]> {

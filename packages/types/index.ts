@@ -520,6 +520,42 @@ export interface Cargo {
   created_at: string;
 }
 
+/** Cargo con su plantilla de permisos, para la pantalla de TI → Cargos. */
+export interface CargoConPlantilla extends Cargo {
+  permisos: PermisoModulo[];
+  empleados_activos: number;
+}
+
+/** Motivo por el que reaplicar una plantilla se salta a alguien. */
+export type MotivoOmision = "sin_cuenta" | "es_admin" | "inactivo";
+
+export interface CambioPermiso {
+  modulo: StaffModulo;
+  /** Nivel actual, o null si hoy no tiene el módulo. */
+  de: NivelPermiso | null;
+  /** Nivel que quedaría, o null si la plantilla se lo quita. */
+  a: NivelPermiso | null;
+}
+
+/**
+ * Una persona del cargo y qué le pasaría al reaplicar la plantilla. Se enseña
+ * ANTES de confirmar: reaplicar es un reemplazo completo y `divergente` marca a
+ * quien tiene ajustes individuales que se van a perder.
+ */
+export interface EmpleadoAfectado {
+  empleado_id: string;
+  user_id: string | null;
+  nombre: string;
+  omitido_por: MotivoOmision | null;
+  divergente: boolean;
+  cambios: CambioPermiso[];
+}
+
+export interface ResultadoReaplicar {
+  aplicados: number;
+  omitidos: { user_id: string | null; nombre: string; motivo: string }[];
+}
+
 export interface Empleado {
   id: string;
   /** Nº correlativo estable e inmutable (BD, identity). */

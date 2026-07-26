@@ -20,6 +20,7 @@ import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { CrearEmpleadoDto } from "./dto/crear-empleado.dto";
 import { ActualizarEmpleadoDto } from "./dto/actualizar-empleado.dto";
 import { GenerarHistorialDto } from "./dto/generar-historial.dto";
+import { ActualizarCargoDto, CrearCargoDto } from "./dto/cargo.dto";
 
 /** Gestión Humana — admin siempre; asesores según su nivel en el módulo. */
 @Controller("admin/gestion-humana")
@@ -33,6 +34,26 @@ export class GestionHumanaController {
   @Get("cargos")
   listarCargos() {
     return this.service.listarCargos();
+  }
+
+  @Post("cargos")
+  @Nivel("edicion")
+  crearCargo(@Body() dto: CrearCargoDto) {
+    return this.service.crearCargo(dto);
+  }
+
+  /**
+   * Renombrar o desactivar. Desactivar es lo más parecido a borrar que ofrece
+   * el módulo: `empleados.cargo_id` es NOT NULL con clave ajena, así que un
+   * borrado de verdad rompería fichas y el histórico mensual.
+   */
+  @Patch("cargos/:id")
+  @Nivel("edicion")
+  actualizarCargo(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: ActualizarCargoDto,
+  ) {
+    return this.service.actualizarCargo(id, dto);
   }
 
   @Get("empleados")
