@@ -8,8 +8,8 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import { transicionesPermitidas } from "@valatino/types";
-import type { PaginatedResponse, PedidoEstado } from "@valatino/types";
+import { NIVEL_LABELS, transicionesPermitidas } from "@valatino/types";
+import type { NivelPermiso, PaginatedResponse, PedidoEstado } from "@valatino/types";
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
@@ -131,11 +131,7 @@ export class PedidosService {
     return (data as { numero_pedido: string | null; estado: string } | null) ?? null;
   }
 
-  async updateEstado(
-    pedidoId: string,
-    nuevoEstado: PedidoEstado,
-    rolUsuario: "admin" | "asesor",
-  ) {
+  async updateEstado(pedidoId: string, nuevoEstado: PedidoEstado, nivelUsuario: NivelPermiso) {
     const { data: pedido, error } = await this.supabase
       .from("pedidos")
       .select("estado")
@@ -146,9 +142,9 @@ export class PedidosService {
 
     const estadoActual = (pedido as { estado: PedidoEstado }).estado;
 
-    if (!transicionesPermitidas(estadoActual, rolUsuario).includes(nuevoEstado)) {
+    if (!transicionesPermitidas(estadoActual, nivelUsuario).includes(nuevoEstado)) {
       throw new ForbiddenException(
-        `Transición ${estadoActual} → ${nuevoEstado} no está permitida para el rol ${rolUsuario}`,
+        `Transición ${estadoActual} → ${nuevoEstado} no está permitida con nivel «${NIVEL_LABELS[nivelUsuario]}» en pedidos`,
       );
     }
 

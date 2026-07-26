@@ -1,35 +1,22 @@
 import { InternalServerErrorException } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { PermisosService } from "./permisos.service";
+import type { PermisoModulo } from "@valatino/types";
 
-/**
- * Doble de Supabase con lo justo que toca el servicio: delete filtrado por
- * user_id e insert de las filas nuevas. Registra el orden de las llamadas
- * porque el delete-antes-del-insert es la parte que importa.
- */
-function montar(fallos: { enDelete?: boolean; enInsert?: boolean } = {}) {
-  const registro = {
-    orden: [] as string[],
-    borrados: [] as string[],
-    insertados: [] as Record<string, unknown>[],
-  };
+function montar(opciones: { errorRpc?: string; filas?: ({ user_id: string } & PermisoModulo)[] } = {}) {
+  const registro = { llamadas: [] as { fn: string; args: Record<string, unknown> }[] };
 
   const supabase = {
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      registro.llamadas.push({ fn, args });
+      return { data: null, error: opciones.errorRpc ? { message: opciones.errorRpc } : null };
+    },
     from: (tabla: string) => {
       if (tabla !== "staff_modulos") throw new Error(`tabla inesperada: ${tabla}`);
       return {
-        delete: () => ({
-          eq: async (_columna: string, valor: string) => {
-            registro.orden.push("delete");
-            registro.borrados.push(valor);
-            return { error: fallos.enDelete ? { message: "boom" } : null };
-          },
+        select: () => ({
+          in: async () => ({ data: opciones.filas ?? [], error: null }),
         }),
-        insert: async (filas: Record<string, unknown>[]) => {
-          registro.orden.push("insert");
-          registro.insertados.push(...filas);
-          return { error: fallos.enInsert ? { message: "boom" } : null };
-        },
       };
     },
   } as unknown as SupabaseClient;
@@ -38,42 +25,62 @@ function montar(fallos: { enDelete?: boolean; enInsert?: boolean } = {}) {
 }
 
 describe("PermisosService.reemplazar", () => {
-  it("borra los módulos anteriores antes de insertar los nuevos", async () => {
+  it("delega el reemplazo en la RPC transaccional, con el nivel de cada módulo", async () => {
     const { servicio, registro } = montar();
+    const permisos: PermisoModulo[] = [
+      { modulo: "pedidos", nivel: "total" },
+      { modulo: "catalogo", nivel: "lectura" },
+    ];
 
-    await servicio.reemplazar("u-1", ["pedidos", "catalogo"], "editor-1");
+    await servicio.reemplazar("u-1", permisos, "editor-1");
 
-    expect(registro.orden).toEqual(["delete", "insert"]);
-    expect(registro.borrados).toEqual(["u-1"]);
-    expect(registro.insertados).toEqual([
-      { user_id: "u-1", modulo: "pedidos", otorgado_por: "editor-1" },
-      { user_id: "u-1", modulo: "catalogo", otorgado_por: "editor-1" },
+    expect(registro.llamadas).toEqual([
+      {
+        fn: "reemplazar_staff_modulos",
+        args: { p_user_id: "u-1", p_permisos: permisos, p_otorgado_por: "editor-1" },
+      },
     ]);
   });
 
-  it("una lista vacía borra y no inserta nada", async () => {
+  it("una lista vacía sigue llamando a la RPC: deja a la persona sin permisos", async () => {
     const { servicio, registro } = montar();
 
     await servicio.reemplazar("u-1", [], "editor-1");
 
-    expect(registro.orden).toEqual(["delete"]);
-    expect(registro.insertados).toHaveLength(0);
+    expect(registro.llamadas).toHaveLength(1);
+    expect(registro.llamadas[0].args.p_permisos).toEqual([]);
   });
 
-  it("si falla el borrado no llega a insertar", async () => {
-    const { servicio, registro } = montar({ enDelete: true });
+  it("un fallo de la RPC se reporta como error interno", async () => {
+    const { servicio } = montar({ errorRpc: "boom" });
 
-    await expect(servicio.reemplazar("u-1", ["pedidos"], "editor-1")).rejects.toThrow(
-      InternalServerErrorException,
-    );
-    expect(registro.orden).toEqual(["delete"]);
+    await expect(
+      servicio.reemplazar("u-1", [{ modulo: "pedidos", nivel: "total" }], "editor-1"),
+    ).rejects.toThrow(InternalServerErrorException);
+  });
+});
+
+describe("PermisosService.porUsuario", () => {
+  it("agrupa los permisos por persona", async () => {
+    const { servicio } = montar({
+      filas: [
+        { user_id: "u-1", modulo: "pedidos", nivel: "edicion" },
+        { user_id: "u-2", modulo: "compras", nivel: "total" },
+        { user_id: "u-1", modulo: "clientes", nivel: "lectura" },
+      ],
+    });
+
+    const mapa = await servicio.porUsuario(["u-1", "u-2"]);
+
+    expect(mapa.get("u-1")).toEqual([
+      { modulo: "pedidos", nivel: "edicion" },
+      { modulo: "clientes", nivel: "lectura" },
+    ]);
+    expect(mapa.get("u-2")).toEqual([{ modulo: "compras", nivel: "total" }]);
   });
 
-  it("si falla el insert lo reporta como error interno", async () => {
-    const { servicio } = montar({ enInsert: true });
-
-    await expect(servicio.reemplazar("u-1", ["pedidos"], "editor-1")).rejects.toThrow(
-      InternalServerErrorException,
-    );
+  it("sin usuarios no consulta nada", async () => {
+    const { servicio } = montar();
+    expect((await servicio.porUsuario([])).size).toBe(0);
   });
 });

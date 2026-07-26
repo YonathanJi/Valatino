@@ -33,6 +33,58 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
 ];
 
 /**
+ * Con cuánto alcance se otorga un módulo. Tener el módulo ya no significa poder
+ * hacer todo lo que contiene: un Director Administrativo consulta compras sin
+ * poder tocarlas, y reembolsar exige `total` aunque el módulo de pedidos se
+ * tenga en `edicion`.
+ *
+ * - `lectura` — consultar. No escribe en la base de datos ni fuera.
+ * - `edicion` — el día a día: crear y modificar. Reversible o corregible.
+ * - `total`   — irreversible, destructivo, con efecto económico, o que toca
+ *               credenciales y permisos.
+ */
+export type NivelPermiso = "lectura" | "edicion" | "total";
+
+/** Orden de menor a mayor alcance; es también el orden en que se ofrecen. */
+export const NIVELES_PERMISO: readonly NivelPermiso[] = ["lectura", "edicion", "total"];
+
+export const NIVEL_LABELS: Record<NivelPermiso, string> = {
+  lectura: "Solo lectura",
+  edicion: "Edición",
+  total: "Control total",
+};
+
+const ORDEN_NIVEL: Record<NivelPermiso, number> = { lectura: 1, edicion: 2, total: 3 };
+
+export interface PermisoModulo {
+  modulo: StaffModulo;
+  nivel: NivelPermiso;
+}
+
+/**
+ * ¿El nivel que tiene alguien cubre el que exige una acción? Los niveles son
+ * acumulativos: `total` incluye `edicion`, que incluye `lectura`.
+ *
+ * Ausencia de nivel (no tiene el módulo) es siempre `false`, nunca un permiso
+ * por defecto.
+ */
+export function nivelAlcanza(
+  actual: NivelPermiso | null | undefined,
+  requerido: NivelPermiso,
+): boolean {
+  if (actual == null) return false;
+  return ORDEN_NIVEL[actual] >= ORDEN_NIVEL[requerido];
+}
+
+/** Nivel otorgado en un módulo, o null si no lo tiene. */
+export function nivelDe(
+  permisos: PermisoModulo[] | undefined,
+  modulo: StaffModulo,
+): NivelPermiso | null {
+  return permisos?.find((p) => p.modulo === modulo)?.nivel ?? null;
+}
+
+/**
  * Categorías fijas del catálogo (selector del backoffice + validación API).
  * Salsas y Licores estaban en los datos desde el seed pero faltaban aquí, así
  * que el selector no las ofrecía y @IsIn rechazaba el PATCH: esos productos no
@@ -101,12 +153,12 @@ export const TRANSICIONES_PEDIDO: Record<PedidoEstado, PedidoEstado[]> = {
 };
 
 /**
- * El asesor solo avanza el envío: cancelar queda para el admin (y reembolsar
- * ya no es una transición para nadie). Solo se listan los estados en los que
- * difiere del admin, para que añadir una transición nueva no obligue a
- * recordar tocar las dos tablas.
+ * Con nivel `edicion` solo se avanza el envío: cancelar exige `total`, igual
+ * que reembolsar. Solo se listan los estados en los que difiere de la tabla
+ * completa, para que añadir una transición nueva no obligue a recordar tocar
+ * las dos.
  */
-export const TRANSICIONES_PEDIDO_ASESOR: Record<PedidoEstado, PedidoEstado[]> = {
+export const TRANSICIONES_PEDIDO_EDICION: Record<PedidoEstado, PedidoEstado[]> = {
   ...TRANSICIONES_PEDIDO,
   PENDIENTE_PAGO: ["PROCESANDO"],
   PROCESANDO: ["ENVIADO"],
@@ -123,11 +175,19 @@ export const ESTADOS_REEMBOLSABLES: readonly PedidoEstado[] = [
   "ENTREGADO",
 ];
 
+/**
+ * Transiciones que puede ejecutar quien tiene ese nivel en el módulo `pedidos`.
+ *
+ * `lectura` devuelve la lista vacía: es un caso que antes no existía —no había
+ * forma de ver pedidos sin poder moverlos— y que ahora sí, así que el
+ * desplegable de estado tiene que quedarse sin opciones para esas cuentas.
+ */
 export function transicionesPermitidas(
   estado: PedidoEstado,
-  rol: "admin" | "asesor",
+  nivel: NivelPermiso,
 ): PedidoEstado[] {
-  const tabla = rol === "admin" ? TRANSICIONES_PEDIDO : TRANSICIONES_PEDIDO_ASESOR;
+  if (nivel === "lectura") return [];
+  const tabla = nivel === "total" ? TRANSICIONES_PEDIDO : TRANSICIONES_PEDIDO_EDICION;
   return tabla[estado] ?? [];
 }
 
@@ -282,8 +342,13 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: UserRole;
-  /** Módulos otorgados (solo asesores; admin tiene acceso implícito a todos) */
-  modulos?: StaffModulo[];
+  /**
+   * Módulos otorgados con su nivel (solo asesores; el admin no lleva ninguno
+   * porque es `total` en todo implícitamente). Se lee de staff_modulos en cada
+   * petición, no viaja dentro del token: así quitar un permiso surte efecto al
+   * instante en vez de esperar a que caduque la sesión.
+   */
+  modulos?: PermisoModulo[];
   session_id?: string;
   iat: number;
   exp: number;

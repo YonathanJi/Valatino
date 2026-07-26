@@ -5,7 +5,7 @@ import { ConfigService } from "@nestjs/config";
 import { passportJwtSecret } from "jwks-rsa";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../../supabase/supabase.module";
-import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
+import type { JwtPayload, PermisoModulo, UserRole } from "@valatino/types";
 
 interface SupabaseJwt {
   sub: string;
@@ -62,12 +62,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return (role as UserRole) ?? null;
   }
 
-  private async fetchModulosFromDb(userId: string): Promise<StaffModulo[]> {
+  private async fetchModulosFromDb(userId: string): Promise<PermisoModulo[]> {
     const { data } = await this.supabase
       .from("staff_modulos")
-      .select("modulo")
+      .select("modulo, nivel")
       .eq("user_id", userId);
 
-    return ((data as { modulo: StaffModulo }[] | null) ?? []).map((m) => m.modulo);
+    return ((data as PermisoModulo[] | null) ?? []).map(({ modulo, nivel }) => ({ modulo, nivel }));
   }
 }

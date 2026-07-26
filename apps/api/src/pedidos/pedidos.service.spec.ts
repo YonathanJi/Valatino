@@ -2,6 +2,7 @@ import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { PedidosService } from "./pedidos.service";
 import {
   transicionesPermitidas,
+  NIVELES_PERMISO,
   PEDIDO_ESTADOS,
   type PedidoEstado,
 } from "@valatino/types";
@@ -89,18 +90,33 @@ const dejarQueSalgaElEmail = () => new Promise((r) => setImmediate(r));
 
 describe("máquina de estados del pedido (@valatino/types)", () => {
   it("un estado final no admite ninguna transición", () => {
-    expect(transicionesPermitidas("CANCELADO", "admin")).toEqual([]);
-    expect(transicionesPermitidas("REEMBOLSADO", "admin")).toEqual([]);
+    expect(transicionesPermitidas("CANCELADO", "total")).toEqual([]);
+    expect(transicionesPermitidas("REEMBOLSADO", "total")).toEqual([]);
   });
 
-  it("el asesor puede avanzar el envío pero no cancelar", () => {
-    expect(transicionesPermitidas("PROCESANDO", "asesor")).toEqual(["ENVIADO"]);
-    expect(transicionesPermitidas("ENVIADO", "asesor")).toEqual(["ENTREGADO"]);
-    expect(transicionesPermitidas("ENTREGADO", "asesor")).toEqual([]);
+  /**
+   * Caso nuevo con los niveles: antes no existía forma de ver pedidos sin poder
+   * moverlos, así que el desplegable siempre tenía algo que ofrecer.
+   */
+  it("con solo lectura no se ofrece ninguna transición", () => {
+    for (const estado of PEDIDO_ESTADOS) {
+      expect(transicionesPermitidas(estado, "lectura")).toEqual([]);
+    }
+  });
+
+  it("con edición se avanza el envío pero no se cancela", () => {
+    expect(transicionesPermitidas("PROCESANDO", "edicion")).toEqual(["ENVIADO"]);
+    expect(transicionesPermitidas("ENVIADO", "edicion")).toEqual(["ENTREGADO"]);
+    expect(transicionesPermitidas("ENTREGADO", "edicion")).toEqual([]);
 
     for (const estado of PEDIDO_ESTADOS) {
-      expect(transicionesPermitidas(estado, "asesor")).not.toContain("CANCELADO");
+      expect(transicionesPermitidas(estado, "edicion")).not.toContain("CANCELADO");
     }
+  });
+
+  it("cancelar exige control total, igual que reembolsar", () => {
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "total")).toContain("CANCELADO");
+    expect(transicionesPermitidas("PROCESANDO", "total")).toContain("CANCELADO");
   });
 
   /**
@@ -110,24 +126,25 @@ describe("máquina de estados del pedido (@valatino/types)", () => {
    */
   it("nadie puede llegar a REEMBOLSADO por una transición de estado", () => {
     for (const estado of PEDIDO_ESTADOS) {
-      for (const rol of ["admin", "asesor"] as const) {
-        expect(transicionesPermitidas(estado, rol)).not.toContain("REEMBOLSADO");
+      for (const nivel of NIVELES_PERMISO) {
+        expect(transicionesPermitidas(estado, nivel)).not.toContain("REEMBOLSADO");
       }
     }
   });
 
-  it("lo que ofrece el asesor es siempre un subconjunto de lo que ofrece el admin", () => {
+  it("cada nivel ofrece un subconjunto de lo que ofrece el siguiente", () => {
     for (const estado of PEDIDO_ESTADOS) {
-      const admin = transicionesPermitidas(estado, "admin");
-      for (const t of transicionesPermitidas(estado, "asesor")) {
-        expect(admin).toContain(t);
-      }
+      const total = transicionesPermitidas(estado, "total");
+      const edicion = transicionesPermitidas(estado, "edicion");
+
+      for (const t of edicion) expect(total).toContain(t);
+      for (const t of transicionesPermitidas(estado, "lectura")) expect(edicion).toContain(t);
     }
   });
 
   it("ninguna transición apunta a un estado inexistente", () => {
     for (const estado of PEDIDO_ESTADOS) {
-      for (const destino of transicionesPermitidas(estado, "admin")) {
+      for (const destino of transicionesPermitidas(estado, "total")) {
         expect(PEDIDO_ESTADOS).toContain(destino);
       }
     }
@@ -138,17 +155,17 @@ describe("PedidosService.updateEstado", () => {
   it("acepta una transición permitida y sella updated_at", async () => {
     const { servicio, updates } = servicioCon("PROCESANDO");
 
-    await servicio.updateEstado("p1", "ENVIADO", "asesor");
+    await servicio.updateEstado("p1", "ENVIADO", "edicion");
 
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({ estado: "ENVIADO" });
     expect(updates[0]!["updated_at"]).toBeDefined();
   });
 
-  it("rechaza que un asesor cancele un pedido y no escribe nada", async () => {
+  it("rechaza que con edición se cancele un pedido y no escribe nada", async () => {
     const { servicio, updates } = servicioCon("PROCESANDO");
 
-    await expect(servicio.updateEstado("p1", "CANCELADO", "asesor")).rejects.toThrow(
+    await expect(servicio.updateEstado("p1", "CANCELADO", "edicion")).rejects.toThrow(
       ForbiddenException,
     );
     expect(updates).toHaveLength(0);
@@ -157,7 +174,7 @@ describe("PedidosService.updateEstado", () => {
   it("permite al admin cancelar el mismo pedido", async () => {
     const { servicio, updates } = servicioCon("PROCESANDO");
 
-    await servicio.updateEstado("p1", "CANCELADO", "admin");
+    await servicio.updateEstado("p1", "CANCELADO", "total");
 
     expect(updates[0]).toMatchObject({ estado: "CANCELADO" });
   });
@@ -165,7 +182,7 @@ describe("PedidosService.updateEstado", () => {
   it("rechaza saltarse pasos (PROCESANDO → ENTREGADO)", async () => {
     const { servicio } = servicioCon("PROCESANDO");
 
-    await expect(servicio.updateEstado("p1", "ENTREGADO", "admin")).rejects.toThrow(
+    await expect(servicio.updateEstado("p1", "ENTREGADO", "total")).rejects.toThrow(
       ForbiddenException,
     );
   });
@@ -173,7 +190,7 @@ describe("PedidosService.updateEstado", () => {
   it("no reabre un pedido ya reembolsado", async () => {
     const { servicio } = servicioCon("REEMBOLSADO");
 
-    await expect(servicio.updateEstado("p1", "PROCESANDO", "admin")).rejects.toThrow(
+    await expect(servicio.updateEstado("p1", "PROCESANDO", "total")).rejects.toThrow(
       ForbiddenException,
     );
   });
@@ -181,7 +198,7 @@ describe("PedidosService.updateEstado", () => {
   it("404 si el pedido no existe", async () => {
     const { servicio } = servicioCon(null);
 
-    await expect(servicio.updateEstado("desconocido", "ENVIADO", "admin")).rejects.toThrow(
+    await expect(servicio.updateEstado("desconocido", "ENVIADO", "total")).rejects.toThrow(
       NotFoundException,
     );
   });
@@ -191,7 +208,7 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
   it("avisa al cliente del nuevo estado", async () => {
     const { servicio, avisos } = servicioCon("PROCESANDO");
 
-    await servicio.updateEstado("p1", "ENVIADO", "asesor");
+    await servicio.updateEstado("p1", "ENVIADO", "edicion");
     await dejarQueSalgaElEmail();
 
     expect(avisos).toEqual([{ estado: "ENVIADO", email: "cliente@ejemplo.com" }]);
@@ -200,7 +217,7 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
   it("no avisa si la transición se rechazó", async () => {
     const { servicio, avisos } = servicioCon("PROCESANDO");
 
-    await expect(servicio.updateEstado("p1", "ENTREGADO", "admin")).rejects.toThrow(
+    await expect(servicio.updateEstado("p1", "ENTREGADO", "total")).rejects.toThrow(
       ForbiddenException,
     );
     await dejarQueSalgaElEmail();
@@ -225,7 +242,7 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
       { totalesReembolsados: async () => new Map() } as never,
     );
 
-    await expect(servicio.updateEstado("p1", "ENVIADO", "admin")).resolves.toBeDefined();
+    await expect(servicio.updateEstado("p1", "ENVIADO", "total")).resolves.toBeDefined();
     await dejarQueSalgaElEmail();
 
     expect(updates[0]).toMatchObject({ estado: "ENVIADO" });

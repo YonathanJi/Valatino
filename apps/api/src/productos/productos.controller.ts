@@ -25,9 +25,11 @@ import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
-import { Modulo } from "../auth/decorators/modulo.decorator";
+import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
+import { nivelEfectivo } from "../auth/nivel-efectivo";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { CreateProductoDto, UpdateProductoDto, AjustarStockDto } from "./dto/producto.dto";
+import { nivelAlcanza } from "@valatino/types";
 import type { JwtPayload } from "@valatino/types";
 
 const MAX_IMAGEN_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -53,7 +55,9 @@ export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
 
   // Catálogo público, pero `soloActivos=false` (que revela borradores y
-  // productos despublicados) queda reservado al staff del backoffice.
+  // productos despublicados) queda reservado a quien trabaja el catálogo o el
+  // inventario. No puede resolverlo el guard con metadata estática porque
+  // depende de un parámetro de la petición: la misma ruta sirve la tienda.
   @Get()
   @UseGuards(OptionalJwtGuard)
   findAll(
@@ -65,8 +69,15 @@ export class ProductosController {
     @Query("soloActivos") soloActivos?: string,
   ) {
     const incluirInactivos = soloActivos === "false";
-    if (incluirInactivos && user?.role !== "admin" && user?.role !== "asesor") {
-      throw new ForbiddenException("Solo el personal autorizado puede ver productos inactivos");
+    if (incluirInactivos) {
+      // Antes bastaba con ser staff, sin mirar el módulo: un asesor que solo
+      // llevara Gestión Humana podía listar todos los borradores del catálogo.
+      const puedeVerlos =
+        nivelAlcanza(nivelEfectivo(user, "catalogo"), "lectura") ||
+        nivelAlcanza(nivelEfectivo(user, "inventario"), "lectura");
+      if (!puedeVerlos) {
+        throw new ForbiddenException("Solo el personal autorizado puede ver productos inactivos");
+      }
     }
 
     return this.productosService.findAll({
@@ -92,6 +103,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("catalogo")
+  @Nivel("edicion")
   create(@Body() dto: CreateProductoDto) {
     return this.productosService.create(dto);
   }
@@ -101,6 +113,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("catalogo")
+  @Nivel("edicion")
   @UseInterceptors(FileInterceptor("imagen", { limits: { fileSize: MAX_IMAGEN_BYTES } }))
   subirImagen(@UploadedFile() imagen: Express.Multer.File | undefined) {
     if (!imagen) {
@@ -116,6 +129,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("catalogo")
+  @Nivel("edicion")
   update(@Param("id", ParseUUIDPipe) id: string, @Body() dto: UpdateProductoDto) {
     return this.productosService.update(id, dto);
   }
@@ -124,6 +138,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("catalogo")
+  @Nivel("total")
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param("id", ParseUUIDPipe) id: string) {
     return this.productosService.remove(id);
@@ -133,6 +148,7 @@ export class ProductosController {
   @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
   @Roles("admin", "asesor")
   @Modulo("inventario")
+  @Nivel("edicion")
   @HttpCode(HttpStatus.OK)
   ajustarStock(@Param("id", ParseUUIDPipe) id: string, @Body() dto: AjustarStockDto) {
     return this.productosService.ajustarStock(id, dto.cantidad);

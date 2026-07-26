@@ -13,24 +13,17 @@ import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
-import { Modulo } from "../auth/decorators/modulo.decorator";
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { ActualizarClienteDto } from "./dto/actualizar-cliente.dto";
-import type { JwtPayload } from "@valatino/types";
 
-/** Clientes de la tienda — admin siempre; asesores solo con el módulo otorgado. */
+/** Clientes de la tienda — admin siempre; asesores según su nivel en el módulo. */
 @Controller("admin/clientes")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
 @Roles("admin", "asesor")
 @Modulo("clientes")
+@Nivel("lectura")
 export class ClientesController {
   constructor(private readonly service: ClientesService) {}
-
-  /** Para la UI: si el usuario actual puede eliminar cuentas. */
-  @Get("permisos")
-  permisos(@CurrentUser() user: JwtPayload) {
-    return { esAdmin: user.role === "admin" };
-  }
 
   @Get()
   findAll() {
@@ -43,6 +36,7 @@ export class ClientesController {
   }
 
   @Patch(":id")
+  @Nivel("edicion")
   actualizar(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @Body() dto: ActualizarClienteDto,
@@ -51,11 +45,11 @@ export class ClientesController {
   }
 
   /**
-   * Borrar la cuenta de un cliente es irreversible, así que queda reservado a
-   * admin — igual que eliminar un asesor o una ficha de empleado.
+   * Borrar la cuenta de un cliente es irreversible, así que exige `total` en el
+   * módulo — igual que eliminar una ficha de empleado.
    */
   @Delete(":id")
-  @Roles("admin")
+  @Nivel("total")
   eliminar(@Param("id", new ParseUUIDPipe({ version: "4" })) id: string) {
     return this.service.eliminar(id);
   }

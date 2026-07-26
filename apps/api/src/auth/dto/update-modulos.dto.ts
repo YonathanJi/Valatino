@@ -1,12 +1,9 @@
-import { ArrayUnique, IsArray, IsIn } from "class-validator";
-import { STAFF_MODULOS, type StaffModulo } from "@valatino/types";
+import { PermisoModuloDto, PermisosArray } from "./permiso-modulo.dto";
 
 export class UpdateModulosDto {
-  @IsArray()
-  @ArrayUnique()
-  @IsIn(STAFF_MODULOS as StaffModulo[], {
-    each: true,
-    message: `cada módulo debe ser uno de: ${STAFF_MODULOS.join(", ")}`,
-  })
-  modulos!: StaffModulo[];
+  // Se llama `permisos` y no `modulos` a propósito: con forbidNonWhitelisted
+  // activo, un cliente sin actualizar que mande el `modulos: string[]` viejo
+  // recibe un 400 explícito en vez de que alguien lo interprete a medias.
+  @PermisosArray()
+  permisos!: PermisoModuloDto[];
 }
