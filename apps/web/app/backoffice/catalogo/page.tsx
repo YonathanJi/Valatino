@@ -5,11 +5,14 @@ import { apiFetch } from "@lib/api/client";
 import { ProductoTabla } from "@components/backoffice/ProductoTabla";
 import { ProductoForm } from "@components/backoffice/ProductoForm";
 import { Button } from "@components/ui/button";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import { Store } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeCatalogoPage() {
+  const puedeEditar = usePuede("catalogo", "edicion");
+
   const [productos, setProductos] = useState<Producto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -34,7 +37,10 @@ export default function BackofficeCatalogoPage() {
   return (
     <div className="p-6 space-y-4">
       <PageHeader icon={Store} title="Gestión de Catálogo" description="Productos de la tienda">
-        <Button onClick={() => { setEditing(null); setShowForm(true); }}>
+        <Button
+          disabled={!puedeEditar}
+          onClick={() => { setEditing(null); setShowForm(true); }}
+        >
           + Nuevo producto
         </Button>
       </PageHeader>

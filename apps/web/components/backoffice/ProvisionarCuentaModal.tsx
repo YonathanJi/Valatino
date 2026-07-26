@@ -6,16 +6,19 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { STAFF_MODULOS, type StaffModulo } from "@valatino/types";
-import { MODULO_ICONOS, MODULO_LABELS } from "@lib/backoffice/iconos";
+import type { PermisoModulo } from "@valatino/types";
+import { SelectorPermisos } from "@components/backoffice/SelectorPermisos";
 
 export interface EmpleadoPendiente {
   id: string;
   codigo_empleado: string;
   nombre_completo: string;
   correo_empresa: string;
+  cargo_id: string | null;
   cargo_codigo: string | null;
   cargo_nombre: string | null;
+  /** Permisos que define el cargo. Vienen del listado, ya resueltos. */
+  plantilla: PermisoModulo[];
 }
 
 interface ProvisionarCuentaModalProps {
@@ -31,11 +34,10 @@ export function ProvisionarCuentaModal({
 }: ProvisionarCuentaModalProps) {
   const [email, setEmail] = useState(empleado.correo_empresa);
   const [password, setPassword] = useState("");
-  const [modulos, setModulos] = useState<StaffModulo[]>(["pedidos"]);
+  // Arranca con la plantilla del cargo: es el caso normal, y TI ve exactamente
+  // lo que se va a guardar en vez de tener que reconstruirlo a mano.
+  const [permisos, setPermisos] = useState<PermisoModulo[]>(empleado.plantilla);
   const [saving, setSaving] = useState(false);
-
-  const toggle = (m: StaffModulo) =>
-    setModulos((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +45,7 @@ export function ProvisionarCuentaModal({
     try {
       await apiFetch("/admin/usuarios/provisionar", {
         method: "POST",
-        body: JSON.stringify({ empleadoId: empleado.id, email, password, modulos }),
+        body: JSON.stringify({ empleadoId: empleado.id, email, password, permisos }),
       });
       toast.success(`Cuenta creada para ${empleado.nombre_completo}. Comparte las credenciales.`);
       onProvisioned();
@@ -110,28 +112,25 @@ export function ProvisionarCuentaModal({
             />
           </div>
           <div className="space-y-2">
-            <span className="text-sm font-medium">Módulos / aplicaciones</span>
-            <div className="flex flex-wrap gap-3">
-              {STAFF_MODULOS.map((m) => {
-                const Icon = MODULO_ICONOS[m];
-                return (
-                  <label key={m} className="flex cursor-pointer items-center gap-1.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={modulos.includes(m)}
-                      onChange={() => toggle(m)}
-                      className="accent-primary"
-                    />
-                    <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                    {MODULO_LABELS[m]}
-                  </label>
-                );
-              })}
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm font-medium">Accesos</span>
+              {empleado.cargo_nombre && (
+                <span className="text-xs text-muted-foreground">
+                  Plantilla de {empleado.cargo_nombre}
+                </span>
+              )}
             </div>
+            <SelectorPermisos
+              valor={permisos}
+              onChange={setPermisos}
+              disabled={saving}
+              plantilla={empleado.plantilla}
+            />
           </div>
           <p className="text-xs text-muted-foreground">
-            Se crea la cuenta como <strong>asesor</strong> con los módulos marcados y se vincula al
-            empleado. El rol de admin lo cambia un administrador.
+            Se crea la cuenta con estos accesos y se vincula al empleado. Los cambios que hagas
+            aquí valen solo para esta persona; para cambiarlos a todo el cargo, edita su plantilla
+            en <strong>TI → Cargos</strong>.
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>

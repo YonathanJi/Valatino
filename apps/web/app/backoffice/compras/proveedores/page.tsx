@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Pencil, Trash2, Truck } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Proveedor } from "@valatino/types";
 
@@ -39,6 +40,11 @@ function aPayload(form: FormProveedor) {
 }
 
 export default function ProveedoresPage() {
+  const puedeEditar = usePuede("compras", "edicion");
+  // Borrar un proveedor del maestro exige control total: antes lo podia hacer
+  // cualquiera con el modulo.
+  const puedeBorrar = usePuede("compras", "total");
+
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -173,7 +179,7 @@ export default function ProveedoresPage() {
             maxLength={2000}
             className={`${inputCls} flex-1`}
           />
-          <Button type="submit" disabled={isSaving}>
+          <Button type="submit" disabled={isSaving || !puedeEditar}>
             {isSaving ? "Guardando…" : "Crear proveedor"}
           </Button>
         </div>
@@ -298,6 +304,7 @@ export default function ProveedoresPage() {
                           </button>
                           <button
                             type="button"
+                            disabled={!puedeBorrar}
                             onClick={() => void eliminar(p)}
                             title="Eliminar"
                             aria-label={`Eliminar ${p.nombre}`}

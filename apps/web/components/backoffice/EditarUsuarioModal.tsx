@@ -6,15 +6,16 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { STAFF_MODULOS, type StaffModulo, type UserRole } from "@valatino/types";
-import { MODULO_LABELS, MODULO_ICONOS } from "@lib/backoffice/iconos";
+import type { PermisoModulo, UserRole } from "@valatino/types";
+import { SelectorPermisos } from "@components/backoffice/SelectorPermisos";
 
 interface StaffMiembro {
   user_id: string;
   email: string | null;
   nombre: string | null;
   rol: UserRole;
-  modulos: StaffModulo[];
+  cargo_nombre: string | null;
+  permisos: PermisoModulo[];
   created_at: string;
 }
 
@@ -45,11 +46,8 @@ export function EditarUsuarioModal({
   const [rol, setRol] = useState<"admin" | "asesor">(
     miembro.rol === "admin" ? "admin" : "asesor",
   );
-  const [modulos, setModulos] = useState<StaffModulo[]>(miembro.modulos);
+  const [permisos, setPermisos] = useState<PermisoModulo[]>(miembro.permisos);
   const [savingRol, setSavingRol] = useState(false);
-
-  const toggleModulo = (m: StaffModulo) =>
-    setModulos((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
 
   const guardarDatos = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +89,7 @@ export function EditarUsuarioModal({
     try {
       await apiFetch(`/admin/usuarios/${miembro.user_id}/rol`, {
         method: "PATCH",
-        body: JSON.stringify({ rol, ...(rol === "asesor" ? { modulos } : {}) }),
+        body: JSON.stringify({ rol, ...(rol === "asesor" ? { permisos } : {}) }),
       });
       toast.success("Rol actualizado");
       onUpdated();
@@ -194,9 +192,9 @@ export function EditarUsuarioModal({
 
         <hr className="border-border" />
 
-        {/* Rol + módulos */}
+        {/* Rol + permisos */}
         <form onSubmit={guardarRol} className="space-y-3">
-          <h3 className="text-sm font-medium">Rol y módulos</h3>
+          <h3 className="text-sm font-medium">Rol y accesos</h3>
           {esUnoMismo ? (
             <p className="text-xs text-muted-foreground">
               No puedes cambiar tu propio rol (evita bloqueos accidentales de acceso).
@@ -211,39 +209,31 @@ export function EditarUsuarioModal({
                   onChange={(e) => setRol(e.target.value as "admin" | "asesor")}
                   className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
                 >
-                  <option value="admin">Súper admin (ve todo)</option>
-                  <option value="asesor">Asesor</option>
+                  <option value="admin">Súper admin (control total de todo)</option>
+                  <option value="asesor">Personal interno (accesos por módulo)</option>
                 </select>
               </div>
 
-              {rol === "asesor" && (
+              {rol === "asesor" ? (
                 <div className="space-y-2">
-                  <span className="text-xs text-muted-foreground">Módulos autorizados:</span>
-                  <div className="flex flex-wrap gap-3">
-                    {STAFF_MODULOS.map((m) => {
-                      const Icon = MODULO_ICONOS[m];
-                      return (
-                        <label
-                          key={m}
-                          className="flex items-center gap-1.5 text-xs cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={modulos.includes(m)}
-                            onChange={() => toggleModulo(m)}
-                            className="accent-primary"
-                          />
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                          {MODULO_LABELS[m]}
-                        </label>
-                      );
-                    })}
-                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Accesos de {miembro.cargo_nombre ?? "esta persona"}:
+                  </span>
+                  <SelectorPermisos
+                    valor={permisos}
+                    onChange={setPermisos}
+                    disabled={savingRol}
+                  />
                 </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  El súper admin tiene control total sobre todo el panel; no lleva permisos por
+                  módulo.
+                </p>
               )}
 
               <Button type="submit" size="sm" disabled={savingRol}>
-                {savingRol ? "Guardando..." : "Guardar rol"}
+                {savingRol ? "Guardando..." : "Guardar rol y accesos"}
               </Button>
             </>
           )}

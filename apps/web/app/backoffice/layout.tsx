@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getStaffAcceso, esStaff, puedeVerModulo, etiquetaCargo } from "@lib/auth/staff";
 import { BackofficeShell } from "@components/backoffice/BackofficeShell";
+import { PermisosProvider } from "@components/backoffice/PermisosProvider";
 import type { SidebarNavItem } from "@components/backoffice/SidebarNav";
 import type { StaffModulo } from "@valatino/types";
 
@@ -54,13 +55,22 @@ export default async function BackofficeLayout({ children }: { children: React.R
   ).map(({ href, label, iconKey, children }) => ({ href, label, iconKey, children }));
 
   return (
-    <BackofficeShell
-      items={visibles}
-      showNoModulos={visibles.length === 0 && acceso.role === "asesor"}
-      email={acceso.email}
-      cargo={etiquetaCargo(acceso)}
+    // Los permisos bajan una sola vez al árbol cliente. Las pantallas los leen
+    // con useNivel/usePuede para apagar lo que la API rechazaría, en vez de
+    // preguntárselos cada una por su cuenta.
+    <PermisosProvider
+      userId={acceso.userId}
+      rol={acceso.role ?? "cliente"}
+      permisos={acceso.permisos}
     >
-      {children}
-    </BackofficeShell>
+      <BackofficeShell
+        items={visibles}
+        showNoModulos={visibles.length === 0 && acceso.role === "asesor"}
+        email={acceso.email}
+        cargo={etiquetaCargo(acceso)}
+      >
+        {children}
+      </BackofficeShell>
+    </PermisosProvider>
   );
 }

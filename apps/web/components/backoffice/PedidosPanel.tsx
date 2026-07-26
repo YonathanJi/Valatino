@@ -7,18 +7,19 @@ import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { useNivel } from "@components/backoffice/PermisosProvider";
 import { ReembolsoModal } from "@components/backoffice/ReembolsoModal";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   PEDIDO_ESTADO_LABELS,
-  type NivelPermiso,
   type Pedido,
   type PaginatedResponse,
   type PedidoEstado,
   type ResultadoReembolso,
 } from "@valatino/types";
 
-export function PedidosPanel({ nivel }: { nivel: NivelPermiso }) {
+export function PedidosPanel() {
+  const nivel = useNivel("pedidos") ?? "lectura";
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reembolsando, setReembolsando] = useState<Pedido | null>(null);
