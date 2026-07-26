@@ -30,6 +30,7 @@ import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { UpdateRolDto } from "./dto/update-rol.dto";
 import { ProvisionarCuentaDto } from "./dto/provisionar-cuenta.dto";
 import { BloqueoDto } from "./dto/bloqueo.dto";
+import { PermisosService } from "./permisos.service";
 import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
 
 interface StaffMiembro {
@@ -51,7 +52,10 @@ interface StaffMiembro {
 @Roles("admin", "asesor")
 @Modulo("ti")
 export class UsuariosController {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly permisos: PermisosService,
+  ) {}
 
   @Get()
   async findAll(): Promise<StaffMiembro[]> {
@@ -153,7 +157,7 @@ export class UsuariosController {
     });
     if (rolError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
 
-    await this.reemplazarModulos(userId, dto.modulos, creator.sub);
+    await this.permisos.reemplazar(userId, dto.modulos, creator.sub);
 
     return {
       user_id: userId,
@@ -243,7 +247,7 @@ export class UsuariosController {
       });
       if (rolError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
 
-      await this.reemplazarModulos(userId, dto.modulos, creator.sub);
+      await this.permisos.reemplazar(userId, dto.modulos, creator.sub);
 
       const { error: linkError } = await this.supabase
         .from("empleados")
@@ -384,10 +388,10 @@ export class UsuariosController {
       const { error } = await this.supabase.from("staff_modulos").delete().eq("user_id", id);
       if (error) throw new InternalServerErrorException("No se pudieron limpiar los módulos");
     } else if (dto.modulos !== undefined) {
-      await this.reemplazarModulos(id, dto.modulos, editor.sub);
+      await this.permisos.reemplazar(id, dto.modulos, editor.sub);
     } else if (rolActual === "admin") {
       // Promoción admin→asesor sin módulos indicados: arranca sin módulos.
-      await this.reemplazarModulos(id, [], editor.sub);
+      await this.permisos.reemplazar(id, [], editor.sub);
     }
 
     return { message: "Rol actualizado", rol: dto.rol };
@@ -405,7 +409,7 @@ export class UsuariosController {
       throw new BadRequestException("Solo los asesores tienen módulos configurables");
     }
 
-    await this.reemplazarModulos(id, dto.modulos, editor.sub);
+    await this.permisos.reemplazar(id, dto.modulos, editor.sub);
     return { message: "Módulos actualizados", modulos: dto.modulos };
   }
 
@@ -487,22 +491,4 @@ export class UsuariosController {
     return ((data as { roles?: { nombre?: UserRole } } | null)?.roles?.nombre) ?? null;
   }
 
-  private async reemplazarModulos(
-    userId: string,
-    modulos: StaffModulo[],
-    otorgadoPor: string,
-  ): Promise<void> {
-    const { error: deleteError } = await this.supabase
-      .from("staff_modulos")
-      .delete()
-      .eq("user_id", userId);
-    if (deleteError) throw new InternalServerErrorException("No se pudieron limpiar los módulos");
-
-    if (modulos.length === 0) return;
-
-    const { error: insertError } = await this.supabase.from("staff_modulos").insert(
-      modulos.map((modulo) => ({ user_id: userId, modulo, otorgado_por: otorgadoPor })),
-    );
-    if (insertError) throw new InternalServerErrorException("No se pudieron guardar los módulos");
-  }
 }
