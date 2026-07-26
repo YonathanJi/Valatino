@@ -4,23 +4,24 @@ import { useState } from "react";
 import {
   PEDIDO_ESTADO_LABELS,
   transicionesPermitidas,
+  type NivelPermiso,
   type PedidoEstado,
 } from "@valatino/types";
 
 interface EstadoSelectorProps {
   pedidoId: string;
   estadoActual: string;
-  /** Rol del usuario: acota las transiciones ofrecidas (el asesor no cancela ni reembolsa) */
-  rol: "admin" | "asesor";
+  /** Nivel en el módulo `pedidos`: acota las transiciones (cancelar exige total). */
+  nivel: NivelPermiso;
   /** Debe resolver a true solo si el cambio se guardó: el aviso depende de eso */
   onCambiar: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
 }
 
-export function EstadoSelector({ pedidoId, estadoActual, rol, onCambiar }: EstadoSelectorProps) {
+export function EstadoSelector({ pedidoId, estadoActual, nivel, onCambiar }: EstadoSelectorProps) {
   const [isLoading, setIsLoading] = useState(false);
   // Tabla compartida con la API (@valatino/types): lo que se ofrece aquí es
   // exactamente lo que el backend va a autorizar.
-  const siguientes = transicionesPermitidas(estadoActual as PedidoEstado, rol);
+  const siguientes = transicionesPermitidas(estadoActual as PedidoEstado, nivel);
 
   if (siguientes.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
 

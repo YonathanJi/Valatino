@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getStaffAcceso, esStaff, puedeVerModulo } from "@lib/auth/staff";
+import { getStaffAcceso, esStaff, puedeVerModulo, etiquetaCargo } from "@lib/auth/staff";
 import { BackofficeShell } from "@components/backoffice/BackofficeShell";
 import type { SidebarNavItem } from "@components/backoffice/SidebarNav";
 import type { StaffModulo } from "@valatino/types";
@@ -36,7 +36,10 @@ const NAV_ITEMS: {
     href: "/backoffice/ti",
     label: "TI",
     iconKey: "ti",
-    children: [{ href: "/backoffice/ti/usuarios", label: "Usuarios", iconKey: "usuarios" }],
+    children: [
+      { href: "/backoffice/ti/usuarios", label: "Usuarios", iconKey: "usuarios" },
+      { href: "/backoffice/ti/cargos", label: "Cargos", iconKey: "cargos" },
+    ],
   },
 ];
 
@@ -55,7 +58,7 @@ export default async function BackofficeLayout({ children }: { children: React.R
       items={visibles}
       showNoModulos={visibles.length === 0 && acceso.role === "asesor"}
       email={acceso.email}
-      role={acceso.role ?? ""}
+      cargo={etiquetaCargo(acceso)}
     >
       {children}
     </BackofficeShell>

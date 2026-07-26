@@ -1,11 +1,6 @@
-import { redirect } from "next/navigation";
-import { getStaffAcceso, esStaff, puedeVerModulo } from "@lib/auth/staff";
+import { exigirModulo } from "@lib/auth/guard-modulo";
 
 export default async function ComprasLayout({ children }: { children: React.ReactNode }) {
-  const acceso = await getStaffAcceso();
-
-  if (!acceso) redirect("/admin");
-  if (!esStaff(acceso) || !puedeVerModulo(acceso, "compras")) redirect("/backoffice");
-
+  await exigirModulo("compras");
   return <>{children}</>;
 }
