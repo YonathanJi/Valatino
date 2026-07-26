@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-25
+**Última actualización**: 2026-07-26
 
 ---
 
@@ -12,7 +12,7 @@
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **037** (2026-07-25, reembolso total repone stock). Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **038** (2026-07-26, niveles de permiso y plantillas por cargo) más su corrección `038_fix_tipo_nombre_en_aplicar_plantilla`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -20,6 +20,7 @@
 - **Flujo por capas RRHH → TI (2026-07-24)**: ⚠️ **cambio respecto a lo anterior** — ahora **Gestión Humana crea al empleado SIN cuenta** (persona + cargo; `empleados.user_id` es opcional) y después **TI** le **provisiona la cuenta** (correo + contraseña + módulos) y la vincula. "Usuarios" ya **no** es admin-only suelto: vive dentro del **módulo `ti`** (sidebar TI → Usuarios, ruta `/backoffice/ti/usuarios`). El **súper admin** (`admin`) conserva acceso a todo el core. **Cambiar rol (dar/quitar admin) sigue reservado a admin** (no un asesor de TI). Ver sesión 2026-07-24.
 - **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
 - **Avisos de estado y reembolsos (2026-07-25)**: cada cambio de estado en el panel **envía correo al cliente** (en preparación / en camino / entregado / cancelado), y el reembolso es una acción propia (`POST /admin/pedidos/:id/reembolso`, solo admin) que **cobra en Stripe** de verdad, total o parcial. ⚠️ **REEMBOLSADO ya no es una transición del desplegable**: antes elegirlo marcaba el pedido sin mover un euro. Ver sesión 2026-07-25 (cont. 3).
+- **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre y el documento reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
@@ -30,8 +31,79 @@
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
 - **BD limpiada a "arranque real" — última vez el 2026-07-25** (ver sesión cont. 4). Quedan **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** y el **stock igual a esa factura** (`reservado=0`). **0 pedidos, 0 carritos, 0 transacciones, 0 direcciones, 0 clientes.** Los clientes se crearán solos al comprar.
+- **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día.
 - **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil "Admin Valatino"). ⚠️ **El asesor `jhoannamendoza46@valatino.com` ya NO existe** — este archivo lo daba por vivo hasta el 2026-07-25; se comprobó que en `auth.users` no está. `empleados` y `staff_modulos` están a 0, así que Gestión Humana y TI arrancan vacíos. Para probar el flujo de asesor hay que crear la cuenta otra vez (RRHH crea empleado → TI le provisiona cuenta).
 - Pendientes de fondo de siempre: ~~tests (0%)~~ → **85 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+
+---
+
+## Sesión 2026-07-26 — Niveles de permiso por módulo y plantillas por cargo
+
+Pregunta de Jonathan que lo originó: con seis cargos creados y gente entrando, **¿asignar un módulo da todo lo que el módulo contiene, o se pueden dar unos permisos sí y otros no?** La respuesta era «todo», y eso no aguantaba lo que viene.
+
+### Los tres huecos del modelo de dos roles
+1. **El cargo no otorgaba nada.** Con quince asesores, TI marcaba módulos quince veces a mano y nada garantizaba que dos «Asesor Comercial» acabaran igual.
+2. **No había sitio para un director.** O `admin` (y entra a TI, cambia roles, borra cuentas), o `asesor` sin poder reembolsar aunque llevara el módulo de pedidos.
+3. **No existía el solo lectura.** El Director Administrativo no podía consultar compras sin poder modificarlas.
+
+### Decisiones de diseño (elegidas por Jonathan)
+| | |
+|---|---|
+| Cargos directivos | **Sin rol nuevo.** Siguen 2 roles en BD; un director es un `asesor` con nivel `total`. La interfaz muestra su **cargo real** de RRHH |
+| Plantillas | **Molde que se copia** al provisionar, editable por persona, con botón «Aplicar al equipo» |
+| Quién las edita | **Solo TI.** El cargo lo crea RRHH; los permisos los pone TI, para que quien gestiona personas no pueda concederse acceso creando un cargo a medida |
+| Alta suelta sin ficha | **Eliminada.** Todo pasa por RRHH → TI |
+
+### Semántica de los niveles (fija la clasificación de cada endpoint)
+- **`lectura`** — consultar. No escribe en BD ni fuera.
+- **`edicion`** — el día a día: crear y modificar. Reversible o corregible.
+- **`total`** — irreversible, destructivo, con efecto económico, o que toca credenciales y permisos.
+
+### Dos capas que NO se mezclan
+- **`@Nivel` protege el negocio** → reembolsar, borrar cliente y borrar empleado dejan de ser admin-only. Dejarlos cableados al rol vaciaría de contenido el nivel `total`, que es justo lo que se le da a un director.
+- **`@Roles("admin")` protege la frontera del sistema de permisos** → cambiar rol, bloquear y eliminar cuentas siguen siendo del súper admin. Si un `ti:total` pudiera cambiar roles, se auto-promovería a admin.
+
+⚠️ **En el módulo TI no existe un `edicion` seguro**: cambiar la contraseña o el correo de otra persona es apropiarse de su cuenta, y crear una cuenta es poder fabricarse permisos. Solo `lectura` (auditar) y `total` (administrar). Por eso GER lleva `ti: lectura` en la plantilla.
+
+### Migración 038 (+ una corrección)
+`staff_modulos` gana la columna `nivel`; nueva tabla `cargo_modulos` con la plantilla de cada cargo, sembrada para los seis. Tres RPC nuevas: `reemplazar_staff_modulos`, `aplicar_plantilla_cargo` y `mi_cargo()`.
+
+- **La PK sigue siendo `(user_id, modulo)`**: meter `nivel` en ella permitiría dos filas del mismo módulo con niveles distintos y obligaría al guard a quedarse con el máximo.
+- **Default `'lectura'`**: el único valor que falla cerrando, y cubre la ventana en que la API vieja siga insertando sin `nivel`.
+- **Dominio `nivel_permiso`** en vez de un CHECK copiado: el CHECK de `modulo` ya se ha reescrito cuatro veces por estar duplicado.
+- ⚠️ **`mi_cargo()` es `security definer` por necesidad**: `empleados` y `cargos` tienen **RLS activa y CERO policies**, así que leerlas con la sesión del usuario devuelve **0 filas en silencio**. El cargo saldría siempre vacío sin ningún error visible.
+- La prueba en seco cazó un fallo real antes de que lo usara nadie: `nombre_completo` es `varchar(200)` y la RPC declaraba `text`. Corregido en el remoto como `038_fix_tipo_nombre_en_aplicar_plantilla`.
+
+### «Aplicar al equipo» pisa los ajustes individuales — a propósito
+Es un **reemplazo**, no una suma. Un merge que solo añadiera nunca convergería a la plantilla y con el tiempo todo el mundo acumularía permisos. La objeción legítima se resuelve con **confirmación informada**: `GET :id/afectados` devuelve el diff por persona y la pantalla avisa en ámbar de quién tiene permisos personalizados que se van a perder. La RPC omite siempre al súper admin, a quien no tiene cuenta y a quien está de baja.
+
+**Salvaguarda que sí existe**: un TI no admin que reaplique la plantilla de **su propio cargo** tiene que confirmarlo (`incluirme`). **La que no**: el invariante «siempre queda alguien con `ti:total`» es complejidad defensiva que nunca podría dispararse, porque `updateRol` ya impide degradar al último admin.
+
+### Cuatro agujeros preexistentes cerrados de paso
+1. `GET /productos?soloActivos=false` miraba el rol pero **no el módulo**: un asesor que solo llevara `gestion_humana` listaba todos los borradores del catálogo.
+2. `DELETE /admin/proveedores` no tenía ningún freno: cualquier asesor con `compras` borraba un proveedor del maestro.
+3. `PATCH /admin/usuarios/:id/modulos` permitía que un `ti:total` **se quitara `ti` a sí mismo** y quedara fuera de la única pantalla desde la que recuperarlo.
+4. El reemplazo de permisos era DELETE + INSERT en dos viajes: un fallo a mitad dejaba a la persona **sin ningún permiso**. Ahora es una RPC transaccional.
+
+### Interfaz
+`SelectorPermisos` sustituye las tres copias de casillas: **un desplegable de cuatro opciones por módulo** (Sin acceso · Solo lectura · Edición · Control total) en vez de casilla + nivel, lo que elimina el estado imposible «marcado pero sin nivel». Nueva pantalla **TI → Cargos**. Los chips de módulo llevan el nivel (`total` en **ámbar, no rojo**: el rojo se lee como error, no como privilegio).
+
+Los permisos bajan **una sola vez** desde el layout por contexto. Antes convivían tres mecanismos: un endpoint `/permisos` que se consultaba tras montar (los botones aparecían de golpe), una prop, y una derivación frágil que se buscaba a uno mismo dentro de la lista cargada. Los dos endpoints `/permisos` desaparecen.
+
+Los siete layouts de módulo, que repetían el mismo bloque de tres líneas, llaman ahora a `exigirModulo()`.
+
+### Verificado end-to-end en local contra el Supabase real
+Se creó un empleado ASECOM desde RRHH, se le provisionó cuenta desde TI (con la plantilla precargada) y se entró con ella. **Todo se borró después**: 0 empleados, 0 `staff_modulos`, 0 usuarios de prueba, 1 usuario total (el admin).
+
+- Con `pedidos:edicion, clientes:lectura, catalogo:lectura`: listar pedidos y clientes **200**; editar cliente **403**; reembolsar **403**; borrar cliente **403**; compras, dashboard, RRHH, usuarios y cargos **403**.
+- **Revocación inmediata con EL MISMO token, sin volver a entrar**: subir a `pedidos:total` deja de dar 403 al instante, y bajar a `lectura` lo devuelve. Los permisos se leen por petición, no viajan en el token.
+- Los dos agujeros: con solo `gestion_humana`, `?soloActivos=false` da **403** (antes 200); con `compras:edicion`, borrar proveedor da **403**.
+- DTOs: formato viejo `{modulos:[…]}` **400**, módulo duplicado **400** (no 500), nivel inventado **400**.
+- Reaplicar: el diff anunció el `compras:edicion` puesto a mano → se quita, y la plantilla se restaura. Segunda pasada, **0 divergentes**.
+
+**Tests: 134** en la API (49 nuevos). La web sigue sin tests; la red ahí es `pnpm turbo type-check`, que rompe exactamente en los puntos afectados al cambiar el shape de `@valatino/types`.
+
+⚠️ **Ventana de despliegue**: Render y Vercel auto-despliegan del mismo push, así que **no se puede** ordenar API antes que web — y como Render en plan free tarda más, la combinación mala (web nueva contra API vieja) es la probable. Por eso la web tolera el formato anterior **solo en lectura** durante una release (`permisos ?? []`). Se puede quitar en la siguiente. En escritura no se acepta a propósito: mapearlo a un nivel por defecto reintroduciría un fail-open silencioso.
 
 ---
 
