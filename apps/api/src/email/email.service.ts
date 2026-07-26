@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { createTransport, type Transporter } from "nodemailer";
 import { renderConfirmacionPedido, type DatosEmailPedido } from "./templates/confirmacion-pedido";
 import { renderCambioEstado, type DatosEmailEstado } from "./templates/estado-pedido";
+import { EventosPedidoService } from "../eventos/eventos-pedido.service";
 
 @Injectable()
 export class EmailService {
@@ -9,7 +10,7 @@ export class EmailService {
   private readonly transporter: Transporter | null = null;
   private readonly fromEmail: string;
 
-  constructor() {
+  constructor(private readonly eventos: EventosPedidoService) {
     const host = process.env.SMTP_HOST;
     const user = process.env.SMTP_USER;
     const pass = process.env.SMTP_PASS;
@@ -44,11 +45,11 @@ export class EmailService {
 
   async enviarConfirmacionPedido(datos: DatosEmailPedido): Promise<void> {
     const html = renderConfirmacionPedido(datos);
-    await this.enviar({
-      to: datos.email,
-      subject: `Confirmación de tu pedido #${this.numeroVisible(datos)}`,
-      html,
-    });
+    const asunto = `Confirmación de tu pedido #${this.numeroVisible(datos)}`;
+
+    if (await this.enviar({ to: datos.email, subject: asunto, html })) {
+      await this.anotar(datos.pedidoId, asunto);
+    }
   }
 
   async enviarReembolso(datos: DatosEmailPedido): Promise<void> {
@@ -56,13 +57,13 @@ export class EmailService {
     const devuelto = datos.importeReembolsado ?? datos.total;
     const esParcial = Math.round(devuelto * 100) < Math.round(datos.total * 100);
 
-    await this.enviar({
-      to: datos.email,
-      subject: esParcial
-        ? `Devolución de ${this.importeVisible(devuelto)} — Pedido #${this.numeroVisible(datos)}`
-        : `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`,
-      html,
-    });
+    const asunto = esParcial
+      ? `Devolución de ${this.importeVisible(devuelto)} — Pedido #${this.numeroVisible(datos)}`
+      : `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`;
+
+    if (await this.enviar({ to: datos.email, subject: asunto, html })) {
+      await this.anotar(datos.pedidoId, asunto);
+    }
   }
 
   /**
@@ -76,7 +77,18 @@ export class EmailService {
       return;
     }
 
-    await this.enviar({ to: datos.email, subject: render.asunto, html: render.html });
+    if (await this.enviar({ to: datos.email, subject: render.asunto, html: render.html })) {
+      await this.anotar(datos.pedidoId, render.asunto);
+    }
+  }
+
+  /**
+   * Deja el correo en la línea de tiempo del pedido. Solo se llama cuando el
+   * envío ha salido bien: anunciar en el historial un correo que nunca llegó
+   * sería peor que no anotarlo, porque nadie iría a comprobarlo.
+   */
+  private async anotar(pedidoId: string, asunto: string): Promise<void> {
+    await this.eventos.registrar({ pedidoId, tipo: "email", detalle: asunto, origen: "sistema" });
   }
 
   private importeVisible(n: number): string {
@@ -87,10 +99,11 @@ export class EmailService {
     return datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
   }
 
-  private async enviar(params: { to: string; subject: string; html: string }): Promise<void> {
+  /** Devuelve si el correo salió de verdad; los fallos se registran y no se propagan. */
+  private async enviar(params: { to: string; subject: string; html: string }): Promise<boolean> {
     if (!this.transporter) {
       this.logger.debug(`[Email omitido — sin SMTP] Para: ${params.to} | Asunto: ${params.subject}`);
-      return;
+      return false;
     }
 
     try {
@@ -102,8 +115,10 @@ export class EmailService {
       });
 
       this.logger.log(`Email enviado a ${params.to}: ${params.subject}`);
+      return true;
     } catch (err) {
       this.logger.error(`Error SMTP enviando email a ${params.to}: ${(err as Error).message}`);
+      return false;
     }
   }
 }

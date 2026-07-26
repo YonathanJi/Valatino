@@ -8,6 +8,7 @@ import {
   Body,
   UseGuards,
   ParseIntPipe,
+  ParseUUIDPipe,
   DefaultValuePipe,
 } from "@nestjs/common";
 import { PedidosService } from "./pedidos.service";
@@ -46,6 +47,16 @@ export class AdminPedidosController {
   }
 
   /**
+   * Ficha completa: líneas del pedido, datos de envío e historial de todo lo
+   * que le ha pasado. Basta con lectura: que el equipo entero pueda ver quién
+   * tocó un pedido es justamente el objetivo.
+   */
+  @Get(":id")
+  findOne(@Param("id", new ParseUUIDPipe({ version: "4" })) id: string) {
+    return this.pedidosService.findOneDetalle(id);
+  }
+
+  /**
    * El guard solo comprueba el permiso grueso (`edicion` en pedidos); qué
    * transiciones concretas caben depende además del nivel, y eso lo decide
    * transicionesPermitidas: cancelar exige `total`.
@@ -61,6 +72,7 @@ export class AdminPedidosController {
       id,
       dto.estado,
       nivelEfectivo(user, "pedidos") ?? "lectura",
+      user.sub,
     );
   }
 
@@ -82,6 +94,6 @@ export class AdminPedidosController {
     @Body() dto: CrearReembolsoDto,
     @CurrentUser() user: JwtPayload,
   ): Promise<ResultadoReembolso> {
-    return this.reembolsosService.reembolsar(id, dto, user.email);
+    return this.reembolsosService.reembolsar(id, dto, user.email, user.sub);
   }
 }

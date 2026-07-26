@@ -9,6 +9,7 @@ import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { useNivel } from "@components/backoffice/PermisosProvider";
 import { ReembolsoModal } from "@components/backoffice/ReembolsoModal";
+import { PedidoDetalleModal } from "@components/backoffice/PedidoDetalleModal";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   PEDIDO_ESTADO_LABELS,
@@ -23,6 +24,11 @@ export function PedidosPanel() {
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reembolsando, setReembolsando] = useState<Pedido | null>(null);
+  const [viendo, setViendo] = useState<Pedido | null>(null);
+  // Cambia al actuar sobre el pedido para que la ficha vuelva a pedir su
+  // historial: quien acaba de mover algo debe ver su propia línea, no la de
+  // hace un minuto.
+  const [refrescoFicha, setRefrescoFicha] = useState(0);
   const supabase = createSupabaseBrowserClient();
 
   const loadPedidos = async () => {
@@ -94,6 +100,7 @@ export function PedidosPanel() {
         prev.map((p) => (p.id === pedidoId ? { ...p, estado: nuevoEstado } : p)),
       );
       toast.success(`Pedido marcado como ${PEDIDO_ESTADO_LABELS[nuevoEstado]}`);
+      setRefrescoFicha((n) => n + 1);
       return true;
     } catch (err) {
       toast.error(
@@ -116,6 +123,7 @@ export function PedidosPanel() {
           : p,
       ),
     );
+    setRefrescoFicha((n) => n + 1);
   };
 
   return (
@@ -139,7 +147,16 @@ export function PedidosPanel() {
         // Devolver dinero es cosa de admin: la API rechaza al asesor con un 403,
         // así que tampoco se le ofrece el botón.
         onReembolsar={nivel === "total" ? setReembolsando : undefined}
+        onAbrir={setViendo}
       />
+
+      {viendo && (
+        <PedidoDetalleModal
+          pedidoId={viendo.id}
+          recargarToken={refrescoFicha}
+          onClose={() => setViendo(null)}
+        />
+      )}
 
       {reembolsando && (
         <ReembolsoModal

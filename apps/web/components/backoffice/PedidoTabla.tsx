@@ -17,6 +17,8 @@ interface PedidoTablaProps {
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   /** Abre el modal de devolución. Ausente para quien no puede reembolsar. */
   onReembolsar?: (pedido: Pedido) => void;
+  /** Abre la ficha del pedido. */
+  onAbrir: (pedido: Pedido) => void;
 }
 
 /**
@@ -40,6 +42,7 @@ export function PedidoTabla({
   nivel,
   onEstadoChange,
   onReembolsar,
+  onAbrir,
 }: PedidoTablaProps) {
   if (isLoading) {
     return (
@@ -80,6 +83,7 @@ export function PedidoTabla({
               nivel={nivel}
               onEstadoChange={onEstadoChange}
               onReembolsar={onReembolsar}
+              onAbrir={onAbrir}
             />
           ))}
         </tbody>
@@ -93,14 +97,33 @@ interface PedidoFilaProps {
   nivel: NivelPermiso;
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   onReembolsar?: (pedido: Pedido) => void;
+  onAbrir: (pedido: Pedido) => void;
 }
 
-export function PedidoFila({ pedido, nivel, onEstadoChange, onReembolsar }: PedidoFilaProps) {
+export function PedidoFila({
+  pedido,
+  nivel,
+  onEstadoChange,
+  onReembolsar,
+  onAbrir,
+}: PedidoFilaProps) {
   const devuelto = Number(pedido.total_reembolsado ?? 0);
   const mostrarReembolso = Boolean(onReembolsar) && puedeReembolsarse(pedido);
 
   return (
-    <tr className="hover:bg-muted/30 transition-colors">
+    <tr
+      onClick={() => onAbrir(pedido)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onAbrir(pedido);
+        }
+      }}
+      tabIndex={0}
+      role="button"
+      aria-label={`Ver el pedido ${pedido.numero_pedido ?? pedido.id.slice(0, 8)}`}
+      className="cursor-pointer transition-colors hover:bg-muted/30 focus-visible:bg-muted/50 focus-visible:outline-none"
+    >
       <td className="p-3 font-mono text-xs">
         {pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}
       </td>
@@ -124,7 +147,10 @@ export function PedidoFila({ pedido, nivel, onEstadoChange, onReembolsar }: Pedi
       <td className="p-3">
         <EstadoBadge estado={pedido.estado} />
       </td>
-      <td className="p-3">
+      {/* La celda de acciones no abre la ficha: aquí viven el desplegable de
+          estado y el botón de reembolso, y que se abriera un modal cada vez que
+          se usan sería un incordio. */}
+      <td className="p-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <EstadoSelector
             pedidoId={pedido.id}

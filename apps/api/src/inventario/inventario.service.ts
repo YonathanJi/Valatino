@@ -6,6 +6,8 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { EventosPedidoService } from "../eventos/eventos-pedido.service";
+import type { OrigenEvento, TipoEventoPedido } from "@valatino/types";
 import type { PedidoEstado } from "@valatino/types";
 
 export interface DireccionSnapshotPedido {
@@ -44,7 +46,10 @@ export interface CrearPedidoDto {
 export class InventarioService {
   private readonly logger = new Logger(InventarioService.name);
 
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly eventos: EventosPedidoService,
+  ) {}
 
   /**
    * Idempotencia de webhooks: comprueba si un evento del proveedor de pagos
@@ -140,6 +145,11 @@ export class InventarioService {
     return (data as { id: string }).id;
   }
 
+  /**
+   * Único sitio donde se escribe en `transacciones_pago`, así que también es el
+   * único donde hay que anotar el movimiento en la línea de tiempo del pedido:
+   * puesto aquí no puede desincronizarse con el registro contable.
+   */
   async registrarTransaccion(
     pedidoId: string,
     proveedor: "stripe" | "paypal",
@@ -148,6 +158,7 @@ export class InventarioService {
     estado: string,
     importe: number,
     payloadRaw: object,
+    historial?: { tipo: TipoEventoPedido; actorId?: string | null; origen?: OrigenEvento },
   ): Promise<void> {
     const { error } = await this.supabase.from("transacciones_pago").insert({
       pedido_id: pedidoId,
@@ -168,6 +179,17 @@ export class InventarioService {
       }
       this.logger.error(`Error al registrar transacción ${eventoId}: ${error.message}`);
       throw new UnprocessableEntityException("Error al registrar la transacción de pago");
+    }
+
+    if (historial) {
+      await this.eventos.registrar({
+        pedidoId,
+        tipo: historial.tipo,
+        importe,
+        detalle: tipoEvento,
+        actorId: historial.actorId,
+        origen: historial.origen,
+      });
     }
   }
 

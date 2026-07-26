@@ -9,7 +9,7 @@ import {
 
 /**
  * Doble mínimo del cliente de Supabase: solo lo que usa updateEstado
- * (select del estado actual + update del nuevo).
+ * (select del estado actual + la RPC que lo cambia).
  */
 function supabaseFalso(estadoActual: PedidoEstado | null) {
   const updates: Array<Record<string, unknown>> = [];
@@ -24,17 +24,14 @@ function supabaseFalso(estadoActual: PedidoEstado | null) {
               : { data: { estado: estadoActual }, error: null },
         }),
       }),
-      update: (valores: Record<string, unknown>) => {
-        updates.push(valores);
-        return {
-          eq: () => ({
-            select: () => ({
-              single: async () => ({ data: { id: "p1", ...valores }, error: null }),
-            }),
-          }),
-        };
-      },
     }),
+    // El cambio va por RPC para que ocurra en la misma transacción que su
+    // registro en el historial, y para que el trigger sepa quién lo hizo.
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      if (fn !== "cambiar_estado_pedido") throw new Error(`rpc inesperada: ${fn}`);
+      updates.push({ estado: args.p_estado, actor: args.p_actor_id });
+      return { data: { id: "p1", estado: args.p_estado }, error: null };
+    },
   };
 
   return { cliente, updates };
@@ -152,14 +149,33 @@ describe("máquina de estados del pedido (@valatino/types)", () => {
 });
 
 describe("PedidosService.updateEstado", () => {
-  it("acepta una transición permitida y sella updated_at", async () => {
+  it("acepta una transición permitida", async () => {
     const { servicio, updates } = servicioCon("PROCESANDO");
 
     await servicio.updateEstado("p1", "ENVIADO", "edicion");
 
     expect(updates).toHaveLength(1);
     expect(updates[0]).toMatchObject({ estado: "ENVIADO" });
-    expect(updates[0]!["updated_at"]).toBeDefined();
+  });
+
+  it("pasa quién lo hizo, que es lo que acaba en el historial", async () => {
+    const { servicio, updates } = servicioCon("PROCESANDO");
+
+    await servicio.updateEstado("p1", "ENVIADO", "edicion", "usuario-7");
+
+    expect(updates[0]).toMatchObject({ estado: "ENVIADO", actor: "usuario-7" });
+  });
+
+  /**
+   * El webhook y el checkout cambian el estado sin persona detrás. El historial
+   * debe poder decirlo, no inventarse un autor.
+   */
+  it("sin actor, la RPC recibe null y el cambio queda como del sistema", async () => {
+    const { servicio, updates } = servicioCon("PROCESANDO");
+
+    await servicio.updateEstado("p1", "ENVIADO", "edicion");
+
+    expect(updates[0]).toMatchObject({ actor: null });
   });
 
   it("rechaza que con edición se cancele un pedido y no escribe nada", async () => {

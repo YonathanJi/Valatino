@@ -93,6 +93,7 @@ export class ConfirmacionPedidoService {
       "exitoso",
       pago.importe,
       pago.payloadRaw,
+      { tipo: "pago", origen: "checkout" },
     );
 
     await this.enviarEmailPedido(pedidoId, false);
@@ -150,6 +151,10 @@ export class ConfirmacionPedidoService {
       esTotal ? "reembolsado" : "reembolsado_parcial",
       reembolso.importe,
       reembolso.payloadRaw,
+      // Sin actor: esto llega por el aviso de Stripe, no lo pidió nadie desde
+      // el panel. Si sí lo pidieron, el evento con nombre ya lo dejó el propio
+      // ReembolsosService al cobrarlo.
+      { tipo: "reembolso", origen: "webhook" },
     );
 
     if (esNuevo) {
