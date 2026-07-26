@@ -39,7 +39,12 @@ export function UsuariosPanel() {
 
   const loadStaff = async () => {
     try {
-      setStaff(await apiFetch<StaffMiembro[]>("/admin/usuarios"));
+      const filas = await apiFetch<StaffMiembro[]>("/admin/usuarios");
+      // `permisos ?? []` cubre la ventana de despliegue: la web llega a Vercel
+      // en un par de minutos y la API a Render tarda bastante más, así que
+      // durante ese rato la respuesta todavía viene en el formato anterior.
+      // Se puede quitar en la siguiente release.
+      setStaff(filas.map((u) => ({ ...u, permisos: u.permisos ?? [] })));
     } catch {
       // el layout ya protege la ruta
     } finally {
@@ -49,7 +54,8 @@ export function UsuariosPanel() {
 
   const loadPendientes = async () => {
     try {
-      setPendientes(await apiFetch<EmpleadoPendiente[]>("/admin/usuarios/empleados-pendientes"));
+      const filas = await apiFetch<EmpleadoPendiente[]>("/admin/usuarios/empleados-pendientes");
+      setPendientes(filas.map((e) => ({ ...e, plantilla: e.plantilla ?? [] })));
     } catch {
       /* el layout protege la ruta */
     }
