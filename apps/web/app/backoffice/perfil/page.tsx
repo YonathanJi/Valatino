@@ -1,9 +1,7 @@
-import { getStaffAcceso, esStaff } from "@lib/auth/staff";
+import { etiquetaCargo, getStaffAcceso, esStaff } from "@lib/auth/staff";
 import { UserCircle } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
-// Etiquetas compartidas: antes había una copia aquí que se olvidaba al añadir
-// un módulo nuevo.
-import { MODULO_LABELS } from "@lib/backoffice/iconos";
+import { ListaPermisos } from "@components/backoffice/ChipPermiso";
 
 // Perfil del empleado (server component). El layout del backoffice ya
 // garantiza que solo llega aquí el staff autenticado.
@@ -23,36 +21,28 @@ export default async function PerfilStaffPage() {
             <p className="font-medium truncate">{acceso.nombre ?? "Empleado de Valatino"}</p>
             <p className="text-sm text-muted-foreground truncate">{acceso.email}</p>
           </div>
+          {/* El cargo real de RRHH, no el rol técnico: «Asesor» no dice nada de
+              un Director Comercial. */}
           <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary shrink-0">
-            {esAdmin ? "Administrador" : "Asesor"}
+            {etiquetaCargo(acceso)}
           </span>
         </div>
 
         <div className="border-t pt-4">
           <p className="text-sm text-muted-foreground mb-2">Acceso al panel</p>
           {esAdmin ? (
-            <p className="text-sm">Acceso completo a todos los módulos</p>
-          ) : acceso.modulos.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {acceso.modulos.map((m) => (
-                <span
-                  key={m}
-                  className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-xs font-medium"
-                >
-                  {MODULO_LABELS[m] ?? m}
-                </span>
-              ))}
-            </div>
+            <p className="text-sm">Control total sobre todos los módulos</p>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Sin módulos asignados. Contacta con un administrador.
-            </p>
+            <ListaPermisos
+              permisos={acceso.permisos}
+              vacio="Sin acceso a ningún módulo todavía. Contacta con TI."
+            />
           )}
         </div>
       </section>
 
       <p className="text-xs text-muted-foreground">
-        ¿Necesitas cambiar tu contraseña o tus módulos de acceso? Contacta con un administrador.
+        ¿Necesitas cambiar tu contraseña o tu nivel de acceso? Contacta con TI.
       </p>
     </div>
   );

@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@lib/api/client";
 import { Button } from "@components/ui/button";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import { formatEUR } from "@lib/utils";
 import { ShoppingBag } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import type { FacturaCompra, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeComprasPage() {
+  const puedeEditar = usePuede("compras", "edicion");
+
   const [compras, setCompras] = useState<FacturaCompra[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,9 +40,11 @@ export default function BackofficeComprasPage() {
         title="Compras de mercancía"
         description={`Histórico de entradas de mercancía documentadas (${total})`}
       >
-        <Button asChild>
-          <Link href="/backoffice/compras/nueva">＋ Registrar compra</Link>
-        </Button>
+        {puedeEditar && (
+          <Button asChild>
+            <Link href="/backoffice/compras/nueva">＋ Registrar compra</Link>
+          </Button>
+        )}
       </PageHeader>
 
       <div className="rounded-xl border bg-card">

@@ -11,7 +11,8 @@ interface BackofficeShellProps {
   items: SidebarNavItem[];
   showNoModulos: boolean;
   email: string | null;
-  role: string;
+  /** Cargo de RRHH o «Súper admin»; ya no el rol técnico. */
+  cargo: string;
   children: React.ReactNode;
 }
 
@@ -19,7 +20,7 @@ export function BackofficeShell({
   items,
   showNoModulos,
   email,
-  role,
+  cargo,
   children,
 }: BackofficeShellProps) {
   const [open, setOpen] = useState(false);
@@ -57,7 +58,7 @@ export function BackofficeShell({
         <LogoutButton />
         <div className="px-3 pt-1.5">
           <p className="truncate text-xs text-zinc-400">{email}</p>
-          <p className="text-[11px] font-medium capitalize text-orange-400">{role}</p>
+          <p className="text-[11px] font-medium text-orange-400">{cargo}</p>
         </div>
       </div>
     </div>

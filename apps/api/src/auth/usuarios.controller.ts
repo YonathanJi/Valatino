@@ -21,39 +21,56 @@ import { JwtGuard } from "./guards/jwt.guard";
 import { RolesGuard } from "./guards/roles.guard";
 import { ModulosGuard } from "./guards/modulos.guard";
 import { Roles } from "./decorators/roles.decorator";
-import { Modulo } from "./decorators/modulo.decorator";
+import { Modulo, Nivel } from "./decorators/modulo.decorator";
 import { CurrentUser } from "./decorators/current-user.decorator";
-import { CreateAsesorDto } from "./dto/create-asesor.dto";
 import { UpdateModulosDto } from "./dto/update-modulos.dto";
 import { UpdateUsuarioDto } from "./dto/update-usuario.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { UpdateRolDto } from "./dto/update-rol.dto";
 import { ProvisionarCuentaDto } from "./dto/provisionar-cuenta.dto";
 import { BloqueoDto } from "./dto/bloqueo.dto";
-import type { JwtPayload, StaffModulo, UserRole } from "@valatino/types";
+import { PermisosService } from "./permisos.service";
+import type { JwtPayload, PermisoModulo, UserRole } from "@valatino/types";
 
 interface StaffMiembro {
   user_id: string;
   email: string | null;
   nombre: string | null;
   rol: UserRole;
-  modulos: StaffModulo[];
+  /** Cargo de RRHH; null si la cuenta no está vinculada a una ficha de empleado. */
+  cargo_nombre: string | null;
+  permisos: PermisoModulo[];
   bloqueado: boolean;
   created_at: string;
 }
 
-// Usuarios vive dentro del módulo "TI": admin siempre; un asesor de TI puede
-// gestionar cuentas, contraseñas y módulos DE ASESORES. Sobre una cuenta admin
-// solo actúa otro admin (ver asegurarStaffEditable), y cambiar el ROL, bloquear
-// o eliminar queda reservado a admin (ver @Roles("admin") en esos handlers).
+// Usuarios vive dentro del módulo "TI". Aquí NO hay un `edicion` con contenido
+// seguro: cambiar la contraseña o el correo de otra persona es apropiarse de su
+// cuenta, y crear una cuenta es poder fabricarse permisos. Por eso los únicos
+// niveles con sentido son `lectura` (auditar quién tiene qué) y `total`
+// (administrar), y la clase exige `total` por defecto bajando solo en las
+// consultas.
+//
+// Dos capas distintas conviven a propósito:
+//   - @Nivel protege el negocio.
+//   - @Roles("admin") protege la frontera del propio sistema de permisos:
+//     cambiar el rol, bloquear y eliminar cuentas. Si un `ti:total` pudiera
+//     cambiar roles se auto-promovería a admin y la distinción súper admin /
+//     directivo dejaría de existir.
+// Sobre una cuenta admin solo actúa otro admin (ver asegurarStaffEditable).
 @Controller("admin/usuarios")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
 @Roles("admin", "asesor")
 @Modulo("ti")
+@Nivel("total")
 export class UsuariosController {
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly permisos: PermisosService,
+  ) {}
 
   @Get()
+  @Nivel("lectura")
   async findAll(): Promise<StaffMiembro[]> {
     const { data, error } = await this.supabase
       .from("user_roles")
@@ -71,11 +88,14 @@ export class UsuariosController {
 
     const userIds = rows.map((r) => r.user_id);
 
-    const [{ data: modulosData }, { data: profilesData }, { data: usersData }] = await Promise.all([
-      this.supabase.from("staff_modulos").select("user_id, modulo").in("user_id", userIds),
-      this.supabase.from("profiles").select("id, email, nombre").in("id", userIds),
-      this.supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
-    ]);
+    const [permisosPorUsuario, { data: profilesData }, { data: empleadosData }, { data: usersData }] =
+      await Promise.all([
+        this.permisos.porUsuario(userIds),
+        this.supabase.from("profiles").select("id, email, nombre").in("id", userIds),
+        // El cargo va por service_role: `empleados` tiene RLS sin policies.
+        this.supabase.from("empleados").select("user_id, cargos(nombre)").in("user_id", userIds),
+        this.supabase.auth.admin.listUsers({ page: 1, perPage: 200 }),
+      ]);
 
     const ahora = new Date();
     const bloqueados = new Set(
@@ -84,17 +104,19 @@ export class UsuariosController {
         .map((u) => u.id),
     );
 
-    const modulosPorUsuario = new Map<string, StaffModulo[]>();
-    for (const m of (modulosData ?? []) as { user_id: string; modulo: StaffModulo }[]) {
-      const lista = modulosPorUsuario.get(m.user_id) ?? [];
-      lista.push(m.modulo);
-      modulosPorUsuario.set(m.user_id, lista);
-    }
-
     const perfilPorUsuario = new Map(
       ((profilesData ?? []) as { id: string; email: string | null; nombre: string | null }[]).map(
         (p) => [p.id, p],
       ),
+    );
+
+    const cargoPorUsuario = new Map(
+      (
+        (empleadosData ?? []) as unknown as {
+          user_id: string;
+          cargos: { nombre: string } | null;
+        }[]
+      ).map((e) => [e.user_id, e.cargos?.nombre ?? null]),
     );
 
     return rows.map((r) => ({
@@ -102,100 +124,84 @@ export class UsuariosController {
       email: perfilPorUsuario.get(r.user_id)?.email ?? null,
       nombre: perfilPorUsuario.get(r.user_id)?.nombre ?? null,
       rol: r.roles.nombre,
-      modulos: r.roles.nombre === "admin" ? [] : (modulosPorUsuario.get(r.user_id) ?? []),
+      cargo_nombre: cargoPorUsuario.get(r.user_id) ?? null,
+      // El admin no tiene filas: su acceso no sale de staff_modulos.
+      permisos: r.roles.nombre === "admin" ? [] : (permisosPorUsuario.get(r.user_id) ?? []),
       bloqueado: bloqueados.has(r.user_id),
       created_at: r.created_at,
     }));
   }
 
-  @Post()
-  async createAsesor(
-    @Body() dto: CreateAsesorDto,
-    @CurrentUser() creator: JwtPayload,
-  ): Promise<StaffMiembro> {
-    const { data: created, error: createError } = await this.supabase.auth.admin.createUser({
-      email: dto.email.toLowerCase(),
-      password: dto.password,
-      email_confirm: true,
-      user_metadata: { nombre: dto.nombre },
-    });
+  // Aquí vivía POST /admin/usuarios, que creaba una cuenta de asesor suelta con
+  // nombre y correo tecleados a mano. Se retira: producía cuentas sin ficha de
+  // RRHH y, por tanto, sin cargo y sin plantilla de permisos — justo lo que este
+  // trabajo viene a evitar. El único camino de alta es ahora
+  // RRHH crea el empleado -> TI provisiona la cuenta (POST /provisionar).
+  //
+  // No hay riesgo de quedarse sin poder dar de alta a nadie: el súper admin
+  // tiene acceso implícito tanto a gestion_humana como a ti, así que puede dar
+  // los dos pasos él mismo.
 
-    if (createError) {
-      if (createError.code === "email_exists") {
-        throw new ConflictException("Ya existe un usuario con ese email");
-      }
-      throw new InternalServerErrorException(`No se pudo crear el usuario: ${createError.message}`);
-    }
-
-    const userId = created.user.id;
-
-    const { data: rolAsesor } = await this.supabase
-      .from("roles")
-      .select("id")
-      .eq("nombre", "asesor")
-      .single();
-
-    if (!rolAsesor) throw new InternalServerErrorException("Rol 'asesor' no encontrado");
-
-    // El trigger handle_new_user asigna 'cliente' por defecto: se reemplaza por 'asesor'.
-    const { error: deleteRolError } = await this.supabase
-      .from("user_roles")
-      .delete()
-      .eq("user_id", userId);
-    if (deleteRolError) {
-      throw new InternalServerErrorException("No se pudo limpiar el rol por defecto");
-    }
-
-    const { error: rolError } = await this.supabase.from("user_roles").insert({
-      user_id: userId,
-      role_id: (rolAsesor as { id: string }).id,
-      asignado_por: creator.sub,
-    });
-    if (rolError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
-
-    await this.reemplazarModulos(userId, dto.modulos, creator.sub);
-
-    return {
-      user_id: userId,
-      email: dto.email.toLowerCase(),
-      nombre: dto.nombre,
-      rol: "asesor",
-      modulos: dto.modulos,
-      bloqueado: false,
-      created_at: created.user.created_at,
-    };
-  }
-
-  /** Empleados creados por RRHH que aún no tienen cuenta de acceso. */
+  /**
+   * Empleados creados por RRHH que aún no tienen cuenta de acceso, con la
+   * plantilla de permisos de su cargo ya resuelta para que la pantalla de
+   * provisión llegue rellena y TI vea exactamente lo que va a guardar.
+   */
   @Get("empleados-pendientes")
+  @Nivel("lectura")
   async empleadosPendientes() {
     const { data, error } = await this.supabase
       .from("empleados")
-      .select("id, codigo_empleado, nombre_completo, correo_empresa, cargos(codigo, nombre)")
+      .select("id, codigo_empleado, nombre_completo, correo_empresa, cargo_id, cargos(codigo, nombre)")
       .is("user_id", null)
       .order("nombre_completo");
     if (error) {
       throw new InternalServerErrorException("No se pudieron cargar los empleados pendientes");
     }
-    return (
-      (data ?? []) as unknown as {
-        id: string;
-        codigo_empleado: string;
-        nombre_completo: string;
-        correo_empresa: string;
-        cargos: { codigo: string; nombre: string } | null;
-      }[]
-    ).map((r) => ({
+    const filas = (data ?? []) as unknown as {
+      id: string;
+      codigo_empleado: string;
+      nombre_completo: string;
+      correo_empresa: string;
+      cargo_id: string | null;
+      cargos: { codigo: string; nombre: string } | null;
+    }[];
+
+    const cargoIds = [...new Set(filas.map((r) => r.cargo_id).filter((v): v is string => v != null))];
+    const plantillaPorCargo = await this.plantillaPorCargo(cargoIds);
+
+    return filas.map((r) => ({
       id: r.id,
       codigo_empleado: r.codigo_empleado,
       nombre_completo: r.nombre_completo,
       correo_empresa: r.correo_empresa,
+      cargo_id: r.cargo_id,
       cargo_codigo: r.cargos?.codigo ?? null,
       cargo_nombre: r.cargos?.nombre ?? null,
+      plantilla: (r.cargo_id ? plantillaPorCargo.get(r.cargo_id) : undefined) ?? [],
     }));
   }
 
-  /** TI provisiona la cuenta de un empleado: crea el acceso, rol y módulos y lo vincula. */
+  /** Plantillas de permisos de varios cargos, indexadas por cargo. */
+  private async plantillaPorCargo(cargoIds: string[]): Promise<Map<string, PermisoModulo[]>> {
+    const mapa = new Map<string, PermisoModulo[]>();
+    if (cargoIds.length === 0) return mapa;
+
+    const { data, error } = await this.supabase
+      .from("cargo_modulos")
+      .select("cargo_id, modulo, nivel")
+      .in("cargo_id", cargoIds);
+    if (error) throw new InternalServerErrorException("No se pudieron cargar las plantillas");
+
+    for (const fila of (data ?? []) as ({ cargo_id: string } & PermisoModulo)[]) {
+      const lista = mapa.get(fila.cargo_id) ?? [];
+      lista.push({ modulo: fila.modulo, nivel: fila.nivel });
+      mapa.set(fila.cargo_id, lista);
+    }
+    return mapa;
+  }
+
+  /** TI provisiona la cuenta de un empleado: crea el acceso, rol y permisos y lo vincula. */
   @Post("provisionar")
   async provisionarCuenta(
     @Body() dto: ProvisionarCuentaDto,
@@ -243,7 +249,7 @@ export class UsuariosController {
       });
       if (rolError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
 
-      await this.reemplazarModulos(userId, dto.modulos, creator.sub);
+      await this.permisos.reemplazar(userId, dto.permisos, creator.sub);
 
       const { error: linkError } = await this.supabase
         .from("empleados")
@@ -383,11 +389,11 @@ export class UsuariosController {
     if (dto.rol === "admin") {
       const { error } = await this.supabase.from("staff_modulos").delete().eq("user_id", id);
       if (error) throw new InternalServerErrorException("No se pudieron limpiar los módulos");
-    } else if (dto.modulos !== undefined) {
-      await this.reemplazarModulos(id, dto.modulos, editor.sub);
+    } else if (dto.permisos !== undefined) {
+      await this.permisos.reemplazar(id, dto.permisos, editor.sub);
     } else if (rolActual === "admin") {
       // Promoción admin→asesor sin módulos indicados: arranca sin módulos.
-      await this.reemplazarModulos(id, [], editor.sub);
+      await this.permisos.reemplazar(id, [], editor.sub);
     }
 
     return { message: "Rol actualizado", rol: dto.rol };
@@ -399,14 +405,22 @@ export class UsuariosController {
     @Body() dto: UpdateModulosDto,
     @CurrentUser() editor: JwtPayload,
   ) {
+    // Nadie que no sea admin se edita sus propios permisos: un `ti:total` podía
+    // quitarse `ti` a sí mismo y quedarse fuera de la única pantalla desde la
+    // que recuperarlo. Los hermanos de este handler (rol, bloqueo, borrado) ya
+    // llevaban su versión de este freno; a este le faltaba.
+    if (id === editor.sub && editor.role !== "admin") {
+      throw new BadRequestException("No puedes cambiar tus propios permisos");
+    }
+
     const rol = await this.fetchRol(id);
     if (!rol) throw new NotFoundException("Usuario no encontrado en el staff");
     if (rol !== "asesor") {
-      throw new BadRequestException("Solo los asesores tienen módulos configurables");
+      throw new BadRequestException("El súper admin tiene acceso a todo; no lleva permisos por módulo");
     }
 
-    await this.reemplazarModulos(id, dto.modulos, editor.sub);
-    return { message: "Módulos actualizados", modulos: dto.modulos };
+    await this.permisos.reemplazar(id, dto.permisos, editor.sub);
+    return { message: "Permisos actualizados", permisos: dto.permisos };
   }
 
   @Patch(":id/bloqueo")
@@ -487,22 +501,4 @@ export class UsuariosController {
     return ((data as { roles?: { nombre?: UserRole } } | null)?.roles?.nombre) ?? null;
   }
 
-  private async reemplazarModulos(
-    userId: string,
-    modulos: StaffModulo[],
-    otorgadoPor: string,
-  ): Promise<void> {
-    const { error: deleteError } = await this.supabase
-      .from("staff_modulos")
-      .delete()
-      .eq("user_id", userId);
-    if (deleteError) throw new InternalServerErrorException("No se pudieron limpiar los módulos");
-
-    if (modulos.length === 0) return;
-
-    const { error: insertError } = await this.supabase.from("staff_modulos").insert(
-      modulos.map((modulo) => ({ user_id: userId, modulo, otorgado_por: otorgadoPor })),
-    );
-    if (insertError) throw new InternalServerErrorException("No se pudieron guardar los módulos");
-  }
 }

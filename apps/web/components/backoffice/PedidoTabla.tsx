@@ -3,12 +3,17 @@ import { EstadoBadge } from "./EstadoBadge";
 import { EstadoSelector } from "./EstadoSelector";
 import { Skeleton } from "@components/ui/Skeleton";
 import { formatEUR } from "@lib/utils";
-import { ESTADOS_REEMBOLSABLES, type Pedido, type PedidoEstado } from "@valatino/types";
+import {
+  ESTADOS_REEMBOLSABLES,
+  type NivelPermiso,
+  type Pedido,
+  type PedidoEstado,
+} from "@valatino/types";
 
 interface PedidoTablaProps {
   pedidos: Pedido[];
   isLoading: boolean;
-  rol: "admin" | "asesor";
+  nivel: NivelPermiso;
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   /** Abre el modal de devolución. Ausente para quien no puede reembolsar. */
   onReembolsar?: (pedido: Pedido) => void;
@@ -32,7 +37,7 @@ function puedeReembolsarse(pedido: Pedido): boolean {
 export function PedidoTabla({
   pedidos,
   isLoading,
-  rol,
+  nivel,
   onEstadoChange,
   onReembolsar,
 }: PedidoTablaProps) {
@@ -72,7 +77,7 @@ export function PedidoTabla({
             <PedidoFila
               key={p.id}
               pedido={p}
-              rol={rol}
+              nivel={nivel}
               onEstadoChange={onEstadoChange}
               onReembolsar={onReembolsar}
             />
@@ -85,12 +90,12 @@ export function PedidoTabla({
 
 interface PedidoFilaProps {
   pedido: Pedido;
-  rol: "admin" | "asesor";
+  nivel: NivelPermiso;
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   onReembolsar?: (pedido: Pedido) => void;
 }
 
-export function PedidoFila({ pedido, rol, onEstadoChange, onReembolsar }: PedidoFilaProps) {
+export function PedidoFila({ pedido, nivel, onEstadoChange, onReembolsar }: PedidoFilaProps) {
   const devuelto = Number(pedido.total_reembolsado ?? 0);
   const mostrarReembolso = Boolean(onReembolsar) && puedeReembolsarse(pedido);
 
@@ -124,7 +129,7 @@ export function PedidoFila({ pedido, rol, onEstadoChange, onReembolsar }: Pedido
           <EstadoSelector
             pedidoId={pedido.id}
             estadoActual={pedido.estado}
-            rol={rol}
+            nivel={nivel}
             onCambiar={onEstadoChange}
           />
           {mostrarReembolso && onReembolsar && (

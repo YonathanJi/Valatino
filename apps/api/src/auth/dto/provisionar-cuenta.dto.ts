@@ -1,5 +1,5 @@
-import { ArrayUnique, IsArray, IsEmail, IsIn, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
-import { STAFF_MODULOS, type StaffModulo } from "@valatino/types";
+import { IsEmail, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import { PermisoModuloDto, PermisosArray } from "./permiso-modulo.dto";
 
 /** TI provisiona la cuenta de acceso de un empleado ya creado por RRHH. */
 export class ProvisionarCuentaDto {
@@ -14,11 +14,9 @@ export class ProvisionarCuentaDto {
   @MaxLength(72)
   password!: string;
 
-  @IsArray()
-  @ArrayUnique()
-  @IsIn(STAFF_MODULOS as StaffModulo[], {
-    each: true,
-    message: `cada módulo debe ser uno de: ${STAFF_MODULOS.join(", ")}`,
-  })
-  modulos!: StaffModulo[];
+  // Llegan ya rellenos con la plantilla del cargo (la manda el propio listado
+  // de empleados pendientes), pero TI puede ajustarlos antes de guardar. El
+  // backend tiene así un solo camino: los permisos siempre vienen en el cuerpo.
+  @PermisosArray()
+  permisos!: PermisoModuloDto[];
 }

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Briefcase, Pencil, CalendarClock } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import type { Empleado } from "@valatino/types";
 
@@ -21,6 +22,10 @@ function fmtFecha(iso: string | null): string {
 }
 
 export default function GestionHumanaPage() {
+  const puedeEditar = usePuede("gestion_humana", "edicion");
+  // Cerrar el mes reescribe un snapshot ya guardado y el anterior se pierde.
+  const puedeCerrarMes = usePuede("gestion_humana", "total");
+
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -65,9 +70,11 @@ export default function GestionHumanaPage() {
         title="Gestión Humana"
         description="Empleados de la empresa, contratación e histórico mensual"
       >
-        <Button asChild>
-          <Link href="/backoffice/gestion-humana/nuevo">＋ Nuevo empleado</Link>
-        </Button>
+        {puedeEditar && (
+          <Button asChild>
+            <Link href="/backoffice/gestion-humana/nuevo">＋ Nuevo empleado</Link>
+          </Button>
+        )}
       </PageHeader>
 
       {/* Generar histórico mensual */}
@@ -108,7 +115,11 @@ export default function GestionHumanaPage() {
                 className="mt-1 block w-24 rounded-lg border bg-background px-3 py-2 text-sm"
               />
             </label>
-            <Button variant="outline" onClick={() => void generarHistorico()} disabled={generando}>
+            <Button
+              variant="outline"
+              onClick={() => void generarHistorico()}
+              disabled={generando || !puedeCerrarMes}
+            >
               {generando ? "Generando…" : "Generar histórico"}
             </Button>
           </div>

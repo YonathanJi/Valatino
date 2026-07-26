@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { useNivel } from "@components/backoffice/PermisosProvider";
 import { ReembolsoModal } from "@components/backoffice/ReembolsoModal";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
@@ -17,7 +18,8 @@ import {
   type ResultadoReembolso,
 } from "@valatino/types";
 
-export function PedidosPanel({ rol }: { rol: "admin" | "asesor" }) {
+export function PedidosPanel() {
+  const nivel = useNivel("pedidos") ?? "lectura";
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reembolsando, setReembolsando] = useState<Pedido | null>(null);
@@ -132,11 +134,11 @@ export function PedidosPanel({ rol }: { rol: "admin" | "asesor" }) {
       <PedidoTabla
         pedidos={pedidos}
         isLoading={isLoading}
-        rol={rol}
+        nivel={nivel}
         onEstadoChange={handleEstadoChange}
         // Devolver dinero es cosa de admin: la API rechaza al asesor con un 403,
         // así que tampoco se le ofrece el botón.
-        onReembolsar={rol === "admin" ? setReembolsando : undefined}
+        onReembolsar={nivel === "total" ? setReembolsando : undefined}
       />
 
       {reembolsando && (

@@ -1,5 +1,5 @@
-import { ArrayUnique, IsArray, IsIn, IsOptional } from "class-validator";
-import { STAFF_MODULOS, type StaffModulo } from "@valatino/types";
+import { IsIn, IsOptional } from "class-validator";
+import { PermisoModuloDto, PermisosArray } from "./permiso-modulo.dto";
 
 const ROLES_STAFF = ["admin", "asesor"];
 
@@ -8,11 +8,6 @@ export class UpdateRolDto {
   rol!: "admin" | "asesor";
 
   @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsIn(STAFF_MODULOS as StaffModulo[], {
-    each: true,
-    message: `cada módulo debe ser uno de: ${STAFF_MODULOS.join(", ")}`,
-  })
-  modulos?: StaffModulo[];
+  @PermisosArray()
+  permisos?: PermisoModuloDto[];
 }

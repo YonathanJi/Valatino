@@ -19,22 +19,27 @@ import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
-import { Modulo } from "../auth/decorators/modulo.decorator";
+import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { CrearCompraDto, compraItemsSchema } from "./dto/compra.dto";
 import type { JwtPayload } from "@valatino/types";
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB
 
-/** Compras de mercancía — admin siempre; asesores solo con el módulo otorgado */
+/** Compras de mercancía — admin siempre; asesores según su nivel en el módulo. */
 @Controller("admin/compras")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
 @Roles("admin", "asesor")
 @Modulo("compras")
+@Nivel("lectura")
 export class ComprasController {
   constructor(private readonly comprasService: ComprasService) {}
 
+  // `edicion` y no `total` pese a mover stock e importes sin anulación: es LA
+  // operación del módulo, y ponerla en `total` dejaría el nivel `edicion` sin
+  // habilitar nada. (Que no exista anular una compra es deuda anterior a esto.)
   @Post()
+  @Nivel("edicion")
   @UseInterceptors(FileInterceptor("pdf", { limits: { fileSize: MAX_PDF_BYTES } }))
   async crear(
     @UploadedFile() pdf: Express.Multer.File | undefined,

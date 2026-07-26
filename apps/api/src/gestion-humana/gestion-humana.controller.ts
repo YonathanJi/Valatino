@@ -16,18 +16,18 @@ import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
-import { Modulo } from "../auth/decorators/modulo.decorator";
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { CrearEmpleadoDto } from "./dto/crear-empleado.dto";
 import { ActualizarEmpleadoDto } from "./dto/actualizar-empleado.dto";
 import { GenerarHistorialDto } from "./dto/generar-historial.dto";
-import type { JwtPayload } from "@valatino/types";
+import { ActualizarCargoDto, CrearCargoDto } from "./dto/cargo.dto";
 
-/** Gestión Humana — admin siempre; asesores solo con el módulo otorgado. */
+/** Gestión Humana — admin siempre; asesores según su nivel en el módulo. */
 @Controller("admin/gestion-humana")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
 @Roles("admin", "asesor")
 @Modulo("gestion_humana")
+@Nivel("lectura")
 export class GestionHumanaController {
   constructor(private readonly service: GestionHumanaService) {}
 
@@ -36,10 +36,24 @@ export class GestionHumanaController {
     return this.service.listarCargos();
   }
 
-  /** Para la UI: si el usuario actual es admin (puede eliminar fichas). */
-  @Get("permisos")
-  permisos(@CurrentUser() user: JwtPayload) {
-    return { esAdmin: user.role === "admin" };
+  @Post("cargos")
+  @Nivel("edicion")
+  crearCargo(@Body() dto: CrearCargoDto) {
+    return this.service.crearCargo(dto);
+  }
+
+  /**
+   * Renombrar o desactivar. Desactivar es lo más parecido a borrar que ofrece
+   * el módulo: `empleados.cargo_id` es NOT NULL con clave ajena, así que un
+   * borrado de verdad rompería fichas y el histórico mensual.
+   */
+  @Patch("cargos/:id")
+  @Nivel("edicion")
+  actualizarCargo(
+    @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
+    @Body() dto: ActualizarCargoDto,
+  ) {
+    return this.service.actualizarCargo(id, dto);
   }
 
   @Get("empleados")
@@ -53,11 +67,13 @@ export class GestionHumanaController {
   }
 
   @Post("empleados")
+  @Nivel("edicion")
   crear(@Body() dto: CrearEmpleadoDto) {
     return this.service.crear(dto);
   }
 
   @Patch("empleados/:id")
+  @Nivel("edicion")
   actualizar(
     @Param("id", new ParseUUIDPipe({ version: "4" })) id: string,
     @Body() dto: ActualizarEmpleadoDto,
@@ -66,12 +82,18 @@ export class GestionHumanaController {
   }
 
   @Delete("empleados/:id")
-  @Roles("admin")
+  @Nivel("total")
   eliminar(@Param("id", new ParseUUIDPipe({ version: "4" })) id: string) {
     return this.service.eliminarEmpleado(id);
   }
 
+  /**
+   * Exige `total` aunque la RPC sea idempotente: regenerar un mes ya cerrado
+   * reescribe el snapshot con los datos de hoy y el valor anterior se pierde.
+   * Es la única operación de RRHH que altera datos pasados sin deshacer.
+   */
   @Post("historial/generar")
+  @Nivel("total")
   generarHistorial(@Body() dto: GenerarHistorialDto) {
     return this.service.generarHistorial(dto.anio, dto.mes);
   }
