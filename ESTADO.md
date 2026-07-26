@@ -8,6 +8,20 @@
 
 **El proyecto está DESPLEGADO y funcionando en local y en línea** (con claves de test).
 
+### 🔜 Al volver, empezar por aquí
+
+**1. Mirar con tus ojos lo que se hizo el 2026-07-26** (es lo único que quedó sin comprobar; la lógica y los datos sí están verificados de punta a punta):
+   - **TI → Cargos**: las 6 plantillas de permisos ya sembradas. Ajústalas a como quieres trabajar de verdad — son datos, no hace falta tocar código.
+   - **Pedidos**: pinchar una fila abre la ficha con artículos e historial. Como hay **0 pedidos**, para verlo hay que hacer una compra de prueba en la tienda.
+   - Comprobar que el desplegable de estado y el botón de reembolso **no** abren la ficha al usarlos.
+
+**2. Crear el primer empleado de verdad** y recorrer el flujo entero: Gestión Humana da de alta la persona → TI le provisiona la cuenta (verás la plantilla de su cargo ya rellena) → entrar con esa cuenta y comprobar que solo ve lo suyo.
+
+**3. Y luego, lo que estaba en cola desde antes** (por orden de lo que más duele):
+   - **Validar los campos de dirección** — hoy son texto libre y ya ensuciaron datos reales («españa» como ciudad). Afecta a la analítica y al envío.
+   - **Tests de la web** (sigue a 0) y **CI**.
+   - **Paso a producción real**: ver los pendientes manuales de abajo.
+
 - **En línea**: tienda **https://valatino-api-steel.vercel.app** (Vercel) · API **https://valatino.onrender.com** (Render) · Supabase (BD/Auth/Storage). Auto-deploy en cada push a `main`. Render free duerme tras ~15 min (1ª carga lenta al despertar, normal).
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
@@ -31,10 +45,10 @@
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD limpiada a "arranque real" — última vez el 2026-07-25** (ver sesión cont. 4). Quedan **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** y el **stock igual a esa factura** (`reservado=0`). **0 pedidos, 0 carritos, 0 transacciones, 0 direcciones, 0 clientes.** Los clientes se crearán solos al comprar.
+- **BD en "arranque real"**, comprobado de nuevo el **2026-07-26** al terminar: **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y el **stock igual a esa factura** (`reservado=0`). **0 pedidos, 0 eventos, 0 carritos, 0 transacciones, 0 direcciones, 0 clientes, 0 empleados, 1 usuario** (el súper admin). Los datos de prueba de las dos sesiones del 26 se borraron uno a uno. Los clientes se crearán solos al comprar.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día.
 - **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil "Admin Valatino"). ⚠️ **El asesor `jhoannamendoza46@valatino.com` ya NO existe** — este archivo lo daba por vivo hasta el 2026-07-25; se comprobó que en `auth.users` no está. `empleados` y `staff_modulos` están a 0, así que Gestión Humana y TI arrancan vacíos. Para probar el flujo de asesor hay que crear la cuenta otra vez (RRHH crea empleado → TI le provisiona cuenta).
-- Pendientes de fondo de siempre: ~~tests (0%)~~ → **85 tests en la API** desde 2026-07-25 (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+- Pendientes de fondo de siempre: ~~tests (0%)~~ → **147 tests en la API** (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
 
 ---
 
