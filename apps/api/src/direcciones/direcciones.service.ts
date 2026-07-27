@@ -1,7 +1,14 @@
-import { Inject, Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+} from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import { normalizarTelefono } from "@valatino/types";
+import { normalizarTelefono, provinciaPorCP } from "@valatino/types";
+import { municipioCanonico } from "../common/datos/municipios";
 import type { CreateDireccionDto, UpdateDireccionDto } from "./dto/direccion.dto";
 
 /**
@@ -14,6 +21,31 @@ import type { CreateDireccionDto, UpdateDireccionDto } from "./dto/direccion.dto
 function telefonoParaGuardar(valor: string | undefined): string | null {
   if (valor === undefined) return null;
   return normalizarTelefono(valor) || null;
+}
+
+/**
+ * Resuelve la pareja (código postal, municipio) a lo que se va a guardar:
+ * el municipio con su nombre oficial del INE y la provincia DERIVADA del CP.
+ *
+ * La provincia que llegue en el DTO se ignora. Es un dato deducible —los dos
+ * primeros dígitos del CP son su código— y dejar que la escriba el cliente es
+ * lo que llenó la columna de «españa». Recalcularla aquí, y no solo en el
+ * formulario, es lo que hace que no pueda volver a entrar por ninguna vía.
+ */
+function ubicacionParaGuardar(codigoPostal: string, ciudad: string) {
+  const provincia = provinciaPorCP(codigoPostal);
+  if (!provincia) {
+    throw new BadRequestException("El código postal no es válido");
+  }
+
+  const municipio = municipioCanonico(codigoPostal, ciudad);
+  if (!municipio) {
+    throw new BadRequestException(
+      `«${ciudad}» no es un municipio de ${provincia}, que es la provincia del código postal ${codigoPostal}`,
+    );
+  }
+
+  return { ciudad: municipio, codigo_postal: codigoPostal.trim(), provincia };
 }
 
 @Injectable()
@@ -43,9 +75,7 @@ export class DireccionesService {
         nombre_destinatario: dto.nombre_destinatario,
         linea1: dto.linea1,
         linea2: dto.linea2 ?? null,
-        ciudad: dto.ciudad,
-        codigo_postal: dto.codigo_postal,
-        provincia: dto.provincia,
+        ...ubicacionParaGuardar(dto.codigo_postal, dto.ciudad),
         pais: dto.pais ?? "ES",
         telefono: telefonoParaGuardar(dto.telefono),
         es_predeterminada: dto.es_predeterminada ?? false,
@@ -62,6 +92,19 @@ export class DireccionesService {
       await this.quitarPredeterminada(userId, id);
     }
 
+    // Ubicación: se resuelve contra la fila actual, no solo contra el DTO.
+    // Un PATCH puede traer solo la ciudad o solo el CP, y entonces la coherencia
+    // hay que comprobarla con el valor que ya está guardado — el decorador del
+    // DTO no puede verlo. Sin esto, cambiar la ciudad a secas se colaba.
+    let ubicacion: ReturnType<typeof ubicacionParaGuardar> | undefined;
+    if (dto.ciudad !== undefined || dto.codigo_postal !== undefined) {
+      const actual = await this.buscar(userId, id);
+      ubicacion = ubicacionParaGuardar(
+        dto.codigo_postal ?? actual.codigo_postal,
+        dto.ciudad ?? actual.ciudad,
+      );
+    }
+
     const { data, error } = await this.supabase
       .from("direcciones_envio")
       .update({
@@ -70,9 +113,7 @@ export class DireccionesService {
         }),
         ...(dto.linea1 !== undefined && { linea1: dto.linea1 }),
         ...(dto.linea2 !== undefined && { linea2: dto.linea2 }),
-        ...(dto.ciudad !== undefined && { ciudad: dto.ciudad }),
-        ...(dto.codigo_postal !== undefined && { codigo_postal: dto.codigo_postal }),
-        ...(dto.provincia !== undefined && { provincia: dto.provincia }),
+        ...ubicacion,
         ...(dto.pais !== undefined && { pais: dto.pais }),
         ...(dto.telefono !== undefined && {
           telefono: telefonoParaGuardar(dto.telefono),
@@ -88,6 +129,22 @@ export class DireccionesService {
 
     if (error || !data) throw new NotFoundException("Dirección no encontrada");
     return data;
+  }
+
+  /** La dirección del usuario, o 404. Necesaria para validar updates parciales. */
+  private async buscar(
+    userId: string,
+    id: string,
+  ): Promise<{ ciudad: string; codigo_postal: string }> {
+    const { data } = await this.supabase
+      .from("direcciones_envio")
+      .select("ciudad, codigo_postal")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!data) throw new NotFoundException("Dirección no encontrada");
+    return data as { ciudad: string; codigo_postal: string };
   }
 
   async remove(userId: string, id: string) {

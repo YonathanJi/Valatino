@@ -192,6 +192,102 @@ export function transicionesPermitidas(
 }
 
 // ============================================================
+// Direcciones: provincias y código postal
+// ============================================================
+
+/**
+ * Las 52 provincias con su código oficial del INE.
+ *
+ * Los nombres van **literales del INE**, con el artículo invertido incluido
+ * («Rioja, La», «Coruña, A»). Se eligió no darles la vuelta porque la misma
+ * regla habría que aplicarla a los municipios, y ahí hay nombres compuestos con
+ * coma de verdad —«Cruïlles, Monells i Sant Sadurní de l'Heura»— que una regla
+ * de «mover lo que va tras la última coma» destrozaría en silencio. Un dato
+ * oficial usado tal cual no tiene ese riesgo y además casa con cualquier fuente
+ * del INE sin traducción por medio.
+ */
+export const PROVINCIAS_ES: readonly { codigo: string; nombre: string }[] = [
+  { codigo: "01", nombre: "Araba/Álava" },
+  { codigo: "02", nombre: "Albacete" },
+  { codigo: "03", nombre: "Alicante/Alacant" },
+  { codigo: "04", nombre: "Almería" },
+  { codigo: "05", nombre: "Ávila" },
+  { codigo: "06", nombre: "Badajoz" },
+  { codigo: "07", nombre: "Balears, Illes" },
+  { codigo: "08", nombre: "Barcelona" },
+  { codigo: "09", nombre: "Burgos" },
+  { codigo: "10", nombre: "Cáceres" },
+  { codigo: "11", nombre: "Cádiz" },
+  { codigo: "12", nombre: "Castellón/Castelló" },
+  { codigo: "13", nombre: "Ciudad Real" },
+  { codigo: "14", nombre: "Córdoba" },
+  { codigo: "15", nombre: "Coruña, A" },
+  { codigo: "16", nombre: "Cuenca" },
+  { codigo: "17", nombre: "Girona" },
+  { codigo: "18", nombre: "Granada" },
+  { codigo: "19", nombre: "Guadalajara" },
+  { codigo: "20", nombre: "Gipuzkoa" },
+  { codigo: "21", nombre: "Huelva" },
+  { codigo: "22", nombre: "Huesca" },
+  { codigo: "23", nombre: "Jaén" },
+  { codigo: "24", nombre: "León" },
+  { codigo: "25", nombre: "Lleida" },
+  { codigo: "26", nombre: "Rioja, La" },
+  { codigo: "27", nombre: "Lugo" },
+  { codigo: "28", nombre: "Madrid" },
+  { codigo: "29", nombre: "Málaga" },
+  { codigo: "30", nombre: "Murcia" },
+  { codigo: "31", nombre: "Navarra" },
+  { codigo: "32", nombre: "Ourense" },
+  { codigo: "33", nombre: "Asturias" },
+  { codigo: "34", nombre: "Palencia" },
+  { codigo: "35", nombre: "Palmas, Las" },
+  { codigo: "36", nombre: "Pontevedra" },
+  { codigo: "37", nombre: "Salamanca" },
+  { codigo: "38", nombre: "Santa Cruz de Tenerife" },
+  { codigo: "39", nombre: "Cantabria" },
+  { codigo: "40", nombre: "Segovia" },
+  { codigo: "41", nombre: "Sevilla" },
+  { codigo: "42", nombre: "Soria" },
+  { codigo: "43", nombre: "Tarragona" },
+  { codigo: "44", nombre: "Teruel" },
+  { codigo: "45", nombre: "Toledo" },
+  { codigo: "46", nombre: "Valencia/València" },
+  { codigo: "47", nombre: "Valladolid" },
+  { codigo: "48", nombre: "Bizkaia" },
+  { codigo: "49", nombre: "Zamora" },
+  { codigo: "50", nombre: "Zaragoza" },
+  { codigo: "51", nombre: "Ceuta" },
+  { codigo: "52", nombre: "Melilla" },
+];
+
+const PROVINCIA_POR_CODIGO = new Map(PROVINCIAS_ES.map((p) => [p.codigo, p.nombre]));
+
+/** Código postal español: 5 dígitos cuyos dos primeros son una provincia real. */
+export function codigoPostalValido(cp: string): boolean {
+  const limpio = cp.trim();
+  if (!/^\d{5}$/.test(limpio)) return false;
+  return PROVINCIA_POR_CODIGO.has(limpio.slice(0, 2));
+}
+
+/**
+ * Provincia a la que pertenece un código postal, o `null` si el CP no es válido.
+ *
+ * Los dos primeros dígitos del CP español **son** el código de provincia, así
+ * que la provincia no hace falta preguntarla: se deduce. Eso convierte el campo
+ * en un dato derivado y elimina de raíz el «españa» escrito a mano.
+ */
+export function provinciaPorCP(cp: string): string | null {
+  if (!codigoPostalValido(cp)) return null;
+  return PROVINCIA_POR_CODIGO.get(cp.trim().slice(0, 2)) ?? null;
+}
+
+/** Nombre oficial de una provincia por su código de 2 dígitos. */
+export function provinciaPorCodigo(codigo: string): string | null {
+  return PROVINCIA_POR_CODIGO.get(codigo) ?? null;
+}
+
+// ============================================================
 // Teléfono de contacto
 // ============================================================
 

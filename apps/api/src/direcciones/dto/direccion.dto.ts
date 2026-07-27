@@ -7,6 +7,10 @@ import {
   MaxLength,
 } from "class-validator";
 import { EsTelefono } from "../../common/validators/es-telefono.validator";
+import {
+  EsCodigoPostal,
+  EsMunicipioDelCP,
+} from "../../common/validators/direccion.validators";
 
 // Los campos van en snake_case: es el formato en el que la API devuelve las
 // direcciones (filas de la tabla) y el que ya usa DireccionSnapshotDto en el
@@ -31,17 +35,27 @@ export class CreateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @EsMunicipioDelCP("codigo_postal")
   ciudad!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
+  @EsCodigoPostal()
   codigo_postal!: string;
 
+  /**
+   * Se acepta pero **no se usa**: el servicio la recalcula desde el código
+   * postal, cuyos dos primeros dígitos son el código de provincia del INE.
+   *
+   * Sigue siendo opcional en el DTO en vez de desaparecer porque el pipe global
+   * usa `forbidNonWhitelisted`: quitarla haría que la web anterior —que la
+   * envía— recibiera un 400 al guardar una dirección durante el despliegue.
+   */
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  provincia!: string;
+  provincia?: string;
 
   @IsOptional()
   @IsString()
@@ -82,17 +96,19 @@ export class UpdateDireccionDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @EsMunicipioDelCP("codigo_postal")
   ciudad?: string;
 
   @IsOptional()
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
+  @EsCodigoPostal()
   codigo_postal?: string;
 
+  /** Ignorada: se recalcula desde el CP. Ver la nota de `CreateDireccionDto`. */
   @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
   provincia?: string;
 

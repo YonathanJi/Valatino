@@ -16,15 +16,19 @@ import {
 import { Request } from "express";
 import { StripeService } from "./stripe.service";
 import { PaypalService } from "./paypal.service";
-import { InventarioService } from "../inventario/inventario.service";
+import {
+  InventarioService,
+  type DireccionSnapshotPedido,
+} from "../inventario/inventario.service";
 import { CarritoService } from "../carrito/carrito.service";
 import { ConfirmacionPedidoService } from "../pedidos/confirmacion-pedido.service";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
-import { CrearPagoDto } from "./dto/crear-pago.dto";
+import { CrearPagoDto, DireccionSnapshotDto } from "./dto/crear-pago.dto";
 import { CapturarOrdenDto } from "./dto/capturar-orden.dto";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import { normalizarTelefono } from "@valatino/types";
+import { normalizarTelefono, provinciaPorCP } from "@valatino/types";
+import { municipioCanonico } from "../common/datos/municipios";
 import Stripe from "stripe";
 
 type SessionRequest = RawBodyRequest<Request & { sessionId?: string; user?: { sub: string } }>;
@@ -79,23 +83,41 @@ export class PagosController {
       throw new BadRequestException("El email es obligatorio para comprar como invitado");
     }
 
-    // El teléfono se normaliza antes de guardarlo: este snapshot es el que
-    // acaba copiado en `pedidos.envio_telefono`, y de ahí lo lee el listado de
-    // clientes. Con la dirección guardada no hace falta, porque
-    // DireccionesService ya lo normalizó al crearla.
+    // Este snapshot es el que acaba copiado en las columnas `envio_*` del
+    // pedido y de ahí lo lee el listado de clientes, así que se guarda ya
+    // canónico: el teléfono en 9 dígitos, el municipio con su nombre oficial del
+    // INE y la provincia DERIVADA del CP (la que venga en el DTO se descarta).
+    // Con la dirección guardada no hace falta, porque DireccionesService lo dejó
+    // así al crearla.
     await this.inventarioService.guardarCheckoutDatos({
       sessionId,
       userId,
       email: dto.email,
       documento: dto.documento,
       direccionEnvioId: userId ? dto.direccion_envio_id : undefined,
-      direccion: dto.direccion && {
-        ...dto.direccion,
-        telefono: dto.direccion.telefono
-          ? normalizarTelefono(dto.direccion.telefono) || undefined
-          : undefined,
-      },
+      direccion: dto.direccion && this.normalizarDireccion(dto.direccion),
     });
+  }
+
+  private normalizarDireccion(direccion: DireccionSnapshotDto): DireccionSnapshotPedido {
+    const provincia = provinciaPorCP(direccion.codigo_postal);
+    const municipio = municipioCanonico(direccion.codigo_postal, direccion.ciudad);
+
+    // El DTO ya valida las dos cosas; esto es el cinturón por si alguien añade
+    // otra ruta que construya el snapshot sin pasar por el mismo DTO.
+    if (!provincia || !municipio) {
+      throw new BadRequestException(
+        "La dirección de envío no es válida: revisa el código postal y la localidad",
+      );
+    }
+
+    return {
+      ...direccion,
+      ciudad: municipio,
+      provincia,
+      codigo_postal: direccion.codigo_postal.trim(),
+      telefono: direccion.telefono ? normalizarTelefono(direccion.telefono) || undefined : undefined,
+    };
   }
 
   // ──────────────────────────────────────────────
