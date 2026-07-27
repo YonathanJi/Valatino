@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-27
+**Última actualización**: 2026-07-28
 
 ---
 
@@ -10,17 +10,20 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-Lo del **2026-07-27** está probado por Jonathan en producción y funcionando (el pedido de prueba `260727014265` salió con teléfono y dirección validada). No queda nada pendiente de comprobar de esa sesión.
+Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionando. La última prueba, el pedido **`260728018953`**, salió con teléfono, dirección validada contra el INE y **calificado por el cliente** (Fácil · 😄 5 · «nada todo muy bien»). Nada pendiente de comprobar.
 
-**La BD se dejó limpia al cerrar**: solo inventario, factura, proveedor, cargos y el súper admin. Así que **la primera compra que hagas será la primera de verdad** — y ojo, el catálogo tiene dos productos a 0 unidades (Galleta Festival sabor Fresa y Vainilla), que es lo que dice la factura, no un error.
+⚠️ **Ojo con el catálogo**: dos productos están a 0 unidades (Galleta Festival sabor Fresa y Vainilla). Es lo que dice la factura, no un error — saldrán como agotados.
 
 **La cola, por orden de lo que más duele:**
 
-1. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 198 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()` y el selector de permisos.
-2. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
-3. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
-4. **Accesibilidad**, sin auditar todavía.
-5. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
+1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
+   - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
+   - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 208 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
+4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
+5. **Accesibilidad**, sin auditar todavía.
+6. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
 
 **Antes de tocar la tienda, leer esto** (la lección de la sesión del 27, que costó dos despliegues aprender): Vercel y Render despliegan **del mismo push** y no se pueden ordenar, y Vercel es siempre más rápido. Así que el orden seguro depende de **qué lado se vuelve más estricto**:
 
@@ -35,7 +38,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **041** (2026-07-27, direcciones validadas). Antes, la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -46,6 +49,9 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
 - **Ficha del pedido e historial (2026-07-26)**: en el panel, **pinchar un pedido** abre su ficha con los artículos, el cliente, la dirección y una **línea de tiempo** de todo lo que le ha pasado —alta, cambios de estado, pagos, reembolsos y correos— **con el nombre de quién lo hizo**. Lo ve todo el equipo, incluso con solo lectura en Pedidos; el cliente **no**. El registro va por **trigger**, así que ningún cambio de estado se escapa. Ver sesión 2026-07-26 (cont.).
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre, el documento y (desde el 27) el **teléfono** reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`, `envio_telefono`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
+- **⭐ CALIFICACIÓN DE LA COMPRA (2026-07-27, fase 1)**: al confirmarse el pago se le preguntan al cliente **dos cosas** —cuánto esfuerzo le costó comprar (`esfuerzo` 1 fácil…3 difícil) y qué nota le pone (`satisfaccion` 1–5)— más un comentario opcional. **No es obligatorio**: se puede cerrar, el descarte se recuerda, y si la API falla el bloque desaparece en silencio. Se ve en **Dashboard → Experiencia de compra** y en la ficha de cada pedido. Vive en el módulo `dashboard` (no es un módulo nuevo) y los comentarios se ven con `dashboard:lectura`. Ver sesión 2026-07-27 (cont. 4).
+  - ⚠️ **La media nunca se lee sola: al lado va la tasa de respuesta.** Un 4,8 sobre el 8 % de los pedidos no dice lo mismo que sobre el 70 %. Y con pocos pedidos las medias bailan mucho: mirar el número de respuestas antes de concluir nada.
+  - ⚠️ **Esto mide el proceso de compra, no el envío** (se pregunta a los cinco segundos de pagar), y **no puede recoger la opinión de quien se fue sin comprar**: el que abandonó nunca llega a la página de confirmación. Para eso hace falta análisis de embudo, no una encuesta.
 - **Nada de botones que no se pueden pulsar (2026-07-27)**: la regla del panel es **lo que no se puede hacer, no se pinta**. Antes se deshabilitaba (botón gris que no responde) o no se comprobaba nada. Si añades una acción nueva, gátela con `usePuede(modulo, nivel)` y **ocúltala**; en un formulario que existe para editarse, bloquea los campos con un `<fieldset disabled>` y esconde el botón de guardar. Ver sesión 2026-07-27.
 - **⚠️ TELÉFONO DE CONTACTO (2026-07-27) — obligatorio para pagar**: la dirección de envío pide teléfono y sin él no se puede completar el pago. Se guarda **normalizado a 9 dígitos** (se acepta `+34` y espacios al teclear, se guarda `600112233`); la regla vive una sola vez en `@valatino/types` (`normalizarTelefono`, `telefonoValido`, `formatearTelefono`) y la API la consume con el decorador `@EsTelefono`. Las direcciones guardadas **antes** de la 040 no lo tienen: el checkout avisa en ámbar y lo pide ahí mismo, guardándolo en la dirección. Ver sesión 2026-07-27.
 - **⚠️ DIRECCIONES (2026-07-27) — el código postal manda**: la **provincia ya no se escribe**, se deduce de los dos primeros dígitos del CP (que *son* el código de provincia del INE) y **se recalcula en el servidor**: lo que llegue en el DTO se descarta. La **localidad** es un desplegable de los municipios de esa provincia, del diccionario oficial del INE. El municipio se valida contra la provincia **del CP**, no contra toda España. La comparación es tolerante (`alcala de henares` vale) y se guarda el nombre oficial (`Alcalá de Henares`). Ver sesión 2026-07-27.
@@ -58,11 +64,57 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD en "arranque real"**, limpiada y verificada el **2026-07-27 al cerrar la sesión** (ver «Limpieza de la BD» más abajo). Lo que hay: **13 productos**, la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y **164 unidades de stock que cuadran exactamente con la factura** (`reservado = 0`). A cero: **pedidos, items, eventos, transacciones, carritos, reservas, `checkout_datos`, direcciones, empleados y `staff_modulos`**.
-- **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos, y el listado de clientes del panel devuelve 0. Los clientes se crearán solos al comprar; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
+- **BD limpiada a «arranque real» el 2026-07-27** (ver «Limpieza de la BD» más abajo) y con **la primera venta de verdad encima**: el pedido **`260728018953`** (1,50 €, PROCESANDO), su cliente, y **la primera calificación** (Fácil · 5/5 · «nada todo muy bien»). Se conserva a propósito: es la prueba de que el circuito completo funciona.
+  - Lo demás: **13 productos** (stock **163** = los 164 de la factura menos la unidad vendida), la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**. A cero: **empleados** y **`staff_modulos`**.
+  - Si hace falta volver a vaciarla, el procedimiento está documentado más abajo — y ahora hay que contar también con `pedido_calificaciones`, que cae en cascada con el pedido.
+- **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **198 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **208 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-27 (cont. 4) — Calificar la experiencia de compra (fase 1)
+
+Petición de Jonathan: saber si comprar resultó **fácil o difícil**, qué nota le pone el cliente, y poder verlo en el panel. **Sin que sea obligatorio.**
+
+### Qué se pregunta y por qué así
+Dos preguntas, una pantalla, **dos toques**: esfuerzo (CES, 3 niveles) y satisfacción (CSAT, 1–5), más comentario opcional. Son métricas **distintas** a propósito: se puede quedar muy satisfecho con una compra que costó trabajo, y al revés.
+
+⚠️ **Las escalas tienen FORMA distinta** (tres botones con etiqueta vs. cinco caras). Dos escalas 1–5 idénticas una debajo de otra invitan a marcar el mismo número dos veces sin pensarlo, y entonces los dos datos valen lo que uno.
+
+El comentario **aparece después de puntuar**: quien ya dio dos toques está dispuesto a escribir, y un campo de texto por delante espanta. Y se guarda **en cuanto están las dos respuestas**, sin esperar a un botón: si cierra la pestaña, la opinión ya está.
+
+### El problema de fondo era la identidad
+Se compra como invitado (el registro es por OTP y solo captura el email), así que calificar **no puede exigir sesión**. Se ata al pedido con un **token opaco** (`pedidos.token_calificacion`) entregado por la puerta que **ya** acredita haber pagado: `GET /pedidos/por-referencia/:ref`, cuyo razonamiento —«la referencia solo la conoce quien pagó»— ya estaba escrito en el código. Inventar un segundo mecanismo habría sido otro sitio donde equivocarse.
+
+### Migración 042
+⚠️ **NO se toca `confirmar_venta`.** El token es un `DEFAULT gen_random_uuid()` de columna. Esa función corre dentro de la transacción de un pago ya cobrado y cada vez que se abre hay riesgo de convertir un cobro en un pedido que no existe.
+
+- `pedido_calificaciones` con **PK = `pedido_id`**: «una por pedido» sale gratis, sin lógica que mantener ni carrera que resolver. RLS activa y **cero policies**, como `direcciones_envio` desde la 035.
+- `resumen_calificaciones(dias)` en SQL: la tasa de respuesta necesita contar **todos** los pedidos calificables del periodo, y traérselos para contarlos en Node chocaría con el límite de 1000 filas de PostgREST sin avisar (misma razón que `listar_clientes`).
+- El **denominador** son los pedidos que *pudieron* calificarse (los que llegaron a pagarse), no todos: un pedido pendiente de pago nunca vio la página de confirmación.
+
+### Decisiones de la ruta pública
+- **El `GET` devuelve `200` con `null` y NO distingue** «token válido sin calificar» de «token que no existe». Es deliberado: si respondiera distinto sería un oráculo para saber qué UUIDs son pedidos reales. ⚠️ Mi comentario en el código decía lo contrario (que un token inexistente daba 404) y **estaba mal**: se corrigió el comentario, no el comportamiento.
+- **Límite de 10 peticiones/minuto** en la ruta pública (el global son 100): aquí no hay sesión que identifique a nadie. Verificado: la décima pasa, la onceava da 429.
+- **Ventana de 7 días para corregir.** Un toque mal dado no debe quedar grabado para siempre, pero una opinión reescrita meses después ya no es la de aquel día.
+
+### Dónde se ve
+`Dashboard → Experiencia de compra`. **Pantalla dentro del módulo `dashboard`, no un módulo nuevo** (decisión de Jonathan): es una métrica de gerencia, y un módulo propio obligaría a tocar el CHECK de `modulo` en la BD, el tipo `StaffModulo`, el sidebar y las plantillas de los seis cargos sin ganar nada. Los comentarios se ven con **`dashboard:lectura`**, también decisión suya: el texto del cliente es justo lo accionable.
+
+La opinión aparece además **en la ficha del pedido**, junto a la línea de tiempo: ahí tiene contexto (quién lo tocó, cuánto tardó, qué opinó).
+
+### Verificado en producción
+El pedido **`260728018953`** salió con teléfono, dirección validada contra el INE y calificación: **Fácil · 5/5 · «nada todo muy bien»**. El resumen lo recogió (1 respuesta / 1 calificable, 100 % de tasa).
+
+Antes, contra la API real: token inventado en `POST` → 404 · valor fuera de rango → 400 · campo colado → 400 · token no UUID → 400 · corrección dentro de ventana → 200 con una sola fila · `/admin/calificaciones` sin sesión → 401.
+
+⚠️ **Una trampa de verificación que conviene recordar**: `pnpm start` sirve `dist/`, no compila. La primera comprobación de rutas arrancó un build de dos días antes y las rutas nuevas «no aparecían». Si no se mira el mapeo de rutas, un arranque correcto no prueba nada.
+
+**Tests: 208** en la API (10 nuevos).
+
+**Fases 2 y 3 aplazadas** por decisión de Jonathan — están descritas en la cola de «Al volver».
 
 ---
 
@@ -79,7 +131,7 @@ A petición de Jonathan tras validar todo: fuera clientes, pedidos, eventos **y 
 ### Cómo repetirlo sin destrozar nada
 - **El admin se localiza por ROL, nunca por lista de correos** (`delete from auth.users where id <> v_admin`, con `v_admin` sacado de `user_roles`). Así no hay forma de llevárselo por descuido. Misma regla que la limpieza del 25.
 - **El bloque lleva sus propias comprobaciones y `raise exception` al final**: si quedara algún usuario de más, se hubiera tocado el inventario o la factura se quedara sin autor, **todo se revierte**. Una limpieza que se valida después de haber hecho `commit` no se puede deshacer.
-- **Cascadas comprobadas antes de borrar, no supuestas.** Las que importan: `pedido_eventos`, `pedido_items` y `transacciones_pago` son `CASCADE` desde `pedidos`; `direcciones_envio`, `profiles`, `user_roles` y `staff_modulos` son `CASCADE` desde `auth.users`. En cambio `empleados.user_id` es **SET NULL**, así que borrar la cuenta **no** borra la ficha del empleado: hay que borrarla aparte (por eso los empleados sobrevivían a la limpieza del 25, que no los tocaba).
+- **Cascadas comprobadas antes de borrar, no supuestas.** Las que importan: `pedido_eventos`, `pedido_items`, `transacciones_pago` y —desde la 042— `pedido_calificaciones` son `CASCADE` desde `pedidos`; `direcciones_envio`, `profiles`, `user_roles` y `staff_modulos` son `CASCADE` desde `auth.users`. En cambio `empleados.user_id` es **SET NULL**, así que borrar la cuenta **no** borra la ficha del empleado: hay que borrarla aparte (por eso los empleados sobrevivían a la limpieza del 25, que no los tocaba).
 - ⚠️ `facturas_compra.creado_por` es **FK a `auth.users` con `ON DELETE SET NULL`**: borrar al admin dejaría la factura sin autor. El bloque lo comprueba explícitamente.
 - ⚠️ `user_roles.asignado_por` es **NO ACTION**: si una cuenta que se va hubiera asignado el rol de otra, el borrado fallaría. Se comprobó antes que ninguna fila lo tiene puesto.
 
