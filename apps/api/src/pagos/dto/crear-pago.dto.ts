@@ -10,6 +10,10 @@ import {
   ValidateNested,
 } from "class-validator";
 import { EsTelefono } from "../../common/validators/es-telefono.validator";
+import {
+  EsCodigoPostal,
+  EsMunicipioDelCP,
+} from "../../common/validators/direccion.validators";
 
 export class DireccionSnapshotDto {
   @IsString()
@@ -30,17 +34,20 @@ export class DireccionSnapshotDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
+  @EsMunicipioDelCP("codigo_postal")
   ciudad!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(10)
+  @EsCodigoPostal()
   codigo_postal!: string;
 
+  /** Se acepta pero se recalcula desde el CP. Ver la nota de `CreateDireccionDto`. */
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
-  provincia!: string;
+  provincia?: string;
 
   @IsOptional()
   @IsString()

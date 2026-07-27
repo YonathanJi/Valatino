@@ -67,6 +67,46 @@ describe("CreateDireccionDto", () => {
     ).rejects.toBeDefined();
   });
 
+  it("rechaza un código postal que no existe", async () => {
+    // Antes solo se comprobaba MaxLength(10): «abc» y «99999» entraban.
+    for (const cp of ["abc", "2800", "99999", "00001"]) {
+      await expect(
+        validar({ ...direccionDelFormulario, codigo_postal: cp }, CreateDireccionDto),
+      ).rejects.toBeDefined();
+    }
+  });
+
+  it("rechaza un municipio que no es de la provincia del código postal", async () => {
+    await expect(
+      validar(
+        { ...direccionDelFormulario, codigo_postal: "28001", ciudad: "Barcelona" },
+        CreateDireccionDto,
+      ),
+    ).rejects.toBeDefined();
+  });
+
+  it("rechaza «españa» como localidad", async () => {
+    await expect(
+      validar({ ...direccionDelFormulario, ciudad: "españa" }, CreateDireccionDto),
+    ).rejects.toBeDefined();
+  });
+
+  it("no encadena dos errores por el mismo CP inválido", async () => {
+    // Si el CP no vale, la localidad no puede validarse contra nada: quejarse
+    // de las dos cosas manda al cliente a arreglar un campo que estaba bien.
+    try {
+      await validar(
+        { ...direccionDelFormulario, codigo_postal: "abc", ciudad: "Madrid" },
+        CreateDireccionDto,
+      );
+      throw new Error("debería haber fallado");
+    } catch (e) {
+      const mensajes = (e as { response?: { message?: string[] } }).response?.message ?? [];
+      expect(mensajes.join(" ")).toContain("código postal");
+      expect(mensajes.join(" ")).not.toContain("municipio");
+    }
+  });
+
   it("exige que pais sea ISO de 2 letras", async () => {
     await expect(
       validar({ ...direccionDelFormulario, pais: "España" }, CreateDireccionDto),

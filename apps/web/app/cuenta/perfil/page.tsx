@@ -12,12 +12,15 @@ import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import {
   PEDIDO_ESTADO_LABELS,
+  codigoPostalValido,
   formatearTelefono,
   normalizarTelefono,
+  provinciaPorCP,
   telefonoValido,
   type Pedido,
   type PaginatedResponse,
 } from "@valatino/types";
+import { useMunicipios } from "@lib/hooks/useMunicipios";
 
 // Escala de grises coherente con la lista de pedidos: el estado se distingue
 // por intensidad, no por tono.
@@ -65,6 +68,20 @@ export default function PerfilPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyDireccion());
   const [saving, setSaving] = useState(false);
+
+  const provinciaDelForm = provinciaPorCP(form.codigo_postal);
+  const { municipios, cargando: cargandoMunicipios } = useMunicipios(form.codigo_postal);
+
+  /** Cambiar de provincia invalida la localidad elegida, así que se limpia. */
+  const cambiarCP = (cp: string) => {
+    const provinciaNueva = provinciaPorCP(cp);
+    setForm((prev) => ({
+      ...prev,
+      codigo_postal: cp,
+      provincia: provinciaNueva ?? "",
+      ciudad: provinciaNueva === provinciaDelForm ? prev.ciudad : "",
+    }));
+  };
 
   const loadDirecciones = async () => {
     try {
@@ -336,32 +353,60 @@ export default function PerfilPage() {
                   onChange={(e) => setForm({ ...form, linea2: e.target.value })}
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="ciudad">Ciudad</Label>
-                <Input
-                  id="ciudad"
-                  required
-                  value={form.ciudad}
-                  onChange={(e) => setForm({ ...form, ciudad: e.target.value })}
-                />
-              </div>
+              {/* El CP manda: la provincia se deduce de sus dos primeros
+                  dígitos y la localidad se elige entre los municipios de esa
+                  provincia. Mismo criterio que el checkout. */}
               <div className="space-y-1">
                 <Label htmlFor="cp">Código postal</Label>
                 <Input
                   id="cp"
+                  inputMode="numeric"
+                  maxLength={5}
+                  placeholder="28001"
                   required
                   value={form.codigo_postal}
-                  onChange={(e) => setForm({ ...form, codigo_postal: e.target.value })}
+                  onChange={(e) => cambiarCP(e.target.value)}
                 />
+                {form.codigo_postal !== "" && !codigoPostalValido(form.codigo_postal) && (
+                  <p className="text-xs text-destructive">
+                    Cinco dígitos de un código postal español.
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label htmlFor="provincia">Provincia</Label>
                 <Input
                   id="provincia"
-                  required
-                  value={form.provincia}
-                  onChange={(e) => setForm({ ...form, provincia: e.target.value })}
+                  value={provinciaDelForm ?? ""}
+                  placeholder="—"
+                  readOnly
+                  tabIndex={-1}
+                  className="bg-muted/50 text-muted-foreground"
                 />
+              </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="ciudad">Localidad</Label>
+                <select
+                  id="ciudad"
+                  required
+                  value={form.ciudad}
+                  onChange={(e) => setForm({ ...form, ciudad: e.target.value })}
+                  disabled={!provinciaDelForm || cargandoMunicipios}
+                  className="w-full rounded-lg border bg-background px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  <option value="">
+                    {!provinciaDelForm
+                      ? "Escribe primero el código postal"
+                      : cargandoMunicipios
+                        ? "Cargando…"
+                        : `Elige tu localidad (${municipios.length})`}
+                  </option>
+                  {municipios.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <Label htmlFor="telefono">Teléfono de contacto</Label>
@@ -399,7 +444,15 @@ export default function PerfilPage() {
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving || !telefonoValido(form.telefono)}>
+              <Button
+                type="submit"
+                disabled={
+                  saving ||
+                  !telefonoValido(form.telefono) ||
+                  !codigoPostalValido(form.codigo_postal) ||
+                  form.ciudad === ""
+                }
+              >
                 {saving ? "Guardando..." : editingId ? "Actualizar" : "Guardar"}
               </Button>
             </div>
