@@ -10,7 +10,9 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-Lo del **2026-07-27** está probado por Jonathan en producción y funcionando (pedido real `260727014265` con teléfono y dirección validada). No queda nada pendiente de comprobar de esa sesión.
+Lo del **2026-07-27** está probado por Jonathan en producción y funcionando (el pedido de prueba `260727014265` salió con teléfono y dirección validada). No queda nada pendiente de comprobar de esa sesión.
+
+**La BD se dejó limpia al cerrar**: solo inventario, factura, proveedor, cargos y el súper admin. Así que **la primera compra que hagas será la primera de verdad** — y ojo, el catálogo tiene dos productos a 0 unidades (Galleta Festival sabor Fresa y Vainilla), que es lo que dice la factura, no un error.
 
 **La cola, por orden de lo que más duele:**
 
@@ -56,10 +58,30 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- ⚠️ **La BD ya NO está en "arranque real"**: hay datos de las pruebas del 26 y del 27, y este archivo lo dio por vacío durante una sesión entera. Comprobado el **2026-07-27** al terminar: **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y además **2 pedidos** (los dos reembolsados, de prueba), **18 eventos**, **2 empleados**, **5 usuarios**, **12 filas de `staff_modulos`**, **2 direcciones**, **10 carritos** y **6 transacciones**. Si hace falta volver a dejarla limpia, el procedimiento está en la sesión 2026-07-25 (cont. 4) — con su advertencia de filtrar por rol `cliente` y no por lista de correos.
-- **Cuentas que existen ahora** (5): el súper admin `jonathanduqee+admin@gmail.com`, dos clientes de prueba (`jonathanduqee@hotmail.com` y `jonathanduqee@gmail.com`) y dos asesores creados por el flujo RRHH → TI: **EMP-0018 Jhoanna Mendoza** (DIRCOM, `jhoanna@valatino.es`) y **EMP-0019 Valentino Jiménez** (ASECOM, `valentino@valatino.es`). El flujo entero está probado de punta a punta.
+- **BD en "arranque real"**, limpiada y verificada el **2026-07-27 al cerrar la sesión** (ver «Limpieza de la BD» más abajo). Lo que hay: **13 productos**, la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y **164 unidades de stock que cuadran exactamente con la factura** (`reservado = 0`). A cero: **pedidos, items, eventos, transacciones, carritos, reservas, `checkout_datos`, direcciones, empleados y `staff_modulos`**.
+- **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos, y el listado de clientes del panel devuelve 0. Los clientes se crearán solos al comprar; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
+  - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **198 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-27 (cont. 3) — Limpieza de la BD a «arranque real»
+
+A petición de Jonathan tras validar todo: fuera clientes, pedidos, eventos **y empleados**; dentro el inventario tal como lo dejó la factura, y una sola cuenta.
+
+**Borrado** en un único bloque atómico: `pedidos` (que arrastra `pedido_items`, `pedido_eventos` y `transacciones_pago` en cascada), `carritos` (arrastra `carrito_items`), `stock_reservas`, `checkout_datos`, `empleados` (arrastra `empleado_historial_mensual`) y **todas las cuentas menos el súper admin** — que arrastran `profiles`, `user_roles`, `direcciones_envio`, `staff_modulos`, `identities` y `sessions`.
+
+**Conservado**: 13 productos · factura 202521188 con sus 11 líneas y su autor · 1 proveedor · 6 cargos con sus 27 filas de plantilla · el súper admin con su perfil.
+
+**Stock fijado a la factura**: 164 unidades, `reservado = 0`, descuadre 0 en los 13 productos. Ya cuadraba antes de la limpieza (los reembolsos del 26 y del 27 habían repuesto bien), así que este paso no cambió nada — se ejecuta igual porque es idempotente y es la única definición de «como lo dejó la factura».
+
+### Cómo repetirlo sin destrozar nada
+- **El admin se localiza por ROL, nunca por lista de correos** (`delete from auth.users where id <> v_admin`, con `v_admin` sacado de `user_roles`). Así no hay forma de llevárselo por descuido. Misma regla que la limpieza del 25.
+- **El bloque lleva sus propias comprobaciones y `raise exception` al final**: si quedara algún usuario de más, se hubiera tocado el inventario o la factura se quedara sin autor, **todo se revierte**. Una limpieza que se valida después de haber hecho `commit` no se puede deshacer.
+- **Cascadas comprobadas antes de borrar, no supuestas.** Las que importan: `pedido_eventos`, `pedido_items` y `transacciones_pago` son `CASCADE` desde `pedidos`; `direcciones_envio`, `profiles`, `user_roles` y `staff_modulos` son `CASCADE` desde `auth.users`. En cambio `empleados.user_id` es **SET NULL**, así que borrar la cuenta **no** borra la ficha del empleado: hay que borrarla aparte (por eso los empleados sobrevivían a la limpieza del 25, que no los tocaba).
+- ⚠️ `facturas_compra.creado_por` es **FK a `auth.users` con `ON DELETE SET NULL`**: borrar al admin dejaría la factura sin autor. El bloque lo comprueba explícitamente.
+- ⚠️ `user_roles.asignado_por` es **NO ACTION**: si una cuenta que se va hubiera asignado el rol de otra, el borrado fallaría. Se comprobó antes que ninguna fila lo tiene puesto.
 
 ---
 
