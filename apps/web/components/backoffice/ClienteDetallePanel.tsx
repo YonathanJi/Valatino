@@ -161,44 +161,50 @@ export function ClienteDetallePanel() {
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">Nombre</span>
-            <Input
-              value={form.nombre}
-              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-              minLength={2}
-              maxLength={200}
-              placeholder="Nombre y apellidos"
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">Correo</span>
-            <input value={cliente.email} disabled className={`${inputCls} opacity-60`} />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">Teléfono</span>
-            <Input
-              value={form.telefono}
-              onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-              maxLength={30}
-            />
-          </label>
-          <label className="block space-y-1 text-sm">
-            <span className="font-medium">Documento (DNI/NIE)</span>
-            <Input
-              value={form.documento}
-              onChange={(e) => setForm({ ...form, documento: e.target.value })}
-              maxLength={40}
-            />
-          </label>
-        </div>
+        {/* Bloqueado de una pieza con solo lectura: dejar teclear un cambio que
+            no se puede guardar es peor que no ofrecerlo. */}
+        <fieldset disabled={!puedeEditar} className="space-y-4 disabled:opacity-70">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Nombre</span>
+              <Input
+                value={form.nombre}
+                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                minLength={2}
+                maxLength={200}
+                placeholder="Nombre y apellidos"
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Correo</span>
+              <input value={cliente.email} disabled className={`${inputCls} opacity-60`} />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Teléfono</span>
+              <Input
+                value={form.telefono}
+                onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                maxLength={30}
+              />
+            </label>
+            <label className="block space-y-1 text-sm">
+              <span className="font-medium">Documento (DNI/NIE)</span>
+              <Input
+                value={form.documento}
+                onChange={(e) => setForm({ ...form, documento: e.target.value })}
+                maxLength={40}
+              />
+            </label>
+          </div>
 
-        <div className="flex justify-end">
-          <Button type="submit" disabled={guardando || !puedeEditar}>
-            {guardando ? "Guardando…" : "Guardar cambios"}
-          </Button>
-        </div>
+          {puedeEditar && (
+            <div className="flex justify-end">
+              <Button type="submit" disabled={guardando}>
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </div>
+          )}
+        </fieldset>
       </form>
 
       {/* Pedidos */}

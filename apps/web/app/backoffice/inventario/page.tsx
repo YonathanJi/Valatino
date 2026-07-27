@@ -5,9 +5,15 @@ import { apiFetch } from "@lib/api/client";
 import { StockAjusteModal } from "@components/backoffice/StockAjusteModal";
 import { Boxes } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeInventarioPage() {
+  // Meter mercancía a mano es `inventario:edicion`. Con solo lectura la columna
+  // de entrada no se pinta: era el único control de la pantalla y aparecía
+  // siempre, aunque la API devolviera 403 al usarlo.
+  const puedeAjustar = usePuede("inventario", "edicion");
+
   const [productos, setProductos] = useState<Producto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -32,7 +38,11 @@ export default function BackofficeInventarioPage() {
       <PageHeader
         icon={Boxes}
         title="Inventario"
-        description="Stock en tiempo real y entrada manual de mercancía"
+        description={
+          puedeAjustar
+            ? "Stock en tiempo real y entrada manual de mercancía"
+            : "Stock en tiempo real"
+        }
       />
 
       <div className="rounded-xl border bg-card">
@@ -51,7 +61,9 @@ export default function BackofficeInventarioPage() {
                   <th className="text-right px-4 py-3 font-medium">Disponible</th>
                   <th className="text-right px-4 py-3 font-medium">Reservado</th>
                   <th className="text-left px-4 py-3 font-medium">Estado</th>
-                  <th className="text-left px-4 py-3 font-medium">Entrada</th>
+                  {puedeAjustar && (
+                    <th className="text-left px-4 py-3 font-medium">Entrada</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -84,13 +96,15 @@ export default function BackofficeInventarioPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <StockAjusteModal
-                        productoId={p.id}
-                        nombreProducto={p.nombre}
-                        onAjustado={loadProductos}
-                      />
-                    </td>
+                    {puedeAjustar && (
+                      <td className="px-4 py-3">
+                        <StockAjusteModal
+                          productoId={p.id}
+                          nombreProducto={p.nombre}
+                          onAjustado={loadProductos}
+                        />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

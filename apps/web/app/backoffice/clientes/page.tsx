@@ -2,16 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { UsersRound, Search, Pencil } from "lucide-react";
+import { UsersRound, Search, Pencil, Eye } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import type { Cliente } from "@valatino/types";
 
 const fmtFecha = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
 export default function ClientesPage() {
+  // La ficha se consulta con lectura, así que el enlace se queda: lo que cambia
+  // es el icono, porque un lápiz promete editar.
+  const puedeEditar = usePuede("clientes", "edicion");
+
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,11 +154,15 @@ export default function ClientesPage() {
                           {c.tiene_cuenta && c.user_id ? (
                             <Link
                               href={`/backoffice/clientes/${c.user_id}`}
-                              title="Ver / editar"
+                              title={puedeEditar ? "Ver / editar" : "Ver ficha"}
                               aria-label={`Ver ${c.nombre ?? c.email}`}
                               className="inline-flex rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                             >
-                              <Pencil className="h-4 w-4" />
+                              {puedeEditar ? (
+                                <Pencil className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
                             </Link>
                           ) : (
                             <span

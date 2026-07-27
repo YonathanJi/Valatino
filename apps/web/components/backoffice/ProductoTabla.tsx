@@ -10,11 +10,26 @@ import type { Producto } from "@valatino/types";
 interface ProductoTablaProps {
   productos: Producto[];
   isLoading: boolean;
+  /** `catalogo:edicion`. Sin esto no se pinta el lápiz. */
+  puedeEditar: boolean;
+  /** `catalogo:total`: borrar un producto es irreversible. */
+  puedeBorrar: boolean;
   onEdit: (p: Producto) => void;
   onRefresh: () => void;
 }
 
-export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: ProductoTablaProps) {
+export function ProductoTabla({
+  productos,
+  isLoading,
+  puedeEditar,
+  puedeBorrar,
+  onEdit,
+  onRefresh,
+}: ProductoTablaProps) {
+  // Con solo lectura la columna entera desaparece: una columna «Acciones»
+  // vacía deja un hueco que se lee como algo que no cargó.
+  const hayAcciones = puedeEditar || puedeBorrar;
+
   const eliminarProducto = async (p: Producto) => {
     if (!window.confirm(`¿Eliminar "${p.nombre}" del catálogo? Esta acción no se puede deshacer.`)) {
       return;
@@ -46,7 +61,9 @@ export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: Produ
             <th className="text-left p-3 font-medium text-muted-foreground">Precio</th>
             <th className="text-left p-3 font-medium text-muted-foreground">Stock</th>
             <th className="text-left p-3 font-medium text-muted-foreground">Estado</th>
-            <th className="text-left p-3 font-medium text-muted-foreground">Acciones</th>
+            {hayAcciones && (
+              <th className="text-left p-3 font-medium text-muted-foreground">Acciones</th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -67,26 +84,32 @@ export function ProductoTabla({ productos, isLoading, onEdit, onRefresh }: Produ
                   {p.activo ? "Activo" : "Inactivo"}
                 </span>
               </td>
-              <td className="p-3">
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => onEdit(p)}
-                    title="Editar"
-                    aria-label={`Editar ${p.nombre}`}
-                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => void eliminarProducto(p)}
-                    title="Eliminar"
-                    aria-label={`Eliminar ${p.nombre}`}
-                    className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </td>
+              {hayAcciones && (
+                <td className="p-3">
+                  <div className="flex gap-1">
+                    {puedeEditar && (
+                      <button
+                        onClick={() => onEdit(p)}
+                        title="Editar"
+                        aria-label={`Editar ${p.nombre}`}
+                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {puedeBorrar && (
+                      <button
+                        onClick={() => void eliminarProducto(p)}
+                        title="Eliminar"
+                        aria-label={`Eliminar ${p.nombre}`}
+                        className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
