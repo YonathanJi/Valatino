@@ -8,6 +8,10 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const defaultEmail = searchParams.get("email") ?? "";
   const redirectTo = searchParams.get("redirectTo") ?? "/cuenta/perfil";
+  // Lo pone quien nos manda aquí desde un enlace que no se pudo canjear. Antes
+  // se escribía en la URL y no se mostraba en ninguna parte, así que el usuario
+  // volvía al formulario sin saber qué había pasado.
+  const error = searchParams.get("error");
 
   return (
     <div className="w-full max-w-sm space-y-6">
@@ -17,6 +21,14 @@ function LoginContent() {
           Ingresa tu correo, te enviaremos un código de un solo uso
         </p>
       </div>
+      {error && (
+        <p
+          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
       <AuthForm defaultEmail={defaultEmail} redirectTo={redirectTo} />
     </div>
   );

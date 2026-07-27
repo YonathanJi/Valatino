@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
@@ -35,9 +35,36 @@ export function AuthForm({
   const [token, setToken] = useState("");
   const [fase, setFase] = useState<Fase>("idle");
   const ocupado = fase !== "idle";
+  /**
+   * Segundos que faltan para poder pedir otro código.
+   *
+   * Supabase impone un enfriamiento por dirección de correo: pedirlo antes
+   * devuelve **429 y NO envía nada**. Antes no se llevaba la cuenta, así que
+   * quien no veía llegar el correo volvía a pulsar, se comía el 429 en inglés y
+   * se quedaba sin correo — parecía que el login estaba roto. Ver el log de auth
+   * del 2026-07-27: `over_email_send_rate_limit`.
+   */
+  const [esperaReenvio, setEsperaReenvio] = useState(0);
 
-  const handleRequest = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (esperaReenvio <= 0) return;
+    const t = setTimeout(() => setEsperaReenvio((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [esperaReenvio]);
+
+  /** Extrae los segundos del mensaje de Supabase («after 35 seconds»). */
+  const segundosDelMensaje = (mensaje: string): number => {
+    const m = mensaje.match(/(\d+)\s*second/i);
+    return m ? Number(m[1]) : 60;
+  };
+
+  /**
+   * `limite` se distingue de `error` a propósito: significa que **ya hay un
+   * código enviado y válido**, así que el usuario no está bloqueado —tiene que
+   * teclear el que le llegó. Tratarlo como error lo dejaba en la pantalla del
+   * correo sin poder escribir el código que ya tenía en el buzón.
+   */
+  const pedirCodigo = async (): Promise<"enviado" | "limite" | "error"> => {
     setFase("verificando");
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -51,12 +78,50 @@ export function AuthForm({
     setFase("idle");
 
     if (error) {
+      // El límite se traduce y se convierte en cuenta atrás: es una espera, no un
+      // error del que el usuario tenga que hacer nada.
+      const esLimite =
+        error.status === 429 || /rate limit|only request this after/i.test(error.message);
+
+      if (esLimite) {
+        setEsperaReenvio(segundosDelMensaje(error.message));
+        return "limite";
+      }
+
       toast.error(error.message || "No se pudo enviar el código.");
-      return;
+      return "error";
     }
 
-    toast.success(`Enviamos un código a ${email}. Revisa tu correo.`);
+    // 60 s es el enfriamiento de Supabase; se arranca ya para no volver a chocar.
+    setEsperaReenvio(60);
+    return "enviado";
+  };
+
+  const handleRequest = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const resultado = await pedirCodigo();
+    if (resultado === "error") return;
+
+    if (resultado === "limite") {
+      // Ya se le envió uno hace unos segundos: se le pasa a teclearlo en vez de
+      // dejarlo mirando el formulario del correo.
+      toast.info(`Ya te enviamos un código a ${email} hace un momento. Úsalo para entrar.`);
+    } else {
+      toast.success(`Enviamos un código a ${email}. Revisa tu correo.`);
+    }
+
     setStep("verify");
+  };
+
+  const handleReenviar = async () => {
+    if (esperaReenvio > 0) return;
+    const resultado = await pedirCodigo();
+    if (resultado === "enviado") {
+      toast.success(`Te enviamos otro código a ${email}.`);
+      setToken("");
+    } else if (resultado === "limite") {
+      toast.info("Todavía hay un código válido en tu correo. Espera para pedir otro.");
+    }
   };
 
   const handleVerify = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -141,6 +206,27 @@ export function AuthForm({
             Ya estás dentro. Preparando tu cuenta… la primera carga puede tardar unos segundos.
           </p>
         )}
+        {/* Reenviar SIN salir de la pantalla. Antes la única salida era «Cambiar
+            correo», así que quien no recibía el correo volvía al paso 1 y pedía
+            otro sin saber que había un enfriamiento: 429 y ningún correo. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="w-full"
+          onClick={() => void handleReenviar()}
+          disabled={ocupado || esperaReenvio > 0}
+        >
+          {esperaReenvio > 0
+            ? `Reenviar código en ${esperaReenvio}s`
+            : "No me ha llegado — reenviar código"}
+        </Button>
+
+        <p className="text-center text-xs text-muted-foreground">
+          Si el correo trae un enlace en vez de un código, también sirve: pulsarlo
+          te mete directamente.
+        </p>
+
         <Button
           type="button"
           variant="ghost"
