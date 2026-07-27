@@ -10,7 +10,14 @@ import { formatEUR } from "@lib/utils";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { PEDIDO_ESTADO_LABELS, type Pedido, type PaginatedResponse } from "@valatino/types";
+import {
+  PEDIDO_ESTADO_LABELS,
+  formatearTelefono,
+  normalizarTelefono,
+  telefonoValido,
+  type Pedido,
+  type PaginatedResponse,
+} from "@valatino/types";
 
 // Escala de grises coherente con la lista de pedidos: el estado se distingue
 // por intensidad, no por tono.
@@ -33,16 +40,18 @@ interface Direccion {
   ciudad: string;
   codigo_postal: string;
   provincia: string;
+  telefono: string | null;
   es_predeterminada: boolean;
 }
 
-const emptyDireccion = (): Omit<Direccion, "id" | "es_predeterminada"> => ({
+const emptyDireccion = () => ({
   nombre_destinatario: "",
   linea1: "",
   linea2: "",
   ciudad: "",
   codigo_postal: "",
   provincia: "",
+  telefono: "",
 });
 
 export default function PerfilPage() {
@@ -94,6 +103,7 @@ export default function PerfilPage() {
     const body = {
       ...form,
       linea2: form.linea2 || undefined,
+      telefono: normalizarTelefono(form.telefono),
     };
 
     try {
@@ -132,6 +142,7 @@ export default function PerfilPage() {
       ciudad: d.ciudad,
       codigo_postal: d.codigo_postal,
       provincia: d.provincia,
+      telefono: d.telefono ?? "",
     });
     setEditingId(d.id);
     setShowForm(true);
@@ -179,6 +190,7 @@ export default function PerfilPage() {
           ciudad: ultimoPedido.envio_ciudad ?? "",
           codigo_postal: ultimoPedido.envio_codigo_postal ?? "",
           provincia: ultimoPedido.envio_provincia ?? "",
+          telefono: ultimoPedido.envio_telefono ?? "",
         }
       : null;
 
@@ -351,6 +363,29 @@ export default function PerfilPage() {
                   onChange={(e) => setForm({ ...form, provincia: e.target.value })}
                 />
               </div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label htmlFor="telefono">Teléfono de contacto</Label>
+                <Input
+                  id="telefono"
+                  type="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  placeholder="600 11 22 33"
+                  maxLength={20}
+                  required
+                  value={form.telefono}
+                  onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                />
+                {form.telefono !== "" && !telefonoValido(form.telefono) ? (
+                  <p className="text-xs text-destructive">
+                    Introduce un teléfono español de 9 dígitos (móvil o fijo).
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Para avisarte de la entrega de los pedidos que envíes aquí.
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex gap-2 justify-end">
               <Button
@@ -364,7 +399,7 @@ export default function PerfilPage() {
               >
                 Cancelar
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || !telefonoValido(form.telefono)}>
                 {saving ? "Guardando..." : editingId ? "Actualizar" : "Guardar"}
               </Button>
             </div>
@@ -415,6 +450,15 @@ export default function PerfilPage() {
                   <p className="text-sm text-muted-foreground">
                     {d.codigo_postal} {d.ciudad}, {d.provincia}
                   </p>
+                  {d.telefono ? (
+                    <p className="text-sm text-muted-foreground">
+                      Tel. {formatearTelefono(d.telefono)}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-700">
+                      Sin teléfono — hará falta al pagar
+                    </p>
+                  )}
                   {d.es_predeterminada && (
                     <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                       Predeterminada

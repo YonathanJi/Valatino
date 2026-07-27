@@ -2,6 +2,7 @@
 
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
+import { telefonoValido } from "@valatino/types";
 
 export interface DireccionInline {
   nombre_destinatario: string;
@@ -11,6 +12,7 @@ export interface DireccionInline {
   codigo_postal: string;
   provincia: string;
   pais: string;
+  telefono: string;
 }
 
 export const DIRECCION_VACIA: DireccionInline = {
@@ -21,6 +23,7 @@ export const DIRECCION_VACIA: DireccionInline = {
   codigo_postal: "",
   provincia: "",
   pais: "ES",
+  telefono: "",
 };
 
 export function direccionCompleta(d: DireccionInline): boolean {
@@ -29,7 +32,8 @@ export function direccionCompleta(d: DireccionInline): boolean {
       d.linea1.trim() &&
       d.ciudad.trim() &&
       /^\d{5}$/.test(d.codigo_postal.trim()) &&
-      d.provincia.trim(),
+      d.provincia.trim() &&
+      telefonoValido(d.telefono),
   );
 }
 
@@ -122,6 +126,34 @@ export function DireccionForm({ value, onChange }: DireccionFormProps) {
           onChange={set("provincia")}
           required
         />
+      </div>
+
+      {/* Obligatorio: es por donde el repartidor avisa o pregunta si no
+          encuentra el portal. Sin esto el pedido llega al almacén sin ninguna
+          forma de contactar con quien lo espera. */}
+      <div className="space-y-1">
+        <Label htmlFor="dir-telefono">Teléfono de contacto</Label>
+        <Input
+          id="dir-telefono"
+          type="tel"
+          autoComplete="tel"
+          inputMode="tel"
+          placeholder="600 11 22 33"
+          maxLength={20}
+          value={value.telefono}
+          onChange={set("telefono")}
+          required
+          aria-describedby="dir-telefono-ayuda"
+        />
+        {value.telefono !== "" && !telefonoValido(value.telefono) ? (
+          <p className="text-xs text-destructive">
+            Introduce un teléfono español de 9 dígitos (móvil o fijo).
+          </p>
+        ) : (
+          <p id="dir-telefono-ayuda" className="text-xs text-muted-foreground">
+            Para avisarte de la entrega. No se usa para nada más.
+          </p>
+        )}
       </div>
     </div>
   );
