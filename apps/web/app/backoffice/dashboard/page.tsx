@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import type { DashboardGerencial } from "@valatino/types";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
-import { LayoutDashboard } from "lucide-react";
+import Link from "next/link";
+import { LayoutDashboard, Smile } from "lucide-react";
+import { Button } from "@components/ui/button";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import {
@@ -58,7 +60,14 @@ export default function DashboardPage() {
         icon={LayoutDashboard}
         title="Dashboard gerencial"
         description="Ventas de los últimos 30 días y estado actual de la operación"
-      />
+      >
+        <Button asChild variant="outline">
+          <Link href="/backoffice/dashboard/experiencia">
+            <Smile className="mr-1.5 h-4 w-4" />
+            Experiencia de compra
+          </Link>
+        </Button>
+      </PageHeader>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
