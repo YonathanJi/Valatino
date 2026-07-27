@@ -10,7 +10,11 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionando. La última prueba, el pedido **`260728018953`**, salió con teléfono, dirección validada contra el INE y **calificado por el cliente** (Fácil · 😄 5 · «nada todo muy bien»). Nada pendiente de comprobar.
+Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionando. **Dos pedidos reales calificados**: `260728018953` (Fácil · 5 · «nada todo muy bien») y `260728011017` (Regular · 4), el segundo ya con la ventana emergente corregida. Nada pendiente de comprobar.
+
+**Dos cosas que conviene mirar al empezar** (cinco minutos, y dan contexto):
+- **Dashboard → Experiencia de compra**, ya con datos de verdad: 2 opiniones, media 4,5, tasa 100 %. Sirve para ver la pantalla con contenido en vez de vacía, y para comprobar que el filtro «solo las malas» no devuelve nada (correcto: no hay ninguna).
+- **Pinchar cualquiera de los 2 pedidos** en Pedidos: la ficha muestra artículos, historial de quién lo tocó y la opinión del cliente juntas. Es el sitio donde converge casi todo lo hecho estos dos días.
 
 ⚠️ **Ojo con el catálogo**: dos productos están a 0 unidades (Galleta Festival sabor Fresa y Vainilla). Es lo que dice la factura, no un error — saldrán como agotados.
 
@@ -49,7 +53,8 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
 - **Ficha del pedido e historial (2026-07-26)**: en el panel, **pinchar un pedido** abre su ficha con los artículos, el cliente, la dirección y una **línea de tiempo** de todo lo que le ha pasado —alta, cambios de estado, pagos, reembolsos y correos— **con el nombre de quién lo hizo**. Lo ve todo el equipo, incluso con solo lectura en Pedidos; el cliente **no**. El registro va por **trigger**, así que ningún cambio de estado se escapa. Ver sesión 2026-07-26 (cont.).
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre, el documento y (desde el 27) el **teléfono** reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`, `envio_telefono`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
-- **⭐ CALIFICACIÓN DE LA COMPRA (2026-07-27, fase 1)**: al confirmarse el pago se le preguntan al cliente **dos cosas** —cuánto esfuerzo le costó comprar (`esfuerzo` 1 fácil…3 difícil) y qué nota le pone (`satisfaccion` 1–5)— más un comentario opcional. **No es obligatorio**: se puede cerrar, el descarte se recuerda, y si la API falla el bloque desaparece en silencio. Se ve en **Dashboard → Experiencia de compra** y en la ficha de cada pedido. Vive en el módulo `dashboard` (no es un módulo nuevo) y los comentarios se ven con `dashboard:lectura`. Ver sesión 2026-07-27 (cont. 4).
+- **⭐ CALIFICACIÓN DE LA COMPRA (2026-07-27, fase 1)**: al confirmarse el pago se abre una **ventana emergente** con **dos preguntas** —cuánto esfuerzo le costó comprar (`esfuerzo` 1 fácil…3 difícil) y qué nota le pone (`satisfaccion` 1–5)— más un comentario opcional. **No es obligatorio**: se cierra con la ✕, con Escape, pulsando fuera o con «Cerrar», y no se le vuelve a preguntar a quien la cerró ni a quien ya opinó. Se ve en **Dashboard → Experiencia de compra** y en la ficha de cada pedido. Vive en el módulo `dashboard` (no es un módulo nuevo) y los comentarios se ven con `dashboard:lectura`. Ver sesiones 2026-07-27 (cont. 4) y (cont. 5).
+  - ⚠️ **Si tocas este widget, la regla es: cada acción se confirma DONDE se pulsó.** Nació como tarjeta al final de la página con el aviso solo en el título, y pareció roto estando bien (ver cont. 5). El estado va pegado al botón y en un `aria-live`.
   - ⚠️ **La media nunca se lee sola: al lado va la tasa de respuesta.** Un 4,8 sobre el 8 % de los pedidos no dice lo mismo que sobre el 70 %. Y con pocos pedidos las medias bailan mucho: mirar el número de respuestas antes de concluir nada.
   - ⚠️ **Esto mide el proceso de compra, no el envío** (se pregunta a los cinco segundos de pagar), y **no puede recoger la opinión de quien se fue sin comprar**: el que abandonó nunca llega a la página de confirmación. Para eso hace falta análisis de embudo, no una encuesta.
 - **Nada de botones que no se pueden pulsar (2026-07-27)**: la regla del panel es **lo que no se puede hacer, no se pinta**. Antes se deshabilitaba (botón gris que no responde) o no se comprobaba nada. Si añades una acción nueva, gátela con `usePuede(modulo, nivel)` y **ocúltala**; en un formulario que existe para editarse, bloquea los campos con un `<fieldset disabled>` y esconde el botón de guardar. Ver sesión 2026-07-27.
@@ -64,13 +69,52 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD limpiada a «arranque real» el 2026-07-27** (ver «Limpieza de la BD» más abajo) y con **la primera venta de verdad encima**: el pedido **`260728018953`** (1,50 €, PROCESANDO), su cliente, y **la primera calificación** (Fácil · 5/5 · «nada todo muy bien»). Se conserva a propósito: es la prueba de que el circuito completo funciona.
-  - Lo demás: **13 productos** (stock **163** = los 164 de la factura menos la unidad vendida), la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**. A cero: **empleados** y **`staff_modulos`**.
+- **BD limpiada a «arranque real» el 2026-07-27** (ver «Limpieza de la BD» más abajo) y con **las primeras ventas de verdad encima**, comprobado al cerrar: **2 pedidos** (`260728018953` 1,50 € PROCESANDO y `260728011017` 0,50 € ENVIADO), **2 calificaciones** (media 4,5 sobre 5 con 100 % de tasa de respuesta), **8 eventos**, **1 dirección**, **3 carritos** y **2 usuarios** (el súper admin y el cliente). Se conservan a propósito: son la prueba de que el circuito completo funciona.
+  - Lo demás: **13 productos** (stock **162** de las 164 unidades de la factura: dos vendidas), la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**. A cero: **empleados** y **`staff_modulos`**.
   - Si hace falta volver a vaciarla, el procedimiento está documentado más abajo — y ahora hay que contar también con `pedido_calificaciones`, que cae en cascada con el pedido.
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **208 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-27 (cont. 5) — «Se queda procesando y no pasa nada» (no era el servidor)
+
+Jonathan probó la calificación y reportó: *«se queda procesando, no pasó nada, me activó de nuevo enviar, lo hice 3 veces, no cierra»*.
+
+### Lo que decían los datos
+```
+created_at  22:11:52
+updated_at  22:12:32     → 40 s de diferencia, MISMA fila
+```
+**Los tres intentos se guardaron correctamente.** El preflight CORS respondía 204 con las cabeceras buenas y el `POST` devolvía 200. **No hubo ningún fallo de servidor.** Antes de tocar código conviene mirar esto: `created_at` vs `updated_at` de la fila dice cuántas escrituras llegaron de verdad, y ahorra buscar un bug que no existe.
+
+### Los dos errores, los dos de interfaz
+1. **El éxito era invisible donde el cliente miraba.** Al guardar solo cambiaba el título arriba de la tarjeta; el botón volvía de «Guardando…» a «Enviar comentario» sin decir nada. En móvil el título quedaba fuera de pantalla. **Un éxito que no se ve es indistinguible de un fallo.**
+2. ⚠️ **Los errores se tragaban en silencio** (`return false` y nada en pantalla). Estaba puesto a propósito «para no molestar a quien acaba de pagar», y fue un error de criterio: **callar está bien ANTES de que alguien pulse; después de pulsar, deja a la persona sin saber si su dato se guardó — y a quien mantiene esto sin poder diagnosticarlo.**
+
+### Cómo quedó
+El estado y la acción van **juntos, al lado del botón**, en un `aria-live`:
+
+| Estado | Se ve | Botón |
+|---|---|---|
+| Guardando | «Guardando…» | deshabilitado |
+| Guardado | «✓ Guardado. ¡Gracias!» (verde) | **«Cerrar»** |
+| Límite | «Demasiados intentos seguidos…» | «Enviar» |
+| Sin red | «No hay conexión con el servidor.» | «Enviar» |
+
+Escribir en el comentario tras guardar devuelve el estado a «sin guardar»: si no, el ✓ de la puntuación haría creer que el texto nuevo ya estaba a salvo.
+
+### Y de tarjeta a ventana emergente
+La otra mitad del reporte: *«queda súper escondido, nadie va a llegar allí»*. Cierto — al final de la página, bajo el pliegue. Ahora se abre sola al confirmarse el pedido, cerrable por cuatro vías (✕, Escape, fuera, «Cerrar») y en móvil entra como hoja inferior.
+
+**Detalle que la incidencia destapó**: el límite de la ruta pública sube de **10 a 20** por minuto. Cada cambio de respuesta manda un `POST` (para que la opinión esté a salvo aunque cierren la ventana), así que varios toques de corrección más el comentario se acercaban al tope. No fue lo que pasó, pero un 429 en mitad de una encuesta voluntaria es una respuesta perdida.
+
+### Verificado
+El pedido **`260728011017`** (Regular · 4) se calificó ya con la ventana nueva. Y en el bundle desplegado están los siete estados nuevos, con «Enviar comentario» —el texto de la versión rota— a cero.
+
+⚠️ **Lo que compilar y desplegar NO prueba**: la primera versión pasó `type-check`, build y despliegue, y estaba inservible. Que el código llegue a producción no dice nada de si se entiende en pantalla.
 
 ---
 
