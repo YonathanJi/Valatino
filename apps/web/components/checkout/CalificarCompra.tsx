@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { API_URL } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import {
@@ -23,35 +23,39 @@ const CARAS: Record<SatisfaccionCompra, string> = {
 const ESFUERZOS: EsfuerzoCompra[] = [1, 2, 3];
 const SATISFACCIONES: SatisfaccionCompra[] = [1, 2, 3, 4, 5];
 
-/** Que no vuelva a preguntar a quien ya dijo que no. */
+/** Que no vuelva a preguntar a quien ya dijo que no, ni a quien ya opinó. */
 const claveDescarte = (token: string) => `calificacion-descartada:${token}`;
+
+type Estado = "quieto" | "guardando" | "guardado" | "error";
 
 interface CalificarCompraProps {
   token: string;
 }
 
 /**
- * Pide opinión sobre el proceso de compra al terminar el pago.
+ * Pide opinión sobre el proceso de compra, en ventana emergente.
  *
- * Dos preguntas y un comentario opcional. Las escalas tienen FORMA distinta a
- * propósito (tres botones con etiqueta vs. cinco caras): dos escalas idénticas
- * una debajo de otra invitan a marcar lo mismo dos veces sin pensarlo, y
- * entonces los dos datos valen lo que uno.
+ * Fue una tarjeta al final de la página de confirmación y **no servía**: quedaba
+ * bajo el pliegue y nadie llegaba. Ahora se abre sola al confirmarse el pedido.
  *
- * ⚠️ Nada de esto es obligatorio: se puede cerrar, el descarte se recuerda, y si
- * la API falla el bloque desaparece en silencio. A quien acaba de pagar no se le
- * enseña un error por no haber podido guardar una opinión.
+ * ⚠️ Y aquí el aviso importante, porque ya falló una vez: **cada acción tiene que
+ * confirmarse DONDE se pulsó**. La primera versión guardaba bien pero solo
+ * cambiaba el título de arriba, así que quien miraba el botón veía «Guardando…»
+ * y luego el botón otra vez, sin más. Parecía roto estando bien, y se pulsó tres
+ * veces (las tres se guardaron). Un fallo silencioso tras un clic es indistinguible
+ * de que no pase nada: callar está bien ANTES de que alguien pulse, no después.
  */
 export function CalificarCompra({ token }: CalificarCompraProps) {
-  const [visible, setVisible] = useState(false);
+  const [abierto, setAbierto] = useState(false);
   const [esfuerzo, setEsfuerzo] = useState<EsfuerzoCompra | null>(null);
   const [satisfaccion, setSatisfaccion] = useState<SatisfaccionCompra | null>(null);
   const [comentario, setComentario] = useState("");
-  const [enviando, setEnviando] = useState(false);
-  const [enviado, setEnviado] = useState(false);
+  const [estado, setEstado] = useState<Estado>("quieto");
+  const [mensajeError, setMensajeError] = useState<string | null>(null);
+  const dialogo = useRef<HTMLDivElement>(null);
 
-  // Se pregunta solo si el token vale y no lo descartó ya. La respuesta también
-  // trae lo ya opinado, para que vuelva relleno si recarga la página.
+  // Se abre sola solo si el token vale, no lo descartó y no ha opinado ya:
+  // recargar la página de confirmación no debe volver a saltar.
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem(claveDescarte(token))) return;
 
@@ -61,18 +65,16 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
       .then((r) => (r.ok ? r.json() : null))
       .then((json: { calificacion: Calificacion | null } | null) => {
         if (!vigente || !json) return;
-        const previa = json.calificacion;
-        if (previa) {
-          setEsfuerzo(previa.esfuerzo);
-          setSatisfaccion(previa.satisfaccion);
-          setComentario(previa.comentario ?? "");
-          setEnviado(true);
+        if (json.calificacion) {
+          // Ya opinó: no se le vuelve a preguntar.
+          localStorage.setItem(claveDescarte(token), "1");
+          return;
         }
-        setVisible(true);
+        setAbierto(true);
       })
       .catch(() => {
-        // En silencio: sin opinión se sigue viviendo, con un error en la página
-        // de «gracias por tu compra» no.
+        // Sin opinión se sigue viviendo; con un error en la página de «gracias
+        // por tu compra», no. Esto es ANTES de que el cliente pulse nada.
       });
 
     return () => {
@@ -80,147 +82,204 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
     };
   }, [token]);
 
-  const enviar = async (
-    e: EsfuerzoCompra,
-    s: SatisfaccionCompra,
-    texto: string,
-  ): Promise<boolean> => {
-    setEnviando(true);
+  const cerrar = () => {
+    localStorage.setItem(claveDescarte(token), "1");
+    setAbierto(false);
+  };
+
+  // Escape cierra, y al abrir se lleva el foco al diálogo para que el lector de
+  // pantalla anuncie de qué va la ventana que acaba de aparecer.
+  useEffect(() => {
+    if (!abierto) return;
+    dialogo.current?.focus();
+    const alPulsar = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cerrar();
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abierto]);
+
+  const guardar = async (e: EsfuerzoCompra, s: SatisfaccionCompra, texto: string) => {
+    setEstado("guardando");
+    setMensajeError(null);
     try {
       const res = await fetch(`${API_URL}/calificaciones/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          esfuerzo: e,
-          satisfaccion: s,
-          comentario: texto.trim() || undefined,
-        }),
+        body: JSON.stringify({ esfuerzo: e, satisfaccion: s, comentario: texto.trim() || undefined }),
       });
-      return res.ok;
+
+      if (res.ok) {
+        setEstado("guardado");
+        return;
+      }
+
+      // Se DICE qué pasó. La versión anterior devolvía false y no mostraba nada.
+      setEstado("error");
+      setMensajeError(
+        res.status === 429
+          ? "Demasiados intentos seguidos. Espera un momento y vuelve a probar."
+          : "No se pudo guardar tu opinión. Inténtalo de nuevo.",
+      );
     } catch {
-      return false;
-    } finally {
-      setEnviando(false);
+      setEstado("error");
+      setMensajeError("No hay conexión con el servidor. Inténtalo de nuevo.");
     }
   };
 
   /**
    * Se guarda en cuanto están las dos respuestas, sin esperar a un botón: si
-   * cierra la pestaña después de puntuar, la opinión ya está. El comentario se
-   * pide DESPUÉS, que es cuando ya ha invertido dos toques y está dispuesto —
-   * un campo de texto por delante espanta.
+   * cierra la ventana después de puntuar, la opinión ya está. El comentario se
+   * pide DESPUÉS, que es cuando ya ha invertido dos toques.
    */
   const responder = (e: EsfuerzoCompra | null, s: SatisfaccionCompra | null) => {
     setEsfuerzo(e);
     setSatisfaccion(s);
-    if (e && s) void enviar(e, s, comentario).then((ok) => ok && setEnviado(true));
+    if (e && s) void guardar(e, s, comentario);
   };
 
-  const descartar = () => {
-    localStorage.setItem(claveDescarte(token), "1");
-    setVisible(false);
-  };
+  if (!abierto) return null;
 
-  if (!visible) return null;
+  const puntuado = esfuerzo !== null && satisfaccion !== null;
 
   return (
-    <section className="mt-8 rounded-xl border bg-card p-5 text-left">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="font-semibold">
-            {enviado ? "¡Gracias por tu opinión!" : "¿Qué tal fue comprar?"}
-          </h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {enviado
-              ? "Nos ayuda a mejorar la tienda. Puedes cambiarla si quieres."
-              : "Dos toques y nos ayudas a mejorar. No es obligatorio."}
-          </p>
-        </div>
-        {!enviado && (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="calificar-titulo"
+      onClick={cerrar}
+    >
+      <div
+        ref={dialogo}
+        tabIndex={-1}
+        onClick={(ev) => ev.stopPropagation()}
+        className="w-full max-w-md space-y-4 rounded-xl border bg-card p-5 text-left shadow-lg outline-none"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="calificar-titulo" className="font-semibold">
+              ¿Qué tal fue comprar?
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Dos toques y nos ayudas a mejorar. No es obligatorio.
+            </p>
+          </div>
           <button
             type="button"
-            onClick={descartar}
-            aria-label="No quiero calificar"
-            className="text-sm text-muted-foreground hover:text-foreground"
+            onClick={cerrar}
+            aria-label="Cerrar sin calificar"
+            className="shrink-0 rounded-lg p-1 text-xl leading-none text-muted-foreground hover:bg-muted hover:text-foreground"
           >
-            No, gracias
+            ✕
           </button>
+        </div>
+
+        <fieldset disabled={estado === "guardando"}>
+          <legend className="text-sm font-medium">El proceso te resultó…</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {ESFUERZOS.map((valor) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => responder(valor, satisfaccion)}
+                aria-pressed={esfuerzo === valor}
+                className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                  esfuerzo === valor
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "hover:bg-muted"
+                }`}
+              >
+                {ESFUERZO_LABELS[valor]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset disabled={estado === "guardando"}>
+          <legend className="text-sm font-medium">¿Cómo lo calificarías?</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SATISFACCIONES.map((valor) => (
+              <button
+                key={valor}
+                type="button"
+                onClick={() => responder(esfuerzo, valor)}
+                aria-label={SATISFACCION_LABELS[valor]}
+                aria-pressed={satisfaccion === valor}
+                title={SATISFACCION_LABELS[valor]}
+                className={`rounded-lg border px-3 py-1.5 text-xl transition-colors ${
+                  satisfaccion === valor ? "border-primary bg-primary/10" : "hover:bg-muted"
+                }`}
+              >
+                {CARAS[valor]}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        {/* El comentario aparece cuando ya ha puntuado: es donde está lo
+            accionable, y pedirlo antes reduce las respuestas. */}
+        {puntuado && (
+          <div className="space-y-2 border-t pt-4">
+            <label htmlFor="calificacion-comentario" className="block text-sm font-medium">
+              ¿Algo que podamos mejorar? (opcional)
+            </label>
+            <textarea
+              id="calificacion-comentario"
+              value={comentario}
+              onChange={(ev) => {
+                setComentario(ev.target.value);
+                // Al escribir se vuelve a «sin guardar»: si no, el ✓ de la
+                // puntuación haría creer que el texto nuevo ya está a salvo.
+                if (estado === "guardado") setEstado("quieto");
+              }}
+              maxLength={2000}
+              rows={3}
+              placeholder="Lo que quieras contarnos"
+              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+            />
+          </div>
+        )}
+
+        {/* Estado y acción, JUNTOS y al lado del botón: es donde mira quien acaba
+            de pulsar. Aquí se rompió la versión anterior. */}
+        {puntuado && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+            <p
+              aria-live="polite"
+              className={`text-sm ${
+                estado === "error"
+                  ? "text-destructive"
+                  : estado === "guardado"
+                    ? "text-green-700"
+                    : "text-muted-foreground"
+              }`}
+            >
+              {estado === "guardando" && "Guardando…"}
+              {estado === "guardado" && "✓ Guardado. ¡Gracias!"}
+              {estado === "error" && mensajeError}
+            </p>
+
+            <div className="flex gap-2">
+              {estado === "guardado" ? (
+                <Button type="button" size="sm" onClick={cerrar}>
+                  Cerrar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={estado === "guardando"}
+                  onClick={() => void guardar(esfuerzo, satisfaccion, comentario)}
+                >
+                  {estado === "guardando" ? "Guardando…" : "Enviar"}
+                </Button>
+              )}
+            </div>
+          </div>
         )}
       </div>
-
-      <fieldset className="mt-4" disabled={enviando}>
-        <legend className="text-sm font-medium">El proceso te resultó…</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {ESFUERZOS.map((valor) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => responder(valor, satisfaccion)}
-              aria-pressed={esfuerzo === valor}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                esfuerzo === valor
-                  ? "border-primary bg-primary/10 font-medium text-primary"
-                  : "hover:bg-muted"
-              }`}
-            >
-              {ESFUERZO_LABELS[valor]}
-            </button>
-          ))}
-        </div>
-      </fieldset>
-
-      <fieldset className="mt-4" disabled={enviando}>
-        <legend className="text-sm font-medium">¿Cómo lo calificarías?</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {SATISFACCIONES.map((valor) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => responder(esfuerzo, valor)}
-              aria-label={SATISFACCION_LABELS[valor]}
-              aria-pressed={satisfaccion === valor}
-              title={SATISFACCION_LABELS[valor]}
-              className={`rounded-lg border px-3 py-1.5 text-xl transition-colors ${
-                satisfaccion === valor ? "border-primary bg-primary/10" : "hover:bg-muted"
-              }`}
-            >
-              {CARAS[valor]}
-            </button>
-          ))}
-        </div>
-      </fieldset>
-
-      {/* El comentario aparece cuando ya ha puntuado: es donde está lo
-          accionable, y pedirlo antes reduce las respuestas. */}
-      {esfuerzo && satisfaccion && (
-        <div className="mt-4 space-y-2">
-          <label htmlFor="calificacion-comentario" className="block text-sm font-medium">
-            ¿Algo que podamos mejorar? (opcional)
-          </label>
-          <textarea
-            id="calificacion-comentario"
-            value={comentario}
-            onChange={(e) => setComentario(e.target.value)}
-            maxLength={2000}
-            rows={3}
-            placeholder="Lo que quieras contarnos"
-            className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
-          />
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={enviando}
-              onClick={() =>
-                void enviar(esfuerzo, satisfaccion, comentario).then((ok) => ok && setEnviado(true))
-              }
-            >
-              {enviando ? "Guardando…" : "Enviar comentario"}
-            </Button>
-          </div>
-        </div>
-      )}
-    </section>
+    </div>
   );
 }
