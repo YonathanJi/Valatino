@@ -17,6 +17,7 @@ import { ClientesModule } from "./clientes/clientes.module";
 import { GestionHumanaModule } from "./gestion-humana/gestion-humana.module";
 import { TiModule } from "./ti/ti.module";
 import { EventosModule } from "./eventos/eventos.module";
+import { CalificacionesModule } from "./calificaciones/calificaciones.module";
 import { HealthController } from "./health.controller";
 import { SessionMiddleware } from "./carrito/session.middleware";
 
@@ -39,6 +40,7 @@ import { SessionMiddleware } from "./carrito/session.middleware";
     GestionHumanaModule,
     TiModule,
     EventosModule,
+    CalificacionesModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

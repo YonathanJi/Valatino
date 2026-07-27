@@ -490,6 +490,11 @@ export interface PedidoDetalle {
   pedido: Pedido;
   items: PedidoItem[];
   eventos: PedidoEvento[];
+  /**
+   * Lo que opinó el cliente de la compra, si la calificó. `null` en la mayoría
+   * de los pedidos: es opcional a propósito.
+   */
+  calificacion: Calificacion | null;
 }
 
 /** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */
@@ -504,6 +509,82 @@ export interface ResultadoReembolso {
   estado: PedidoEstado;
   /** Unidades repuestas al inventario (solo en reembolso total) */
   stock_repuesto: boolean;
+}
+
+// ============================================================
+// Calificación de la experiencia de compra
+// ============================================================
+
+/**
+ * Esfuerzo que le costó comprar (CES). Tres niveles porque la pregunta es
+ * «¿fácil o difícil?»; con más matices la gente no responde mejor, responde menos.
+ */
+export type EsfuerzoCompra = 1 | 2 | 3;
+
+/** Satisfacción con la compra (CSAT), 1 a 5. */
+export type SatisfaccionCompra = 1 | 2 | 3 | 4 | 5;
+
+export const ESFUERZO_LABELS: Record<EsfuerzoCompra, string> = {
+  1: "Fácil",
+  2: "Regular",
+  3: "Difícil",
+};
+
+export const SATISFACCION_LABELS: Record<SatisfaccionCompra, string> = {
+  1: "Muy mal",
+  2: "Mal",
+  3: "Normal",
+  4: "Bien",
+  5: "Muy bien",
+};
+
+export interface Calificacion {
+  pedido_id: string;
+  esfuerzo: EsfuerzoCompra;
+  satisfaccion: SatisfaccionCompra;
+  comentario: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Una opinión con el pedido al que pertenece, para el listado del panel. */
+export interface CalificacionConPedido extends Calificacion {
+  numero_pedido: string | null;
+  total: number;
+  envio_nombre: string | null;
+  email_cliente: string | null;
+}
+
+/**
+ * Resumen para el panel.
+ *
+ * `respuestas` y `pedidos_calificables` van juntos a propósito: una media sin su
+ * tasa de respuesta miente. Un 4,8 sobre el 8 % de los pedidos no dice lo mismo
+ * que un 4,8 sobre el 70 %.
+ */
+export interface ResumenCalificaciones {
+  respuestas: number;
+  /** Pedidos que PUDIERON calificarse en la ventana (los que llegaron a pagarse). */
+  pedidos_calificables: number;
+  esfuerzo_medio: number | null;
+  satisfaccion_medio: number | null;
+  faciles: number;
+  regulares: number;
+  dificiles: number;
+  /** Satisfacción 1 o 2: los que hay que leer primero. */
+  detractores: number;
+}
+
+/** Lo que devuelve el panel en `/admin/calificaciones`. */
+export interface CalificacionesPanel {
+  resumen: ResumenCalificaciones;
+  opiniones: CalificacionConPedido[];
+}
+
+/** Tasa de respuesta en tanto por ciento, o `null` si no hubo pedidos que calificar. */
+export function tasaRespuesta(r: ResumenCalificaciones): number | null {
+  if (r.pedidos_calificables === 0) return null;
+  return (r.respuestas / r.pedidos_calificables) * 100;
 }
 
 /** Snapshot de dirección para checkout de invitados (sin cuenta) */
