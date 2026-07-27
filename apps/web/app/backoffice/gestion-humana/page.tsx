@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Briefcase, Pencil, CalendarClock } from "lucide-react";
+import { Briefcase, Pencil, Eye, CalendarClock } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { usePuede } from "@components/backoffice/PermisosProvider";
@@ -77,54 +77,53 @@ export default function GestionHumanaPage() {
         )}
       </PageHeader>
 
-      {/* Generar histórico mensual */}
-      <div className="rounded-xl border bg-card p-5">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex items-center gap-2">
-            <CalendarClock className="h-5 w-5 text-primary" />
-            <div>
-              <h2 className="font-semibold leading-none">Histórico mensual</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Toma una foto del estado de la plantilla para el mes elegido
-              </p>
+      {/* Generar histórico mensual. Toda la tarjeta desaparece sin `total`: es
+          un panel de acción, no un dato que consultar. */}
+      {puedeCerrarMes && (
+        <div className="rounded-xl border bg-card p-5">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              <div>
+                <h2 className="font-semibold leading-none">Histórico mensual</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Toma una foto del estado de la plantilla para el mes elegido
+                </p>
+              </div>
+            </div>
+            <div className="ml-auto flex flex-wrap items-end gap-2">
+              <label className="text-xs text-muted-foreground">
+                Mes
+                <select
+                  value={mes}
+                  onChange={(e) => setMes(Number(e.target.value))}
+                  className="mt-1 block rounded-lg border bg-background px-3 py-2 text-sm"
+                >
+                  {MESES.map((nombre, i) => (
+                    <option key={i} value={i + 1}>
+                      {nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-muted-foreground">
+                Año
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  value={anio}
+                  onChange={(e) => setAnio(Number(e.target.value))}
+                  className="mt-1 block w-24 rounded-lg border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+              <Button variant="outline" onClick={() => void generarHistorico()} disabled={generando}>
+                {generando ? "Generando…" : "Generar histórico"}
+              </Button>
             </div>
           </div>
-          <div className="ml-auto flex flex-wrap items-end gap-2">
-            <label className="text-xs text-muted-foreground">
-              Mes
-              <select
-                value={mes}
-                onChange={(e) => setMes(Number(e.target.value))}
-                className="mt-1 block rounded-lg border bg-background px-3 py-2 text-sm"
-              >
-                {MESES.map((nombre, i) => (
-                  <option key={i} value={i + 1}>
-                    {nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-muted-foreground">
-              Año
-              <input
-                type="number"
-                min={2000}
-                max={2100}
-                value={anio}
-                onChange={(e) => setAnio(Number(e.target.value))}
-                className="mt-1 block w-24 rounded-lg border bg-background px-3 py-2 text-sm"
-              />
-            </label>
-            <Button
-              variant="outline"
-              onClick={() => void generarHistorico()}
-              disabled={generando || !puedeCerrarMes}
-            >
-              {generando ? "Generando…" : "Generar histórico"}
-            </Button>
-          </div>
         </div>
-      </div>
+      )}
 
       {/* Tabla de empleados */}
       <div className="rounded-xl border bg-card">
@@ -139,7 +138,8 @@ export default function GestionHumanaPage() {
           </div>
         ) : empleados.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">
-            Todavía no hay empleados. Crea el primero con «Nuevo empleado».
+            Todavía no hay empleados.
+            {puedeEditar && " Crea el primero con «Nuevo empleado»."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -196,13 +196,19 @@ export default function GestionHumanaPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {/* La ficha se consulta con lectura; el lápiz solo se
+                          pinta si de verdad se puede modificar algo. */}
                       <Link
                         href={`/backoffice/gestion-humana/${e.id}`}
-                        title="Ver / editar"
+                        title={puedeEditar ? "Ver / editar" : "Ver ficha"}
                         aria-label={`Ver ${e.nombre_completo}`}
                         className="inline-flex rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
-                        <Pencil className="h-4 w-4" />
+                        {puedeEditar ? (
+                          <Pencil className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </Link>
                     </td>
                   </tr>

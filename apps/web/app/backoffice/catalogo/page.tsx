@@ -12,6 +12,8 @@ import type { Producto, PaginatedResponse } from "@valatino/types";
 
 export default function BackofficeCatalogoPage() {
   const puedeEditar = usePuede("catalogo", "edicion");
+  // Borrar un producto del catálogo es irreversible: exige control total.
+  const puedeBorrar = usePuede("catalogo", "total");
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,15 +39,14 @@ export default function BackofficeCatalogoPage() {
   return (
     <div className="p-6 space-y-4">
       <PageHeader icon={Store} title="Gestión de Catálogo" description="Productos de la tienda">
-        <Button
-          disabled={!puedeEditar}
-          onClick={() => { setEditing(null); setShowForm(true); }}
-        >
-          + Nuevo producto
-        </Button>
+        {puedeEditar && (
+          <Button onClick={() => { setEditing(null); setShowForm(true); }}>
+            + Nuevo producto
+          </Button>
+        )}
       </PageHeader>
 
-      {showForm && (
+      {showForm && puedeEditar && (
         <ProductoForm
           producto={editing}
           onClose={() => setShowForm(false)}
@@ -56,6 +57,8 @@ export default function BackofficeCatalogoPage() {
       <ProductoTabla
         productos={productos}
         isLoading={isLoading}
+        puedeEditar={puedeEditar}
+        puedeBorrar={puedeBorrar}
         onEdit={(p) => { setEditing(p); setShowForm(true); }}
         onRefresh={loadProductos}
       />

@@ -44,6 +44,7 @@ export default function ProveedoresPage() {
   // Borrar un proveedor del maestro exige control total: antes lo podia hacer
   // cualquiera con el modulo.
   const puedeBorrar = usePuede("compras", "total");
+  const hayAcciones = puedeEditar || puedeBorrar;
 
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -123,67 +124,70 @@ export default function ProveedoresPage() {
         description="Datos básicos de tus proveedores — en la compra basta con el CIF para autocompletar"
       />
 
-      {/* Nuevo proveedor */}
-      <form onSubmit={crear} className="rounded-xl border bg-card p-6 space-y-4">
-        <h2 className="font-semibold">Nuevo proveedor</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <input
-            type="text"
-            placeholder="CIF / NIF *"
-            value={form.cif}
-            onChange={(e) => setForm({ ...form, cif: e.target.value })}
-            required
-            maxLength={20}
-            className={`${inputCls} font-mono uppercase`}
-          />
-          <input
-            type="text"
-            placeholder="Nombre / Razón social *"
-            value={form.nombre}
-            onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-            required
-            maxLength={200}
-            className={`${inputCls} sm:col-span-2`}
-          />
-          <input
-            type="tel"
-            placeholder="Teléfono"
-            value={form.telefono}
-            onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-            maxLength={30}
-            className={inputCls}
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            maxLength={200}
-            className={inputCls}
-          />
-          <input
-            type="text"
-            placeholder="Dirección"
-            value={form.direccion}
-            onChange={(e) => setForm({ ...form, direccion: e.target.value })}
-            maxLength={300}
-            className={inputCls}
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="text"
-            placeholder="Notas"
-            value={form.notas}
-            onChange={(e) => setForm({ ...form, notas: e.target.value })}
-            maxLength={2000}
-            className={`${inputCls} flex-1`}
-          />
-          <Button type="submit" disabled={isSaving || !puedeEditar}>
-            {isSaving ? "Guardando…" : "Crear proveedor"}
-          </Button>
-        </div>
-      </form>
+      {/* Nuevo proveedor. Con solo lectura no se pinta: era un formulario
+          entero rellenable que acababa en 403 al enviarlo. */}
+      {puedeEditar && (
+        <form onSubmit={crear} className="rounded-xl border bg-card p-6 space-y-4">
+          <h2 className="font-semibold">Nuevo proveedor</h2>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <input
+              type="text"
+              placeholder="CIF / NIF *"
+              value={form.cif}
+              onChange={(e) => setForm({ ...form, cif: e.target.value })}
+              required
+              maxLength={20}
+              className={`${inputCls} font-mono uppercase`}
+            />
+            <input
+              type="text"
+              placeholder="Nombre / Razón social *"
+              value={form.nombre}
+              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+              required
+              maxLength={200}
+              className={`${inputCls} sm:col-span-2`}
+            />
+            <input
+              type="tel"
+              placeholder="Teléfono"
+              value={form.telefono}
+              onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+              maxLength={30}
+              className={inputCls}
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              maxLength={200}
+              className={inputCls}
+            />
+            <input
+              type="text"
+              placeholder="Dirección"
+              value={form.direccion}
+              onChange={(e) => setForm({ ...form, direccion: e.target.value })}
+              maxLength={300}
+              className={inputCls}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="text"
+              placeholder="Notas"
+              value={form.notas}
+              onChange={(e) => setForm({ ...form, notas: e.target.value })}
+              maxLength={2000}
+              className={`${inputCls} flex-1`}
+            />
+            <Button type="submit" disabled={isSaving}>
+              {isSaving ? "Guardando…" : "Crear proveedor"}
+            </Button>
+          </div>
+        </form>
+      )}
 
       {/* Listado */}
       <div className="rounded-xl border bg-card">
@@ -195,7 +199,8 @@ export default function ProveedoresPage() {
           </div>
         ) : proveedores.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted-foreground">
-            Aún no hay proveedores. Crea el primero con el formulario de arriba.
+            Aún no hay proveedores.
+            {puedeEditar && " Crea el primero con el formulario de arriba."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -206,7 +211,7 @@ export default function ProveedoresPage() {
                   <th className="text-left px-4 py-3 font-medium">Nombre</th>
                   <th className="text-left px-4 py-3 font-medium">Contacto</th>
                   <th className="text-left px-4 py-3 font-medium">Dirección</th>
-                  <th className="px-4 py-3" />
+                  {hayAcciones && <th className="px-4 py-3" />}
                 </tr>
               </thead>
               <tbody>
@@ -281,39 +286,44 @@ export default function ProveedoresPage() {
                         {[p.telefono, p.email].filter(Boolean).join(" · ") || "—"}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{p.direccion ?? "—"}</td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className="flex justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(p.id);
-                              setEditForm({
-                                cif: p.cif,
-                                nombre: p.nombre,
-                                telefono: p.telefono ?? "",
-                                email: p.email ?? "",
-                                direccion: p.direccion ?? "",
-                                notas: p.notas ?? "",
-                              });
-                            }}
-                            title="Editar"
-                            aria-label={`Editar ${p.nombre}`}
-                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!puedeBorrar}
-                            onClick={() => void eliminar(p)}
-                            title="Eliminar"
-                            aria-label={`Eliminar ${p.nombre}`}
-                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {hayAcciones && (
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <div className="flex justify-end gap-1">
+                            {puedeEditar && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditing(p.id);
+                                  setEditForm({
+                                    cif: p.cif,
+                                    nombre: p.nombre,
+                                    telefono: p.telefono ?? "",
+                                    email: p.email ?? "",
+                                    direccion: p.direccion ?? "",
+                                    notas: p.notas ?? "",
+                                  });
+                                }}
+                                title="Editar"
+                                aria-label={`Editar ${p.nombre}`}
+                                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                            {puedeBorrar && (
+                              <button
+                                type="button"
+                                onClick={() => void eliminar(p)}
+                                title="Eliminar"
+                                aria-label={`Eliminar ${p.nombre}`}
+                                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ),
                 )}

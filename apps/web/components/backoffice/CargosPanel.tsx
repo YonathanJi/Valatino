@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Pencil } from "lucide-react";
+import { ShieldCheck, Pencil, Eye } from "lucide-react";
 import { apiFetch } from "@lib/api/client";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { ListaPermisos } from "@components/backoffice/ChipPermiso";
@@ -93,7 +93,11 @@ export function CargosPanel() {
                         aria-label={`${puedeEditar ? "Editar" : "Ver"} la plantilla de ${c.nombre}`}
                         className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
-                        <Pencil className="h-4 w-4" />
+                        {puedeEditar ? (
+                          <Pencil className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </button>
                     </td>
                   </tr>

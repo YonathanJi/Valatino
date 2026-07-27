@@ -185,146 +185,153 @@ export function EmpleadoDetallePanel() {
         </p>
       )}
 
+      {/* Con solo lectura el formulario se muestra bloqueado en vez de dejar
+          teclear para nada: un `fieldset` deshabilitado apaga todo lo de dentro
+          de una vez, así que ningún campo nuevo se olvida. */}
       <form onSubmit={guardar} className="space-y-5 rounded-xl border bg-card p-6">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className={labelCls}>
-            <span className="font-medium">Nombre completo *</span>
-            <input
-              value={form.nombreCompleto}
-              onChange={(e) => set("nombreCompleto", e.target.value)}
-              required
-              minLength={2}
-              maxLength={200}
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Documento *</span>
-            <input
-              value={form.documento}
-              onChange={(e) => set("documento", e.target.value)}
-              required
-              minLength={3}
-              maxLength={40}
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Teléfono</span>
-            <input
-              value={form.telefono}
-              onChange={(e) => set("telefono", e.target.value)}
-              maxLength={30}
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Correo personal</span>
-            <input
-              type="email"
-              value={form.correoPersonal}
-              onChange={(e) => set("correoPersonal", e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Correo de empresa *</span>
-            <input
-              type="email"
-              value={form.correoEmpresa}
-              onChange={(e) => set("correoEmpresa", e.target.value)}
-              required
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Cargo *</span>
-            <select
-              value={form.cargoId}
-              onChange={(e) => set("cargoId", e.target.value)}
-              required
-              className={inputCls}
-            >
-              {cargos.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.codigo} — {c.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Tipo de contratación *</span>
-            <select
-              value={form.tipoContratacion}
-              onChange={(e) => set("tipoContratacion", e.target.value)}
-              required
-              className={inputCls}
-            >
-              {TIPOS_CONTRATACION.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Fecha de vinculación *</span>
-            <input
-              type="date"
-              value={form.fechaVinculacion}
-              onChange={(e) => set("fechaVinculacion", e.target.value)}
-              required
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Fecha de desvinculación</span>
-            <input
-              type="date"
-              value={form.fechaDesvinculacion}
-              onChange={(e) => set("fechaDesvinculacion", e.target.value)}
-              className={inputCls}
-            />
-          </label>
-          <label className={labelCls}>
-            <span className="font-medium">Salario (€)</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.salario}
-              onChange={(e) => set("salario", e.target.value)}
-              className={inputCls}
-            />
-          </label>
-        </div>
+        <fieldset disabled={!puedeEditar} className="space-y-5 disabled:opacity-70">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={labelCls}>
+              <span className="font-medium">Nombre completo *</span>
+              <input
+                value={form.nombreCompleto}
+                onChange={(e) => set("nombreCompleto", e.target.value)}
+                required
+                minLength={2}
+                maxLength={200}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Documento *</span>
+              <input
+                value={form.documento}
+                onChange={(e) => set("documento", e.target.value)}
+                required
+                minLength={3}
+                maxLength={40}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Teléfono</span>
+              <input
+                value={form.telefono}
+                onChange={(e) => set("telefono", e.target.value)}
+                maxLength={30}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Correo personal</span>
+              <input
+                type="email"
+                value={form.correoPersonal}
+                onChange={(e) => set("correoPersonal", e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Correo de empresa *</span>
+              <input
+                type="email"
+                value={form.correoEmpresa}
+                onChange={(e) => set("correoEmpresa", e.target.value)}
+                required
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Cargo *</span>
+              <select
+                value={form.cargoId}
+                onChange={(e) => set("cargoId", e.target.value)}
+                required
+                className={inputCls}
+              >
+                {cargos.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.codigo} — {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Tipo de contratación *</span>
+              <select
+                value={form.tipoContratacion}
+                onChange={(e) => set("tipoContratacion", e.target.value)}
+                required
+                className={inputCls}
+              >
+                {TIPOS_CONTRATACION.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Fecha de vinculación *</span>
+              <input
+                type="date"
+                value={form.fechaVinculacion}
+                onChange={(e) => set("fechaVinculacion", e.target.value)}
+                required
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Fecha de desvinculación</span>
+              <input
+                type="date"
+                value={form.fechaDesvinculacion}
+                onChange={(e) => set("fechaDesvinculacion", e.target.value)}
+                className={inputCls}
+              />
+            </label>
+            <label className={labelCls}>
+              <span className="font-medium">Salario (€)</span>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.salario}
+                onChange={(e) => set("salario", e.target.value)}
+                className={inputCls}
+              />
+            </label>
+          </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.activo}
-            onChange={(e) => set("activo", e.target.checked)}
-            className="accent-primary"
-          />
-          Empleado activo
-        </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.activo}
+              onChange={(e) => set("activo", e.target.checked)}
+              className="accent-primary"
+            />
+            Empleado activo
+          </label>
 
-        <label className={labelCls}>
-          <span className="font-medium">Notas</span>
-          <textarea
-            value={form.notas}
-            onChange={(e) => set("notas", e.target.value)}
-            maxLength={2000}
-            rows={3}
-            className={inputCls}
-          />
-        </label>
+          <label className={labelCls}>
+            <span className="font-medium">Notas</span>
+            <textarea
+              value={form.notas}
+              onChange={(e) => set("notas", e.target.value)}
+              maxLength={2000}
+              rows={3}
+              className={inputCls}
+            />
+          </label>
 
-        <div className="flex justify-end">
-          <Button type="submit" disabled={guardando || !puedeEditar}>
-            {guardando ? "Guardando…" : "Guardar cambios"}
-          </Button>
-        </div>
+          {puedeEditar && (
+            <div className="flex justify-end">
+              <Button type="submit" disabled={guardando}>
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </Button>
+            </div>
+          )}
+        </fieldset>
       </form>
 
       {/* Histórico mensual del empleado */}

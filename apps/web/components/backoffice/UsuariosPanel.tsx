@@ -9,7 +9,7 @@ import { ListaPermisos } from "@components/backoffice/ChipPermiso";
 import type { PermisoModulo, UserRole } from "@valatino/types";
 import { Pencil, Trash2, Users, UserPlus, Ban, ShieldCheck } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
-import { usePermisos } from "@components/backoffice/PermisosProvider";
+import { usePermisos, usePuede } from "@components/backoffice/PermisosProvider";
 import {
   ProvisionarCuentaModal,
   type EmpleadoPendiente,
@@ -31,6 +31,10 @@ export function UsuariosPanel() {
   // panel se buscaba a sí mismo dentro de la lista de staff ya cargada, así que
   // los botones no aparecían hasta que llegaba la respuesta.
   const { userId: miUserId, esAdmin } = usePermisos();
+  // En TI no hay un `edicion` seguro: tocar la cuenta de otra persona es
+  // apropiársela. Con `ti:lectura` esta pantalla es un registro que auditar,
+  // así que no se ofrece ni provisionar ni editar.
+  const puedeAdministrar = usePuede("ti", "total");
   const [staff, setStaff] = useState<StaffMiembro[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editingUser, setEditingUser] = useState<StaffMiembro | null>(null);
@@ -134,10 +138,12 @@ export function UsuariosPanel() {
                     {p.plantilla.length > 0 ? ` · ${p.plantilla.length} accesos por plantilla` : ""}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => setProvisionando(p)}>
-                  <UserPlus className="mr-1.5 h-4 w-4" />
-                  Dar acceso
-                </Button>
+                {puedeAdministrar && (
+                  <Button size="sm" variant="outline" onClick={() => setProvisionando(p)}>
+                    <UserPlus className="mr-1.5 h-4 w-4" />
+                    Dar acceso
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -220,7 +226,7 @@ export function UsuariosPanel() {
                       <div className="flex justify-end gap-1">
                         {/* Sobre una cuenta admin solo actúa otro admin: la API
                             responde 403 igualmente (asegurarStaffEditable). */}
-                        {(esAdmin || u.rol !== "admin") && (
+                        {puedeAdministrar && (esAdmin || u.rol !== "admin") && (
                           <button
                             type="button"
                             onClick={() => setEditingUser(u)}
