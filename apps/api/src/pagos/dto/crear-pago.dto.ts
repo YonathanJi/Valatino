@@ -9,6 +9,7 @@ import {
   MaxLength,
   ValidateNested,
 } from "class-validator";
+import { EsTelefono } from "../../common/validators/es-telefono.validator";
 
 export class DireccionSnapshotDto {
   @IsString()
@@ -45,6 +46,21 @@ export class DireccionSnapshotDto {
   @IsString()
   @Length(2, 2, { message: "pais debe ser código ISO de 2 letras" })
   pais?: string;
+
+  /**
+   * Teléfono de contacto para la entrega.
+   *
+   * Opcional a propósito, aunque el checkout lo exija: Vercel y Render
+   * despliegan del mismo push y no se puede ordenar API antes que web, así que
+   * durante una release conviven las dos combinaciones. Exigirlo aquí haría que
+   * un checkout servido desde la versión anterior respondiera 400 al pagar, y
+   * eso no es un permiso denegado: es una venta perdida.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @EsTelefono()
+  telefono?: string;
 }
 
 export class CrearPagoDto {

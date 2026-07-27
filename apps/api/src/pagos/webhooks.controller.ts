@@ -24,6 +24,7 @@ import { CrearPagoDto } from "./dto/crear-pago.dto";
 import { CapturarOrdenDto } from "./dto/capturar-orden.dto";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { normalizarTelefono } from "@valatino/types";
 import Stripe from "stripe";
 
 type SessionRequest = RawBodyRequest<Request & { sessionId?: string; user?: { sub: string } }>;
@@ -78,13 +79,22 @@ export class PagosController {
       throw new BadRequestException("El email es obligatorio para comprar como invitado");
     }
 
+    // El teléfono se normaliza antes de guardarlo: este snapshot es el que
+    // acaba copiado en `pedidos.envio_telefono`, y de ahí lo lee el listado de
+    // clientes. Con la dirección guardada no hace falta, porque
+    // DireccionesService ya lo normalizó al crearla.
     await this.inventarioService.guardarCheckoutDatos({
       sessionId,
       userId,
       email: dto.email,
       documento: dto.documento,
       direccionEnvioId: userId ? dto.direccion_envio_id : undefined,
-      direccion: dto.direccion,
+      direccion: dto.direccion && {
+        ...dto.direccion,
+        telefono: dto.direccion.telefono
+          ? normalizarTelefono(dto.direccion.telefono) || undefined
+          : undefined,
+      },
     });
   }
 

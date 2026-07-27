@@ -1,4 +1,5 @@
 import { IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { EsTelefono } from "../../common/validators/es-telefono.validator";
 
 /**
  * Datos de contacto editables de un cliente.
@@ -17,6 +18,7 @@ export class ActualizarClienteDto {
   @IsOptional()
   @IsString()
   @MaxLength(30)
+  @EsTelefono()
   telefono?: string;
 
   @IsOptional()

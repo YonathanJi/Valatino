@@ -1,7 +1,20 @@
 import { Inject, Injectable, NotFoundException, InternalServerErrorException } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { normalizarTelefono } from "@valatino/types";
 import type { CreateDireccionDto, UpdateDireccionDto } from "./dto/direccion.dto";
+
+/**
+ * Deja el teléfono en 9 dígitos, o NULL si viene vacío.
+ *
+ * Se normaliza aquí y no en el DTO porque el ValidationPipe global no
+ * transforma: si se guardara lo tecleado, la misma persona acabaría con
+ * «+34600112233» en una dirección y «600 11 22 33» en otra.
+ */
+function telefonoParaGuardar(valor: string | undefined): string | null {
+  if (valor === undefined) return null;
+  return normalizarTelefono(valor) || null;
+}
 
 @Injectable()
 export class DireccionesService {
@@ -34,6 +47,7 @@ export class DireccionesService {
         codigo_postal: dto.codigo_postal,
         provincia: dto.provincia,
         pais: dto.pais ?? "ES",
+        telefono: telefonoParaGuardar(dto.telefono),
         es_predeterminada: dto.es_predeterminada ?? false,
       })
       .select()
@@ -60,6 +74,9 @@ export class DireccionesService {
         ...(dto.codigo_postal !== undefined && { codigo_postal: dto.codigo_postal }),
         ...(dto.provincia !== undefined && { provincia: dto.provincia }),
         ...(dto.pais !== undefined && { pais: dto.pais }),
+        ...(dto.telefono !== undefined && {
+          telefono: telefonoParaGuardar(dto.telefono),
+        }),
         ...(dto.es_predeterminada !== undefined && {
           es_predeterminada: dto.es_predeterminada,
         }),

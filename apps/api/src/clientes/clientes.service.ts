@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { normalizarTelefono } from "@valatino/types";
 import type { Cliente, ClienteDetalle, DireccionEnvio, Pedido } from "@valatino/types";
 import type { ActualizarClienteDto } from "./dto/actualizar-cliente.dto";
 
@@ -74,7 +75,9 @@ export class ClientesService {
 
     const cambios: Record<string, unknown> = { id: userId, updated_at: new Date().toISOString() };
     if (dto.nombre !== undefined) cambios.nombre = dto.nombre.trim();
-    if (dto.telefono !== undefined) cambios.telefono = dto.telefono.trim() || null;
+    // Normalizado a 9 dígitos, igual que en el checkout: el panel y la tienda
+    // escriben en la misma columna y tienen que dejarla igual.
+    if (dto.telefono !== undefined) cambios.telefono = normalizarTelefono(dto.telefono) || null;
     if (dto.documento !== undefined) cambios.documento = dto.documento.trim() || null;
 
     if (Object.keys(cambios).length === 2) {
