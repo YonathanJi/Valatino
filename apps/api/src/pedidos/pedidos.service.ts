@@ -21,6 +21,7 @@ import type {
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
+import { CalificacionesService } from "../calificaciones/calificaciones.service";
 
 @Injectable()
 export class PedidosService {
@@ -31,6 +32,7 @@ export class PedidosService {
     private readonly inventario: InventarioService,
     private readonly email: EmailService,
     private readonly reembolsos: ReembolsosService,
+    private readonly calificaciones: CalificacionesService,
   ) {}
 
   async findByUser(userId: string, page = 1, limit = 20): Promise<PaginatedResponse<unknown>> {
@@ -126,17 +128,30 @@ export class PedidosService {
    * Resumen mínimo del pedido por referencia de pago (payment_intent de
    * Stripe o capture_id de PayPal). Público: la referencia solo la conoce
    * quien realizó el pago, y solo se expone número de pedido y estado.
+   *
+   * Incluye `token_calificacion` porque acredita lo mismo: quien llega aquí con
+   * la referencia correcta es quien pagó, y es a quien se le puede preguntar qué
+   * tal fue. Reutilizar esta puerta evita inventar un segundo mecanismo para
+   * identificar a un comprador que no tiene cuenta.
    */
-  async findResumenPorReferencia(
-    referencia: string,
-  ): Promise<{ numero_pedido: string | null; estado: string } | null> {
+  async findResumenPorReferencia(referencia: string): Promise<{
+    numero_pedido: string | null;
+    estado: string;
+    token_calificacion: string;
+  } | null> {
     const { data } = await this.supabase
       .from("pedidos")
-      .select("numero_pedido, estado")
+      .select("numero_pedido, estado, token_calificacion")
       .eq("referencia_pago", referencia)
       .maybeSingle();
 
-    return (data as { numero_pedido: string | null; estado: string } | null) ?? null;
+    return (
+      (data as {
+        numero_pedido: string | null;
+        estado: string;
+        token_calificacion: string;
+      } | null) ?? null
+    );
   }
 
   /**
@@ -158,14 +173,19 @@ export class PedidosService {
       pedido_items?: unknown[];
     };
 
-    const [{ data: eventos, error: errorEventos }, reembolsados] = await Promise.all([
-      this.supabase
-        .from("pedido_eventos")
-        .select("*")
-        .eq("pedido_id", pedidoId)
-        .order("created_at", { ascending: true }),
-      this.reembolsos.totalesReembolsados([pedidoId]),
-    ]);
+    const [{ data: eventos, error: errorEventos }, reembolsados, calificacion] =
+      await Promise.all([
+        this.supabase
+          .from("pedido_eventos")
+          .select("*")
+          .eq("pedido_id", pedidoId)
+          .order("created_at", { ascending: true }),
+        this.reembolsos.totalesReembolsados([pedidoId]),
+        // La opinión del cliente se lee aquí y no en una llamada aparte: en la
+        // ficha tiene contexto (quién lo tocó, cuánto tardó, qué opinó), y es
+        // donde de verdad se puede hacer algo con ella.
+        this.calificaciones.porPedido(pedidoId),
+      ]);
 
     if (errorEventos) throw new InternalServerErrorException("No se pudo cargar el historial");
 
@@ -173,6 +193,7 @@ export class PedidosService {
       pedido: { ...pedido, total_reembolsado: reembolsados.get(pedidoId) ?? 0 } as Pedido,
       items: items as PedidoItem[],
       eventos: (eventos ?? []) as PedidoEvento[],
+      calificacion,
     };
   }
 

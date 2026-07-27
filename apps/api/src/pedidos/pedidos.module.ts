@@ -6,11 +6,16 @@ import { PedidosController, PedidosPublicController } from "./pedidos.controller
 import { AdminPedidosController } from "./admin-pedidos.controller";
 import { InventarioModule } from "../inventario/inventario.module";
 import { StripeModule } from "../pagos/stripe.module";
+import { CalificacionesModule } from "../calificaciones/calificaciones.module";
 
 @Module({
   // StripeModule y no PagosModule: PagosModule importa este módulo, así que
   // importarlo aquí sería circular. Ver stripe.module.ts.
-  imports: [InventarioModule, StripeModule],
+  //
+  // CalificacionesModule va en este sentido y no al revés: la ficha del pedido
+  // adjunta la opinión, pero la calificación no necesita saber nada de pedidos
+  // más allá de su id.
+  imports: [InventarioModule, StripeModule, CalificacionesModule],
   controllers: [PedidosController, PedidosPublicController, AdminPedidosController],
   providers: [PedidosService, ConfirmacionPedidoService, ReembolsosService],
   exports: [PedidosService, ConfirmacionPedidoService, ReembolsosService],

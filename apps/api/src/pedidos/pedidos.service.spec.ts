@@ -71,12 +71,16 @@ function servicioCon(estadoActual: PedidoEstado | null) {
   };
 
   const reembolsos = { totalesReembolsados: async () => new Map<string, number>() };
+  // La ficha adjunta la opinión del cliente; aquí no se prueba, así que devuelve
+  // el caso normal: la gran mayoría de los pedidos no están calificados.
+  const calificaciones = { porPedido: async () => null };
 
   const servicio = new PedidosService(
     cliente as never,
     inventario as never,
     email as never,
     reembolsos as never,
+    calificaciones as never,
   );
 
   return { servicio, updates, avisos };
@@ -256,6 +260,7 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
         },
       } as never,
       { totalesReembolsados: async () => new Map() } as never,
+      { porPedido: async () => null } as never,
     );
 
     await expect(servicio.updateEstado("p1", "ENVIADO", "total")).resolves.toBeDefined();
