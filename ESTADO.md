@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-26
+**Última actualización**: 2026-07-27
 
 ---
 
@@ -10,23 +10,30 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-**1. Mirar con tus ojos lo que se hizo el 2026-07-26** (es lo único que quedó sin comprobar; la lógica y los datos sí están verificados de punta a punta):
-   - **TI → Cargos**: las 6 plantillas de permisos ya sembradas. Ajústalas a como quieres trabajar de verdad — son datos, no hace falta tocar código.
-   - **Pedidos**: pinchar una fila abre la ficha con artículos e historial. Como hay **0 pedidos**, para verlo hay que hacer una compra de prueba en la tienda.
-   - Comprobar que el desplegable de estado y el botón de reembolso **no** abren la ficha al usarlos.
+Lo del **2026-07-27** está probado por Jonathan en producción y funcionando (pedido real `260727014265` con teléfono y dirección validada). No queda nada pendiente de comprobar de esa sesión.
 
-**2. Crear el primer empleado de verdad** y recorrer el flujo entero: Gestión Humana da de alta la persona → TI le provisiona la cuenta (verás la plantilla de su cargo ya rellena) → entrar con esa cuenta y comprobar que solo ve lo suyo.
+**La cola, por orden de lo que más duele:**
 
-**3. Y luego, lo que estaba en cola desde antes** (por orden de lo que más duele):
-   - **Validar los campos de dirección** — hoy son texto libre y ya ensuciaron datos reales («españa» como ciudad). Afecta a la analítica y al envío.
-   - **Tests de la web** (sigue a 0) y **CI**.
-   - **Paso a producción real**: ver los pendientes manuales de abajo.
+1. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 198 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()` y el selector de permisos.
+2. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
+3. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
+4. **Accesibilidad**, sin auditar todavía.
+5. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
+
+**Antes de tocar la tienda, leer esto** (la lección de la sesión del 27, que costó dos despliegues aprender): Vercel y Render despliegan **del mismo push** y no se pueden ordenar, y Vercel es siempre más rápido. Así que el orden seguro depende de **qué lado se vuelve más estricto**:
+
+| El cambio hace que… | Orden seguro | Cómo se hace |
+|---|---|---|
+| la **API acepte algo nuevo** (un campo más) | API primero | **Dos pushes**: primero API, verificar por HTTP, luego web |
+| la **API sea más estricta** (valida algo que antes colaba) | web primero | **Un push** basta: Vercel llega antes y la web nueva ya manda datos limpios |
+
+Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante los minutos de ventana, y eso no se reintenta: es una venta perdida.
 
 - **En línea**: tienda **https://valatino-api-steel.vercel.app** (Vercel) · API **https://valatino.onrender.com** (Render) · Supabase (BD/Auth/Storage). Auto-deploy en cada push a `main`. Render free duerme tras ~15 min (1ª carga lenta al despertar, normal).
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **039** (2026-07-26, historial de eventos del pedido) más su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **041** (2026-07-27, direcciones validadas). Antes, la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -36,7 +43,11 @@
 - **Avisos de estado y reembolsos (2026-07-25)**: cada cambio de estado en el panel **envía correo al cliente** (en preparación / en camino / entregado / cancelado), y el reembolso es una acción propia (`POST /admin/pedidos/:id/reembolso`, solo admin) que **cobra en Stripe** de verdad, total o parcial. ⚠️ **REEMBOLSADO ya no es una transición del desplegable**: antes elegirlo marcaba el pedido sin mover un euro. Ver sesión 2026-07-25 (cont. 3).
 - **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
 - **Ficha del pedido e historial (2026-07-26)**: en el panel, **pinchar un pedido** abre su ficha con los artículos, el cliente, la dirección y una **línea de tiempo** de todo lo que le ha pasado —alta, cambios de estado, pagos, reembolsos y correos— **con el nombre de quién lo hizo**. Lo ve todo el equipo, incluso con solo lectura en Pedidos; el cliente **no**. El registro va por **trigger**, así que ningún cambio de estado se escapa. Ver sesión 2026-07-26 (cont.).
-- **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre y el documento reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
+- **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre, el documento y (desde el 27) el **teléfono** reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`, `envio_telefono`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
+- **Nada de botones que no se pueden pulsar (2026-07-27)**: la regla del panel es **lo que no se puede hacer, no se pinta**. Antes se deshabilitaba (botón gris que no responde) o no se comprobaba nada. Si añades una acción nueva, gátela con `usePuede(modulo, nivel)` y **ocúltala**; en un formulario que existe para editarse, bloquea los campos con un `<fieldset disabled>` y esconde el botón de guardar. Ver sesión 2026-07-27.
+- **⚠️ TELÉFONO DE CONTACTO (2026-07-27) — obligatorio para pagar**: la dirección de envío pide teléfono y sin él no se puede completar el pago. Se guarda **normalizado a 9 dígitos** (se acepta `+34` y espacios al teclear, se guarda `600112233`); la regla vive una sola vez en `@valatino/types` (`normalizarTelefono`, `telefonoValido`, `formatearTelefono`) y la API la consume con el decorador `@EsTelefono`. Las direcciones guardadas **antes** de la 040 no lo tienen: el checkout avisa en ámbar y lo pide ahí mismo, guardándolo en la dirección. Ver sesión 2026-07-27.
+- **⚠️ DIRECCIONES (2026-07-27) — el código postal manda**: la **provincia ya no se escribe**, se deduce de los dos primeros dígitos del CP (que *son* el código de provincia del INE) y **se recalcula en el servidor**: lo que llegue en el DTO se descarta. La **localidad** es un desplegable de los municipios de esa provincia, del diccionario oficial del INE. El municipio se valida contra la provincia **del CP**, no contra toda España. La comparación es tolerante (`alcala de henares` vale) y se guarda el nombre oficial (`Alcalá de Henares`). Ver sesión 2026-07-27.
+  - El dataset **se genera, no se pega**: `node scripts/generar-municipios.mjs` lo baja del INE y escribe las dos salidas (`apps/api/src/common/datos/municipios.generado.ts` y los 52 `apps/web/public/municipios/<cpro>.json`). Falla si los códigos no cuadran con `PROVINCIAS_ES`. Regenerar cuando el INE publique edición nueva.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 1. **`NODE_ENV` está en `development` en Render**, aunque `render.yaml` dice `production`. Verificado que **ningún código depende de esa variable** (solo un comentario en `session.middleware.ts` explicando que a propósito no se depende de ella), así que cambiarlo es seguro: Render → servicio Valatino → Environment → Save (dispara redeploy). No se hizo por API porque los tokens ya estaban revocados.
@@ -45,10 +56,130 @@
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD en "arranque real"**, comprobado de nuevo el **2026-07-26** al terminar: **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y el **stock igual a esa factura** (`reservado=0`). **0 pedidos, 0 eventos, 0 carritos, 0 transacciones, 0 direcciones, 0 clientes, 0 empleados, 1 usuario** (el súper admin). Los datos de prueba de las dos sesiones del 26 se borraron uno a uno. Los clientes se crearán solos al comprar.
-- **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día.
-- **Solo existe UNA cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil "Admin Valatino"). ⚠️ **El asesor `jhoannamendoza46@valatino.com` ya NO existe** — este archivo lo daba por vivo hasta el 2026-07-25; se comprobó que en `auth.users` no está. `empleados` y `staff_modulos` están a 0, así que Gestión Humana y TI arrancan vacíos. Para probar el flujo de asesor hay que crear la cuenta otra vez (RRHH crea empleado → TI le provisiona cuenta).
-- Pendientes de fondo de siempre: ~~tests (0%)~~ → **147 tests en la API** (`pnpm --filter @valatino/api test`); la web sigue sin tests. CI, accesibilidad. Mejora anotada: **normalizar/validar los campos de dirección** (ciudad/provincia/CP, país estructurado) — hoy son texto libre con ruido (p. ej. "españa" en ciudad); relevante para analítica/modelos. El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`.
+- ⚠️ **La BD ya NO está en "arranque real"**: hay datos de las pruebas del 26 y del 27, y este archivo lo dio por vacío durante una sesión entera. Comprobado el **2026-07-27** al terminar: **13 productos**, la **primera factura** (11 líneas), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**, y además **2 pedidos** (los dos reembolsados, de prueba), **18 eventos**, **2 empleados**, **5 usuarios**, **12 filas de `staff_modulos`**, **2 direcciones**, **10 carritos** y **6 transacciones**. Si hace falta volver a dejarla limpia, el procedimiento está en la sesión 2026-07-25 (cont. 4) — con su advertencia de filtrar por rol `cliente` y no por lista de correos.
+- **Cuentas que existen ahora** (5): el súper admin `jonathanduqee+admin@gmail.com`, dos clientes de prueba (`jonathanduqee@hotmail.com` y `jonathanduqee@gmail.com`) y dos asesores creados por el flujo RRHH → TI: **EMP-0018 Jhoanna Mendoza** (DIRCOM, `jhoanna@valatino.es`) y **EMP-0019 Valentino Jiménez** (ASECOM, `valentino@valatino.es`). El flujo entero está probado de punta a punta.
+- **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
+- Pendientes de fondo: ~~tests (0%)~~ → **198 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-27 (cont. 2) — Direcciones: el código postal manda
+
+Petición de Jonathan, la última de la cola de siempre. Los cuatro campos de la dirección eran texto libre y ya habían dejado «españa» escrito como ciudad.
+
+### La palanca que lo resuelve
+**Los dos primeros dígitos del código postal español SON el código de provincia del INE.** Así que la provincia no hay que preguntarla: se deduce. Eso convierte tres campos en uno y elimina el ruido de raíz en vez de perseguirlo.
+
+| Campo | Antes | Ahora |
+|---|---|---|
+| `provincia` | Texto libre; la única validación era «no vacía» | Derivada del CP, de solo lectura, y **recalculada en el servidor** |
+| `ciudad` | Texto libre | Desplegable de los municipios de esa provincia (8.132 del INE) |
+| `codigo_postal` | La API solo miraba `MaxLength(10)` | 5 dígitos **y** prefijo de provincia real (01–52) |
+| `pais` | `char(2)`, aceptaba cualquier par de letras | CHECK de 2 mayúsculas ISO |
+
+⚠️ **La provincia se recalcula en el servidor, no solo en el formulario.** Lo que llegue en el DTO se descarta. Es lo que hace que «españa» no pueda volver a entrar **por ninguna vía** — ni una web antigua, ni un cliente manipulado, ni una ruta nueva que alguien añada.
+
+⚠️ **El municipio se valida contra la provincia DEL CP**, no contra las 8.132 de toda España: «Barcelona» con un código postal de Madrid es un error de datos, no una dirección.
+
+**Tolerante al escribir, canónico al guardar**: `alcala de henares` y `MEJORADA DEL CAMPO` se aceptan (la comparación ignora mayúsculas, acentos y espacios de más) y se guarda el nombre oficial. Así el campo deja de acumular variantes del mismo sitio sin castigar a quien teclea rápido.
+
+### El dataset se genera, no se pega
+`node scripts/generar-municipios.mjs` descarga el diccionario del INE y escribe **las dos salidas desde la misma fuente**, para que no puedan desincronizarse. Comprueba además que los códigos de provincia cuadran con `PROVINCIAS_ES` y **falla al generar** si no: sin eso, un CP válido podría quedarse sin municipios y el desplegable saldría vacío sin ningún error.
+
+Dos fuentes descartadas por el camino, que conviene no volver a considerar: el repo `oscarnovasf/ccaa-provincias-municipios` es de **enero de 2012** y está bajo **GPL-3.0** (copyleft sobre un proyecto comercial cerrado). Se fue a la fuente oficial del INE, edición vigente.
+
+⚠️ **Los nombres van LITERALES del INE, sin dar la vuelta al artículo** («Acebeda, La»). Se estudió invertirlos para que se lean mejor y **se descartó**: 611 nombres traen el artículo al final, pero entre ellos hay comas legítimas — `Cruïlles, Monells i Sant Sadurní de l'Heura`, `Alqueries, les/Alquerías del Niño Perdido` — y una regla de «mover lo que va tras la última coma» las destrozaría en silencio. El precio es que en el desplegable se lee un poco raro; la ventaja es que el dato casa con cualquier fuente del INE sin traducción por medio. Mismo criterio en `PROVINCIAS_ES` («Rioja, La»).
+
+### Dos decisiones de empaquetado que no son cosméticas
+- **Para la API se emite un `.ts`, no un `.json`.** Importar JSON exigiría `resolveJsonModule` **y** configurar los assets del build de Nest para que el fichero llegue al `dist`. Si eso falla, la API no arranca en Render — y es la que cobra. Un módulo TypeScript no puede quedarse fuera del paquete.
+- **En la web los municipios NO van en el bundle ni por la API.** No en el bundle porque son 127 KB para usar 3. No por la API porque **Render duerme** en el plan gratuito y el formulario de dirección no puede quedarse esperando a que despierte. Son 52 ficheros estáticos en `public/municipios/`, servidos por el CDN de Vercel, que `useMunicipios` cachea por provincia.
+
+### Migración 041
+CHECK de CP válido, país ISO y provincia entre las **52 oficiales** (52 valores estables desde hace décadas: caben en un CHECK y cierran «españa» para siempre).
+
+- **El municipio NO se comprueba en la BD**: son 8.132 nombres de los que cambian algunos cada año. Meterlos obligaría a mantener el diccionario en dos sitios y a una migración por cada cambio del INE. Se valida en la API, que es la única que escribe en esa tabla (la 035 dejó su RLS en solo lectura para los clientes).
+- ⚠️ **`pedidos.envio_*` se queda SIN restricciones, a propósito.** Esas columnas las rellena `confirmar_venta` **dentro de la transacción que confirma un pago ya cobrado**. Un CHECK que falle ahí no protege un dato: convierte un cobro en un pedido que no existe, y el webhook reintentaría sin éxito. El snapshot se copia de datos que la API ya validó; proteger un campo de texto no vale el riesgo de perder una venta cobrada.
+
+### El hueco que cazó la prueba
+Un `PATCH` con **solo la ciudad** no lo puede validar el decorador del DTO, porque no ve el CP guardado. La coherencia se resuelve en el servicio contra la fila actual (`dto.codigo_postal ?? actual.codigo_postal`). Sin eso, cambiar la localidad a secas se colaba sin validar.
+
+### Verificado contra la API desplegada
+```
+99999                            → 400 código postal
+Barcelona con CP 28001           → 400 no es municipio de esa provincia
+"Madrit"                         → 400 no es municipio de esa provincia
+provincia="españa" + resto bien   → pasa (se recalcula a Madrid)
+"alcala de henares"              → pasa (se guarda «Alcalá de Henares»)
+```
+Y en el remoto: las tres restricciones de la 041 rechazan «99999», «españa» como provincia y un país no ISO, y aceptan la dirección buena. La BD quedó intacta.
+
+**Tests: 198** en la API (35 nuevos).
+
+---
+
+## Sesión 2026-07-27 (cont.) — Teléfono de contacto del cliente
+
+Jonathan lo detectó probando el módulo de clientes: **el teléfono no se pedía ni se capturaba en ninguna parte.**
+
+### El diagnóstico era peor de lo que parecía
+`profiles.telefono` existía y `listar_clientes` lo leía, pero **solo podía rellenarlo el personal a mano** desde el panel. Para un invitado era **imposible**: `pedidos` no tenía columna donde guardarlo y la rama `sin_cuenta` de la RPC devolvía `NULL` cableado. Y la ficha del pedido remataba etiquetando «Teléfono / referencia de pago» un campo que mostraba **la referencia de pago**: llamaba teléfono a un dato que no lo era, mientras el de verdad no se pedía.
+
+### Migración 040
+`direcciones_envio.telefono` y `pedidos.envio_telefono`, ambas **nullable**: las filas anteriores no lo tienen y no hay valor honesto que inventarles. Lo exige el formulario, no la tabla.
+
+- El teléfono viaja al pedido como **COPIA**, mismo criterio que el resto de `envio_*`: si el cliente cambia de número, el pedido antiguo sigue diciendo a qué teléfono se avisó para aquella entrega.
+- **La firma de `confirmar_venta` no cambia**, así que la API anterior seguía funcionando contra esta BD. Eso es lo que permitió desplegar en dos fases.
+- `listar_clientes` **deriva el teléfono del pedido** cuando el perfil no lo tiene, igual que ya hacía con nombre y documento — y también para los invitados.
+
+### Una sola regla de validación
+En `@valatino/types`: `normalizarTelefono`, `telefonoValido` y `formatearTelefono`. La API la consume con un decorador `@EsTelefono` **en vez de copiar la regex**, que es como el CHECK de `modulo` acabó reescrito cuatro veces. Se guardan **9 dígitos pelados**: aceptar lo tecleado llenaría la columna de «+34600112233», «600 11 22 33» y «600-11-22-33» para el mismo número, que es el mismo ruido que ensució las direcciones.
+
+**Obligatorio para pagar** — decisión tomada en la sesión: es por donde el repartidor avisa o pregunta si no encuentra el portal. Si algún día molesta, es una línea en `direccionCompleta()`.
+
+**Las direcciones guardadas antes de la 040 no tienen teléfono.** El selector del checkout avisa en ámbar y lo pide ahí mismo, guardándolo **en la dirección** y no solo para ese pedido: es un dato de la dirección, la RPC lo lee de ahí y así el cliente no vuelve a tropezar. Hasta que lo tenga, no se puede pagar.
+
+### ⚠️ El despliegue en dos fases no era teoría
+El `ValidationPipe` global usa `forbidNonWhitelisted`, así que una web que enviara `telefono` contra la API anterior recibiría un **400 al pagar**. Se subió API primero y la sonda contra Render lo confirmó en vivo:
+
+```
+{"statusCode":400,"message":["direccion.property telefono should not exist"]}
+```
+
+Eso es lo que habría recibido cada cliente durante los ~8 minutos de ventana. Se esperó a que la API cambiara (empezó a fallar por «El carrito está vacío», lo correcto para una sonda sin carrito) y entonces se subió la web.
+
+### Verificado end-to-end
+En transacción revertida por los dos caminos —invitado con teléfono en el snapshot (sale en `listar_clientes` con su número, antes imposible) y usuario con dirección guardada (la RPC lo lee de `direcciones_envio`)— y después **en producción por Jonathan**: pedido `260727014265` con `envio_telefono = 658498049`, y el cliente aparece en el listado con su teléfono.
+
+**Tests: 163** en la API (16 nuevos).
+
+---
+
+## Sesión 2026-07-27 — Quien solo consulta no ve botones que no puede pulsar
+
+Jonathan, probando con una cuenta de solo lectura: *«siguen viendo el botón de guardar o los iconos de eliminar, pero cuando dan clic no funciona»*.
+
+### El patrón estaba a medias
+Tres comportamientos distintos convivían: unas pantallas **ocultaban** el control, otras solo lo **deshabilitaban** (botón gris que no responde, que es lo que se veía) y otras **no comprobaban nada**. Se unifica en una regla: **lo que no se puede hacer, no se pinta.**
+
+En un formulario que existe para editarse la regla no basta —esconder el botón dejaría campos rellenables que no se pueden guardar—, así que ahí los campos se bloquean con un **`<fieldset disabled>`** (apaga todo lo de dentro de una vez, así ningún campo nuevo se olvida) y el botón de guardar no se renderiza.
+
+| Pantalla | Qué se colaba |
+|---|---|
+| Catálogo | «+ Nuevo producto» gris, y lápiz + papelera **siempre visibles** |
+| Inventario | «+Stock» en cada fila, **sin ninguna comprobación** |
+| Proveedores | Formulario de alta **entero y rellenable** |
+| Gestión Humana | Tarjeta «Generar histórico» con botón gris |
+| Fichas de empleado y cliente | Formulario editable con «Guardar» gris |
+| TI → Usuarios | «Dar acceso» y lápiz visibles con `ti:lectura` |
+
+En los listados de clientes y empleados el icono pasa de **lápiz a ojo** cuando no hay `edicion`: la ficha sí se consulta con lectura, pero un lápiz promete editar.
+
+### Tres agujeros que aparecieron por el camino
+1. **Borrar producto exige `catalogo:total`**, no `edicion`. Quien tenía edición veía la papelera y se comía un 403.
+2. **`/backoffice/compras/nueva` y `/backoffice/gestion-humana/nuevo` eran alcanzables por URL con solo lectura** — el layout del módulo solo pedía `lectura`. Cada una gana su layout con `edicion`. **Esto no era cosmético.**
+3. Los textos de estado vacío decían «Crea el primero con…» a quien no puede crear nada.
+
+Los niveles se sacaron **uno a uno de los decoradores `@Nivel` de la API**, no de memoria.
 
 ---
 
@@ -162,7 +293,7 @@ Se creó un empleado ASECOM desde RRHH, se le provisionó cuenta desde TI (con l
 
 **Tests: 134** en la API (49 nuevos). La web sigue sin tests; la red ahí es `pnpm turbo type-check`, que rompe exactamente en los puntos afectados al cambiar el shape de `@valatino/types`.
 
-⚠️ **Ventana de despliegue**: Render y Vercel auto-despliegan del mismo push, así que **no se puede** ordenar API antes que web — y como Render en plan free tarda más, la combinación mala (web nueva contra API vieja) es la probable. Por eso la web tolera el formato anterior **solo en lectura** durante una release (`permisos ?? []`). Se puede quitar en la siguiente. En escritura no se acepta a propósito: mapearlo a un nivel por defecto reintroduciría un fail-open silencioso.
+⚠️ **Ventana de despliegue**: Render y Vercel auto-despliegan del mismo push, así que **no se puede** ordenar API antes que web — y como Render en plan free tarda más, la combinación mala (web nueva contra API vieja) es la probable. Por eso la web tolera el formato anterior **solo en lectura** durante una release (`permisos ?? []`). ← **Sigue ahí y ya sobra** (ver el punto 5 de «Al volver»); el razonamiento de esta nota se corrigió el 27: el orden seguro depende de qué lado se vuelve más estricto, no siempre es «API primero». En escritura no se acepta a propósito: mapearlo a un nivel por defecto reintroduciría un fail-open silencioso.
 
 ---
 
