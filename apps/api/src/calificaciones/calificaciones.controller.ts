@@ -28,11 +28,17 @@ import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
  * compradores. El token es un UUID que solo se entrega a quien acredita haber
  * pagado, igual que `GET /pedidos/por-referencia/:ref`.
  *
- * Límite más estricto que el global: aquí no hay sesión que identifique a nadie,
- * así que el token es lo único que frena a quien quiera probar UUIDs al azar.
+ * Límite más estricto que el global (100): aquí no hay sesión que identifique a
+ * nadie, así que el token es lo único que frena a quien quiera probar UUIDs al
+ * azar.
+ *
+ * 20 y no 10: cada cambio de respuesta manda un POST para que la opinión esté a
+ * salvo aunque cierren la ventana, así que unos cuantos toques de corrección más
+ * el comentario se acercaban al tope. Un 429 en mitad de una encuesta voluntaria
+ * es una respuesta perdida.
  */
 @Controller("calificaciones")
-@Throttle({ default: { ttl: 60_000, limit: 10 } })
+@Throttle({ default: { ttl: 60_000, limit: 20 } })
 export class CalificacionesPublicController {
   constructor(private readonly calificaciones: CalificacionesService) {}
 

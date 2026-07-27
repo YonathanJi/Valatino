@@ -213,8 +213,9 @@ function ConfirmacionContent() {
         )
       )}
 
-      {/* Se pregunta cuando el pedido ya existe: antes de eso no hay nada que
-          calificar y el token todavía no ha llegado. */}
+      {/* Ventana emergente, no una tarjeta al final: como tarjeta quedaba bajo
+          el pliegue y nadie llegaba. Se abre sola cuando el pedido ya existe
+          (antes de eso el token todavía no ha llegado) y se puede cerrar. */}
       {tokenCalificacion && <CalificarCompra token={tokenCalificacion} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
