@@ -12,6 +12,8 @@
 
 Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionando. **Dos pedidos reales calificados**: `260728018953` (Fácil · 5 · «nada todo muy bien») y `260728011017` (Regular · 4), el segundo ya con la ventana emergente corregida. Nada pendiente de comprobar.
 
+⚠️ **Del login, que dio problemas al cerrar la sesión** (arreglado y confirmado por Jonathan): hay **dos caminos** de entrada. El **código de 6 dígitos es el principal** y el **enlace del correo es el secundario**. El del enlace **nunca había funcionado** —`/auth/callback` era de servidor y no puede completar PKCE ni leer el fragmento de la URL— y solo se destapó cuando un 502 de Supabase hizo que llegara su correo por defecto, que trae enlace en vez de código. Ver sesión 2026-07-27 (cont. 6), y sobre todo el aviso de **NO lanzar `supabase config push`** que hay ahí.
+
 **Dos cosas que conviene mirar al empezar** (cinco minutos, y dan contexto):
 - **Dashboard → Experiencia de compra**, ya con datos de verdad: 2 opiniones, media 4,5, tasa 100 %. Sirve para ver la pantalla con contenido en vez de vacía, y para comprobar que el filtro «solo las malas» no devuelve nada (correcto: no hay ninguna).
 - **Pinchar cualquiera de los 2 pedidos** en Pedidos: la ficha muestra artículos, historial de quién lo tocó y la opinión del cliente juntas. Es el sitio donde converge casi todo lo hecho estos dos días.
@@ -27,7 +29,8 @@ Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionan
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
-6. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
+6. **Correo de acceso: quitarse la dependencia de Supabase** (opcional, pero es el flujo más crítico). Su endpoint de plantillas dio un 502 y dejó el login enviando correos en inglés con enlace. Mitigado ya, pero la causa sigue ahí. Antes de nada, lo barato: **re-guardar la plantilla en el Dashboard**. Si vuelve a pasar, mandarlo nosotros con SendGrid vía **Send Email Hook** — `EmailModule` ya tiene las plantillas en español.
+7. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
 
 **Antes de tocar la tienda, leer esto** (la lección de la sesión del 27, que costó dos despliegues aprender): Vercel y Render despliegan **del mismo push** y no se pueden ordenar, y Vercel es siempre más rápido. Así que el orden seguro depende de **qué lado se vuelve más estricto**:
 
@@ -76,6 +79,49 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **208 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-27 (cont. 6) — El login por enlace nunca funcionó (y nadie lo sabía)
+
+Jonathan: *«no está llegando el correo para iniciar sesión»*, luego *«volvió a pasar, el login estaba funcionando muy bien»*. Resultó ser **tres problemas apilados**, y el del medio era nuestro y llevaba ahí desde el principio.
+
+### Hay DOS caminos de entrada y solo uno funcionaba
+El log de auth (ventana 18:00–22:41) los separa sin ambigüedad:
+
+| Camino | Secuencia | Resultado |
+|---|---|---|
+| **Código tecleado** | `/otp` 200 → `/verify` **200** → `/user` 200 | ✅ |
+| **Enlace pulsado** | `/otp` 200 → `/verify` **303** → `/token` **400** ×2 | ❌ nunca creaba sesión |
+
+**No se notó nunca** porque con la plantilla en español el correo trae un código de 6 dígitos y se teclea: por el enlace no pasaba nadie.
+
+### Los tres problemas, en orden
+1. **De Supabase**: `templatemailer_template_body_http_error` — un **502** al descargar nuestra plantilla desde `api.supabase.com/platform/auth/<ref>/templates/magic-link`. Cuando eso falla, GoTrue **cae a su plantilla por defecto**, en inglés y **con enlace en vez de código**. Ahí se estrenó el camino roto.
+2. **Nuestro, preexistente**: `/auth/callback` era un *route handler* de **servidor** y ese flujo no se puede completar ahí:
+   - El **verificador PKCE** lo crea `signInWithOtp` en el **navegador**; el intercambio tiene que ocurrir donde vive → de ahí los `400`.
+   - Supabase puede devolver la sesión en el **fragmento** de la URL (`#access_token=…`), y **un fragmento nunca se envía al servidor**. En el log hay un intento (22:40:44) con `/verify` 303 y **ningún** `/token` detrás: no había nada que leer.
+3. **Efecto dominó**: al no entrar, se pide otro código → Supabase tiene un **enfriamiento por dirección** → `429 over_email_send_rate_limit` («you can only request this after 35 seconds») y **no se envía ningún correo**. De ahí el «no llega».
+
+### Cómo quedó
+- `/auth/callback` es ahora una **página de cliente** que cubre los tres formatos (`?code=`, `?token_hash=` y el fragmento, que `detectSessionInUrl` procesa al crear el cliente). Vincula pedidos y fusiona carrito, que la entrada por enlace se saltaba. Si nada cuadra, ofrece **pedir un código** en vez de dejar una pantalla sin salida.
+  - Prueba del cambio: `GET /auth/callback` sin parámetros devolvía **307** (redirigía a `/login`, el callejón) y ahora devuelve **200**.
+- **Reenviar con cuenta atrás** en la propia pantalla del código. Antes la única salida era «Cambiar correo», que devolvía al paso 1 a pedir otro y a chocar con el límite.
+- ⚠️ **Si el límite salta en el PRIMER intento, se pasa igualmente a teclear el código**: significa que ya hay uno enviado y válido en el buzón. Dejar al usuario en el formulario del correo era el mismo callejón con otra cara.
+- El `error` de la query del login ya se muestra; antes se escribía en la URL y no se pintaba en ninguna parte.
+
+**El código sigue siendo el camino principal** (decisión de Jonathan) y el enlace queda como secundario **que ahora funciona de verdad**.
+
+### Lo que queda de esto
+- **Secundario pendiente**: re-guardar la plantilla en el Dashboard (**Authentication → Email Templates → Magic Link → Save**, sin cambiar nada) para que dejen de llegar los ingleses. Eso ataca la **causa**; lo hecho ataca la consecuencia.
+- **Si el 502 se repite mucho**: enviar el correo de acceso nosotros con SendGrid vía **Send Email Hook** de Supabase. Ya existe `EmailModule` con plantillas en español, así que quita esa dependencia del flujo más crítico que hay.
+
+### ⚠️⚠️ NO lanzar `supabase config push`
+Es la tentación evidente para reenviar las plantillas, y **rompería producción**: `supabase/config.toml` tiene `site_url = "http://localhost:3000"` y `additional_redirect_urls` a localhost. Ese push sobrescribiría el `site_url` del remoto y los enlaces de todos los correos apuntarían a la máquina del cliente. Si algún día hace falta usarlo, **arreglar primero esos valores**.
+
+### Dos cosas de método que salieron bien
+- **`get_logs` del servicio `auth` viene capado a 100 entradas**, así que la ventana se desliza. Conviene comprobar el rango (`min`/`max` de los timestamps) antes de afirmar «esto solo pasó una vez».
+- La primera sonda que escribí dio un **falso positivo**: buscaba la palabra «calificacion» en la respuesta, y el mensaje de un 404 incluye la URL. **Comprobar por código de estado, no por texto.**
 
 ---
 
