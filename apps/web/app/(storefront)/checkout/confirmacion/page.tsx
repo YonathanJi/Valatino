@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { CheckCircle2, Clock3, XCircle, LogIn } from "lucide-react";
 import { Button } from "@components/ui/button";
+import { CalificarCompra } from "@components/checkout/CalificarCompra";
 import { API_URL } from "@lib/api/client";
 import { useCarrito } from "@lib/hooks/useCarrito";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
@@ -15,9 +16,17 @@ type EstadoPago = "exitoso" | "procesando" | "fallido";
  * El pedido lo crea el webhook del proveedor de pago unos segundos después
  * de la redirección, así que se consulta con reintentos hasta obtener el
  * número de pedido.
+ *
+ * La misma respuesta trae el token para calificar la compra: acredita lo mismo
+ * (quien conoce la referencia de pago es quien pagó), así que no hace falta un
+ * segundo mecanismo para identificar a un comprador que no tiene cuenta.
  */
-function useNumeroPedido(referencia: string, activo: boolean): string | null {
+function usePedidoConfirmado(
+  referencia: string,
+  activo: boolean,
+): { numeroPedido: string | null; token: string | null } {
   const [numeroPedido, setNumeroPedido] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!referencia || !activo) return;
@@ -31,9 +40,15 @@ function useNumeroPedido(referencia: string, activo: boolean): string | null {
           `${API_URL}/pedidos/por-referencia/${encodeURIComponent(referencia)}`,
         );
         if (res.ok) {
-          const json = (await res.json()) as { numero_pedido: string | null };
+          const json = (await res.json()) as {
+            numero_pedido: string | null;
+            token_calificacion?: string;
+          };
           if (!cancelado && json.numero_pedido) {
             setNumeroPedido(json.numero_pedido);
+            // Opcional: durante una release la API puede no devolverlo todavía,
+            // y en ese caso simplemente no se pide opinión.
+            setToken(json.token_calificacion ?? null);
             return;
           }
         }
@@ -53,7 +68,7 @@ function useNumeroPedido(referencia: string, activo: boolean): string | null {
     };
   }, [referencia, activo]);
 
-  return numeroPedido;
+  return { numeroPedido, token };
 }
 
 function resolverEstado(redirectStatus: string | null): EstadoPago {
@@ -74,7 +89,10 @@ function ConfirmacionContent() {
     searchParams.get("payment_intent") ?? searchParams.get("referencia") ?? "";
 
   const estado = resolverEstado(redirectStatus);
-  const numeroPedido = useNumeroPedido(referencia, estado === "exitoso");
+  const { numeroPedido, token: tokenCalificacion } = usePedidoConfirmado(
+    referencia,
+    estado === "exitoso",
+  );
   const { reload: recargarCarrito } = useCarrito();
   const [sesionIniciada, setSesionIniciada] = useState<boolean | null>(null);
 
@@ -194,6 +212,10 @@ function ConfirmacionContent() {
           </div>
         )
       )}
+
+      {/* Se pregunta cuando el pedido ya existe: antes de eso no hay nada que
+          calificar y el token todavía no ha llegado. */}
+      {tokenCalificacion && <CalificarCompra token={tokenCalificacion} />}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
         <Button asChild variant="outline">

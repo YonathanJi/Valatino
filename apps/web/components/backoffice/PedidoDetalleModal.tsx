@@ -6,8 +6,21 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { HistorialPedido } from "@components/backoffice/HistorialPedido";
-import { formatearTelefono } from "@valatino/types";
+import {
+  ESFUERZO_LABELS,
+  SATISFACCION_LABELS,
+  formatearTelefono,
+  type SatisfaccionCompra,
+} from "@valatino/types";
 import type { PedidoDetalle } from "@valatino/types";
+
+const CARAS_SATISFACCION: Record<SatisfaccionCompra, string> = {
+  1: "😞",
+  2: "🙁",
+  3: "😐",
+  4: "🙂",
+  5: "😄",
+};
 
 interface PedidoDetalleModalProps {
   pedidoId: string;
@@ -135,6 +148,44 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                 </div>
               </dl>
             </section>
+
+            {/* La opinión del cliente, si la dejó. Aquí tiene contexto: al lado
+                de quién tocó el pedido y de cuánto tardó. La mayoría de los
+                pedidos no la tendrán — es opcional a propósito. */}
+            {detalle.calificacion && (
+              <section className="rounded-lg border p-4">
+                <h3 className="mb-3 text-sm font-medium">Opinión del cliente</h3>
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span
+                    className="text-2xl"
+                    title={SATISFACCION_LABELS[detalle.calificacion.satisfaccion]}
+                    aria-label={SATISFACCION_LABELS[detalle.calificacion.satisfaccion]}
+                  >
+                    {CARAS_SATISFACCION[detalle.calificacion.satisfaccion]}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {SATISFACCION_LABELS[detalle.calificacion.satisfaccion]} ·{" "}
+                    {detalle.calificacion.satisfaccion}/5
+                  </span>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      detalle.calificacion.esfuerzo === 3
+                        ? "bg-amber-100 text-amber-800"
+                        : detalle.calificacion.esfuerzo === 2
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-green-100 text-green-700"
+                    }`}
+                  >
+                    {ESFUERZO_LABELS[detalle.calificacion.esfuerzo]}
+                  </span>
+                </div>
+                {detalle.calificacion.comentario && (
+                  <p className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                    {detalle.calificacion.comentario}
+                  </p>
+                )}
+              </section>
+            )}
 
             <section className="rounded-lg border">
               <h3 className="border-b p-4 text-sm font-medium">
