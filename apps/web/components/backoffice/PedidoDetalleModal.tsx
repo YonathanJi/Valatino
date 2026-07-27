@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { HistorialPedido } from "@components/backoffice/HistorialPedido";
+import { formatearTelefono } from "@valatino/types";
 import type { PedidoDetalle } from "@valatino/types";
 
 interface PedidoDetalleModalProps {
@@ -113,7 +114,11 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                 <Campo etiqueta="Nombre" valor={p.envio_nombre} />
                 <Campo etiqueta="Correo" valor={p.email_cliente} />
                 <Campo etiqueta="Documento" valor={p.documento_cliente} />
-                <Campo etiqueta="Teléfono / referencia de pago" valor={p.referencia_pago} />
+                {/* Antes esta fila decía «Teléfono / referencia de pago» y
+                    mostraba la referencia: llamaba teléfono a un dato que no lo
+                    era, y el de verdad no se pedía en ninguna parte. */}
+                <Campo etiqueta="Teléfono" valor={formatearTelefono(p.envio_telefono) || null} />
+                <Campo etiqueta="Referencia de pago" valor={p.referencia_pago} />
                 <div className="sm:col-span-2">
                   <dt className="text-xs text-muted-foreground">Dirección</dt>
                   <dd className="text-sm">

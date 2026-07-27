@@ -21,6 +21,7 @@ import { useCarrito } from "@lib/hooks/useCarrito";
 import { formatEUR } from "@lib/utils";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
+import { normalizarTelefono } from "@valatino/types";
 import type { ReservaCheckoutResponse } from "@valatino/types";
 
 type MetodoPago = "stripe" | "paypal";
@@ -39,6 +40,7 @@ export default function CheckoutPage() {
   const [metodo, setMetodo] = useState<MetodoPago>("stripe");
   const [direccionEnvioId, setDireccionEnvioId] = useState("");
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<number | null>(null);
+  const [telefonoPendiente, setTelefonoPendiente] = useState(false);
   const [direccionInline, setDireccionInline] = useState<DireccionInline>(DIRECCION_VACIA);
   const [reservaOk, setReservaOk] = useState(false);
   const [reservando, setReservando] = useState(false);
@@ -146,8 +148,11 @@ export default function CheckoutPage() {
   // Usuario autenticado con direcciones guardadas → selector.
   // Invitado, o autenticado sin direcciones → formulario inline.
   const usaDireccionGuardada = isAuthenticated && (direccionesGuardadas ?? 0) > 0;
+  // Con dirección guardada el teléfono se valida donde vive: si la elegida no
+  // lo tiene (se guardó antes de la 040), el selector pide añadirlo y hasta
+  // entonces no se puede pagar.
   const direccionValida = usaDireccionGuardada
-    ? direccionEnvioId !== ""
+    ? direccionEnvioId !== "" && !telefonoPendiente
     : direccionCompleta(direccionInline);
 
   const puedePagar = emailValido && documentoValido && direccionValida;
@@ -167,6 +172,7 @@ export default function CheckoutPage() {
               codigo_postal: direccionInline.codigo_postal.trim(),
               provincia: direccionInline.provincia.trim(),
               pais: direccionInline.pais || "ES",
+              telefono: normalizarTelefono(direccionInline.telefono),
             },
           }),
     }),
@@ -281,6 +287,7 @@ export default function CheckoutPage() {
               onSelect={setDireccionEnvioId}
               selectedId={direccionEnvioId}
               onLoaded={setDireccionesGuardadas}
+              onTelefonoPendiente={setTelefonoPendiente}
             />
           )}
           {!usaDireccionGuardada && (

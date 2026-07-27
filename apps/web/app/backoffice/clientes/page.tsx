@@ -7,6 +7,7 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { usePuede } from "@components/backoffice/PermisosProvider";
+import { formatearTelefono } from "@valatino/types";
 import type { Cliente } from "@valatino/types";
 
 const fmtFecha = (iso: string | null) =>
@@ -140,7 +141,7 @@ export default function ClientesPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
-                          <p>{c.telefono ?? "—"}</p>
+                          <p>{formatearTelefono(c.telefono) || "—"}</p>
                           <p className="text-xs">{c.documento ?? "sin documento"}</p>
                         </td>
                         <td className="px-4 py-3 text-right font-mono">{c.pedidos}</td>

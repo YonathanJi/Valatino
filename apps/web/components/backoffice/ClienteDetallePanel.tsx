@@ -12,6 +12,7 @@ import { PageHeader } from "@components/backoffice/PageHeader";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { formatEUR } from "@lib/utils";
 import { usePuede } from "@components/backoffice/PermisosProvider";
+import { formatearTelefono, normalizarTelefono, telefonoValido } from "@valatino/types";
 import type { ClienteDetalle } from "@valatino/types";
 
 const fmtFecha = (iso: string | null) =>
@@ -37,7 +38,8 @@ export function ClienteDetallePanel() {
       setDetalle(d);
       setForm({
         nombre: d.cliente.nombre ?? "",
-        telefono: d.cliente.telefono ?? "",
+        // Formateado al mostrar; se vuelve a normalizar al guardar.
+        telefono: formatearTelefono(d.cliente.telefono),
         documento: d.cliente.documento ?? "",
       });
     } catch (err) {
@@ -59,7 +61,7 @@ export function ClienteDetallePanel() {
         method: "PATCH",
         body: JSON.stringify({
           nombre: form.nombre.trim() || undefined,
-          telefono: form.telefono,
+          telefono: normalizarTelefono(form.telefono),
           documento: form.documento,
         }),
       });
@@ -182,10 +184,18 @@ export function ClienteDetallePanel() {
             <label className="block space-y-1 text-sm">
               <span className="font-medium">Teléfono</span>
               <Input
+                type="tel"
+                inputMode="tel"
+                placeholder="600 11 22 33"
                 value={form.telefono}
                 onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-                maxLength={30}
+                maxLength={20}
               />
+              {form.telefono !== "" && !telefonoValido(form.telefono) && (
+                <span className="block text-xs text-destructive">
+                  9 dígitos (móvil o fijo). La API rechaza otro formato.
+                </span>
+              )}
             </label>
             <label className="block space-y-1 text-sm">
               <span className="font-medium">Documento (DNI/NIE)</span>
@@ -273,6 +283,9 @@ export function ClienteDetallePanel() {
                   {d.linea1}
                   {d.linea2 ? `, ${d.linea2}` : ""} · {d.codigo_postal} {d.ciudad}, {d.provincia}
                 </p>
+                {d.telefono && (
+                  <p className="text-muted-foreground">Tel. {formatearTelefono(d.telefono)}</p>
+                )}
               </li>
             ))}
           </ul>
