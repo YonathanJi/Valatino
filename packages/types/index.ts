@@ -191,6 +191,46 @@ export function transicionesPermitidas(
   return tabla[estado] ?? [];
 }
 
+// ============================================================
+// Teléfono de contacto
+// ============================================================
+
+/**
+ * Teléfono español, ya normalizado: 9 dígitos que empiezan por 6 o 7 (móvil) u
+ * 8 o 9 (fijo). La tienda solo envía a España (`pais` es 'ES' fijo y el
+ * formulario no ofrece otro país), así que la regla se ceñe a eso en vez de
+ * aceptar cualquier cosa con pinta de número.
+ */
+const TELEFONO_ES_REGEX = /^[6789]\d{8}$/;
+
+/**
+ * Deja el teléfono como se guarda: 9 dígitos y nada más.
+ *
+ * Se aceptan al teclear los espacios, puntos y guiones con los que la gente
+ * escribe su número, y el prefijo `+34` / `0034`. Guardar la variante tecleada
+ * llenaría la columna de «600 11 22 33», «+34600112233» y «600-11-22-33» para
+ * el mismo número, que es exactamente el ruido que ya ensució las direcciones.
+ */
+export function normalizarTelefono(valor: string): string {
+  const soloDigitos = valor.replace(/[\s.\-()]/g, "").replace(/^\+/, "");
+  if (soloDigitos.startsWith("0034")) return soloDigitos.slice(4);
+  if (soloDigitos.startsWith("34") && soloDigitos.length === 11) return soloDigitos.slice(2);
+  return soloDigitos;
+}
+
+/** ¿Es un teléfono español válido? Normaliza antes, así que acepta `+34 600…`. */
+export function telefonoValido(valor: string): boolean {
+  return TELEFONO_ES_REGEX.test(normalizarTelefono(valor));
+}
+
+/** `600112233` → `600 11 22 33`. Solo para mostrar; en BD van los 9 dígitos. */
+export function formatearTelefono(valor: string | null | undefined): string {
+  if (!valor) return "";
+  const n = normalizarTelefono(valor);
+  if (!TELEFONO_ES_REGEX.test(n)) return valor;
+  return `${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7)}`;
+}
+
 export interface Producto {
   id: string;
   nombre: string;
@@ -270,6 +310,11 @@ export interface DireccionEnvio {
   codigo_postal: string;
   provincia: string;
   pais: string;
+  /**
+   * Teléfono de contacto para la entrega, 9 dígitos. Nullable porque las
+   * direcciones creadas antes de la 040 no lo tienen; en las nuevas se exige.
+   */
+  telefono: string | null;
   es_predeterminada: boolean;
   created_at: string;
 }
@@ -293,6 +338,8 @@ export interface Pedido {
   envio_codigo_postal: string | null;
   envio_provincia: string | null;
   envio_pais: string | null;
+  /** Teléfono de contacto del envío, copiado al pedido igual que el resto de `envio_*`. */
+  envio_telefono: string | null;
   created_at: string;
   updated_at: string;
   pedido_items?: PedidoItem[];
@@ -372,6 +419,13 @@ export interface DireccionSnapshot {
   codigo_postal: string;
   provincia: string;
   pais?: string;
+  /**
+   * Opcional en el tipo aunque el formulario lo exija: durante una release la
+   * web nueva y la API vieja conviven, y al revés. Un `telefono` obligatorio en
+   * el DTO haría que un checkout servido desde la caché anterior respondiera
+   * 400 al pagar, y eso es una venta perdida.
+   */
+  telefono?: string;
 }
 
 export interface PedidoItem {

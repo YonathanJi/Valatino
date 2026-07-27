@@ -18,6 +18,12 @@ export interface DireccionSnapshotPedido {
   codigo_postal: string;
   provincia: string;
   pais?: string;
+  /**
+   * Teléfono de contacto de la entrega, normalizado a 9 dígitos. Viaja dentro
+   * del snapshot, así que `checkout_datos.direccion` (jsonb) lo lleva sin tocar
+   * la tabla y `confirmar_venta` lo copia a `pedidos.envio_telefono`.
+   */
+  telefono?: string;
 }
 
 export interface CrearPedidoDto {

@@ -6,6 +6,7 @@ import {
   Length,
   MaxLength,
 } from "class-validator";
+import { EsTelefono } from "../../common/validators/es-telefono.validator";
 
 // Los campos van en snake_case: es el formato en el que la API devuelve las
 // direcciones (filas de la tabla) y el que ya usa DireccionSnapshotDto en el
@@ -46,6 +47,13 @@ export class CreateDireccionDto {
   @IsString()
   @Length(2, 2, { message: "pais debe ser código ISO de 2 letras" })
   pais?: string;
+
+  /** Teléfono de contacto de la entrega. Ver la nota de `DireccionSnapshotDto`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @EsTelefono()
+  telefono?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -92,6 +100,13 @@ export class UpdateDireccionDto {
   @IsString()
   @Length(2, 2, { message: "pais debe ser código ISO de 2 letras" })
   pais?: string;
+
+  /** Cadena vacía = borrar el teléfono guardado. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  @EsTelefono()
+  telefono?: string;
 
   @IsOptional()
   @IsBoolean()

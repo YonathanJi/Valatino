@@ -25,6 +25,7 @@ const direccionDelFormulario = {
   ciudad: "Madrid",
   codigo_postal: "28001",
   provincia: "Madrid",
+  telefono: "600112233",
 };
 
 describe("CreateDireccionDto", () => {
@@ -74,6 +75,23 @@ describe("CreateDireccionDto", () => {
       validar({ ...direccionDelFormulario, pais: "ES" }, CreateDireccionDto),
     ).resolves.toBeDefined();
   });
+
+  it("rechaza un teléfono que no es español", async () => {
+    await expect(
+      validar({ ...direccionDelFormulario, telefono: "12345" }, CreateDireccionDto),
+    ).rejects.toBeDefined();
+  });
+
+  it("acepta el teléfono con prefijo y espacios, como lo teclea la gente", async () => {
+    await expect(
+      validar({ ...direccionDelFormulario, telefono: "+34 600 11 22 33" }, CreateDireccionDto),
+    ).resolves.toBeDefined();
+  });
+
+  it("acepta una dirección sin teléfono: las de antes de la 040 no lo tienen", async () => {
+    const { telefono: _sin, ...sinTelefono } = direccionDelFormulario;
+    await expect(validar(sinTelefono, CreateDireccionDto)).resolves.toBeDefined();
+  });
 });
 
 describe("UpdateDireccionDto", () => {
@@ -91,5 +109,19 @@ describe("UpdateDireccionDto", () => {
     await expect(
       validar({ es_predeterminada: true }, UpdateDireccionDto),
     ).resolves.toMatchObject({ es_predeterminada: true });
+  });
+
+  // Es el PATCH que hace el checkout cuando la dirección elegida se guardó sin
+  // teléfono: solo manda ese campo.
+  it("acepta añadir únicamente el teléfono", async () => {
+    await expect(validar({ telefono: "600112233" }, UpdateDireccionDto)).resolves.toMatchObject({
+      telefono: "600112233",
+    });
+  });
+
+  it("acepta la cadena vacía para borrar el teléfono", async () => {
+    await expect(validar({ telefono: "" }, UpdateDireccionDto)).resolves.toMatchObject({
+      telefono: "",
+    });
   });
 });
