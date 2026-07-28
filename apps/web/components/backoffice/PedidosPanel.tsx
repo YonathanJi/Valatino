@@ -163,6 +163,12 @@ export function PedidosPanel() {
           pedido={reembolsando}
           onClose={() => setReembolsando(null)}
           onReembolsado={handleReembolsado}
+          // Sin respuesta no se puede saber qué pasó: se relee del servidor en
+          // vez de dejar en pantalla un importe devuelto que quizá ya no es.
+          onRefrescar={() => {
+            void loadPedidos();
+            setRefrescoFicha((n) => n + 1);
+          }}
         />
       )}
     </div>

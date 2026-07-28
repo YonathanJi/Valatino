@@ -10,7 +10,13 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-Todo lo del **2026-07-27** está probado por Jonathan en producción y funcionando. **Dos pedidos reales calificados**: `260728018953` (Fácil · 5 · «nada todo muy bien») y `260728011017` (Regular · 4), el segundo ya con la ventana emergente corregida. Nada pendiente de comprobar.
+⚠️ **Lo del 2026-07-28 está escrito y verificado, pero NO probado en producción por Jonathan todavía.** Son cuatro arreglos de bugs que él encontró usando el sistema (ver la sesión de abajo). Lo que conviene comprobar, en este orden:
+
+1. **Módulo Clientes** → el teléfono del cliente con cuenta debe salir **658498050** (el que él actualizó en su perfil), no `658498049`. Ya está así en la BD: la migración **043 está aplicada al remoto** y verificada, así que esto funciona sin desplegar nada.
+2. **Calificar una compra y pulsar «Enviar»** → la ventana debe mostrar el ✓ y **cerrarse sola**. Es lo que antes se quedaba abierto y hacía calificar dos veces. *(Necesita el despliegue de la web.)*
+3. **Reembolso de un importe menor que el total** → debe poder escribirse **con coma** («0,5»). Antes el campo se vaciaba solo. *(Necesita el despliegue de la web.)*
+
+Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €); el pedido `260728018953` tiene además **1,00 € de reembolso parcial** y sigue en PROCESANDO, que es lo correcto.
 
 ⚠️ **Del login, que dio problemas al cerrar la sesión** (arreglado y confirmado por Jonathan): hay **dos caminos** de entrada. El **código de 6 dígitos es el principal** y el **enlace del correo es el secundario**. El del enlace **nunca había funcionado** —`/auth/callback` era de servidor y no puede completar PKCE ni leer el fragmento de la URL— y solo se destapó cuando un 502 de Supabase hizo que llegara su correo por defecto, que trae enlace en vez de código. Ver sesión 2026-07-27 (cont. 6), y sobre todo el aviso de **NO lanzar `supabase config push`** que hay ahí.
 
@@ -45,7 +51,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -62,6 +68,8 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
   - ⚠️ **Esto mide el proceso de compra, no el envío** (se pregunta a los cinco segundos de pagar), y **no puede recoger la opinión de quien se fue sin comprar**: el que abandonó nunca llega a la página de confirmación. Para eso hace falta análisis de embudo, no una encuesta.
 - **Nada de botones que no se pueden pulsar (2026-07-27)**: la regla del panel es **lo que no se puede hacer, no se pinta**. Antes se deshabilitaba (botón gris que no responde) o no se comprobaba nada. Si añades una acción nueva, gátela con `usePuede(modulo, nivel)` y **ocúltala**; en un formulario que existe para editarse, bloquea los campos con un `<fieldset disabled>` y esconde el botón de guardar. Ver sesión 2026-07-27.
 - **⚠️ TELÉFONO DE CONTACTO (2026-07-27) — obligatorio para pagar**: la dirección de envío pide teléfono y sin él no se puede completar el pago. Se guarda **normalizado a 9 dígitos** (se acepta `+34` y espacios al teclear, se guarda `600112233`); la regla vive una sola vez en `@valatino/types` (`normalizarTelefono`, `telefonoValido`, `formatearTelefono`) y la API la consume con el decorador `@EsTelefono`. Las direcciones guardadas **antes** de la 040 no lo tienen: el checkout avisa en ámbar y lo pide ahí mismo, guardándolo en la dirección. Ver sesión 2026-07-27.
+  - ⚠️ **Y desde la 043, quién gana cuando hay dos**: el teléfono que ve el panel es **el que se tocó más tarde**, sea el que el cliente guarda en su dirección o el que el equipo escribe en la ficha; el snapshot del pedido queda de último recurso. Si tocas `listar_clientes`, mantén esa regla: cualquier prioridad fija deja a uno de los dos lados editando sin que se entere nadie. La recencia se compara con `updated_at`, que en `profiles` y `direcciones_envio` lo pone `set_updated_at_preciso()` —con **`clock_timestamp()`, no `now()`**, o dos escrituras de la misma transacción empatan. Ver sesión 2026-07-28.
+  - ⚠️ **Para importes en euros NO uses `<input type="number">`**: ante una coma el navegador devuelve `value = ""`, así que el campo se vacía solo y parece que no responde. `type="text"` + `inputMode="decimal"` y se filtra al escribir (ver `sanearImporte` en `ReembolsoModal.tsx`).
 - **⚠️ DIRECCIONES (2026-07-27) — el código postal manda**: la **provincia ya no se escribe**, se deduce de los dos primeros dígitos del CP (que *son* el código de provincia del INE) y **se recalcula en el servidor**: lo que llegue en el DTO se descarta. La **localidad** es un desplegable de los municipios de esa provincia, del diccionario oficial del INE. El municipio se valida contra la provincia **del CP**, no contra toda España. La comparación es tolerante (`alcala de henares` vale) y se guarda el nombre oficial (`Alcalá de Henares`). Ver sesión 2026-07-27.
   - El dataset **se genera, no se pega**: `node scripts/generar-municipios.mjs` lo baja del INE y escribe las dos salidas (`apps/api/src/common/datos/municipios.generado.ts` y los 52 `apps/web/public/municipios/<cpro>.json`). Falla si los códigos no cuadran con `PROVINCIAS_ES`. Regenerar cuando el INE publique edición nueva.
 
@@ -79,6 +87,77 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **208 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-07-28 — Cuatro bugs de usar el sistema de verdad
+
+Jonathan probó el circuito completo y trajo cuatro cosas. **Tres eran de interfaz y una de la base de datos**, y las tres de interfaz tenían la misma forma: el sistema hacía lo correcto y la pantalla contaba otra cosa.
+
+### 1. El teléfono que el cliente actualiza no llegaba al equipo (migración 043)
+
+*«cuando el cliente la actualiza desde su perfil, esa actualización no está viajando al módulo admin y el equipo se está quedando sin esas actualizaciones.»*
+
+El dato **ya estaba en la base**; el panel no lo leía. `listar_clientes` sacaba el teléfono de `profiles` y, si estaba vacío, del **snapshot del pedido**. Pero el cliente no escribe en ninguno de los dos:
+
+| Columna | Quién la escribe |
+|---|---|
+| `profiles.telefono` | Solo el personal, a mano, desde la ficha. **No hay ninguna ruta pública que la toque.** |
+| `pedidos.envio_telefono` | Copia congelada a propósito (040): dice a qué número se avisó para *aquella* entrega. |
+| `direcciones_envio.telefono` | **El cliente** — y era la única que la RPC no miraba. |
+
+Medido en el remoto antes de tocar nada, que es lo que lo dejó sin discusión: el cliente tenía `658498050` en su dirección y el panel mostraba `658498049`, el del pedido.
+
+**La regla que se adopta: gana el teléfono que se tocó más tarde**, lo tocara el cliente o el equipo. Una prioridad fija rompe uno de los dos lados —si manda `profiles`, el cliente cambia su número y el equipo no se entera (el fallo de hoy); si manda la dirección, el asesor corrige, guarda y sigue viendo el de antes (el mismo fallo del revés, y encima con el botón diciendo que sí). El snapshot del pedido queda de último recurso, que es su papel: para el invitado sin cuenta es el único que hay.
+
+⚠️ **El hallazgo de verdad de esta migración lo cazó la prueba en seco**: `set_updated_at()` pone `now()`, y **`now()` devuelve la hora de inicio de la transacción**. Dos escrituras en la misma transacción quedaban con el mismo instante, empataban, y el desempate se lo llevaba quien estuviera en el `else` — el cambio del cliente, hecho *después*, perdía. Es **exactamente la trampa de la corrección de la 039** (los eventos del pedido empataban y el orden lo decidía un UUID al azar). Se resuelve con `set_updated_at_preciso()`, que usa `clock_timestamp()`. No se toca `set_updated_at`, que la usan otras tablas.
+
+- `direcciones_envio` gana `updated_at` — era la única tabla editable sin ella. **Backfill a `created_at`, no a `now()`**: fingir que se tocaron al migrar las habría hecho ganar a cualquier teléfono escrito a mano.
+- `profiles.updated_at` pasa a trigger. Antes lo escribía la API a mano en el update; funcionaba, pero dejaba la regla a merced de que la siguiente ruta se acordara — y si se olvidaba, el fallo sería **silencioso**: el teléfono bueno perdería la comparación sin que nada avisara.
+
+Verificado en transacción revertida, los cinco casos: solo dirección → el panel edita después → el cliente cambia después → el panel corrige otra vez → sin ninguno de los dos (cae al pedido). La BD quedó intacta (3 pedidos, 1 dirección, 3 calificaciones).
+
+⚠️ Qué teléfono es este: el de la dirección es el «de contacto para la entrega», así que en un envío a un tercero podría no ser el del cliente. Es **el mismo dato que ya se mostraba** vía `pedidos.envio_telefono` (que se copia de ahí), así que no empeora nada — lo muestra al día.
+
+### 2. La ventana de calificación no se cerraba al pulsar «Enviar»
+
+*«le da enviar, no se cierra, la ventana queda activa y vuelve y califica y parece que vuelve a enviar.»*
+
+Guardaba bien. Pero al pulsar «Enviar» aparecía el ✓ y **la ventana se quedaba ahí**, así que no parecía haber enviado nada: se volvía a puntuar —y **cada toque manda otro POST**— o se pulsaba otra vez. Es la misma lección de la sesión 2026-07-27 (cont. 5) con otra cara: entonces el éxito no se veía; ahora se veía pero no pasaba **nada de lo que se espera al enviar algo**.
+
+Ahora se distinguen las dos formas de guardar, que son distintas de verdad:
+
+| Cómo se guarda | Qué hace la ventana | Por qué |
+|---|---|---|
+| **Automático**, al completar las dos puntuaciones | Se queda | Justo después aparece el hueco del comentario; cerrarla se lo llevaría por delante |
+| **Pulsando «Enviar»** | ✓ y se cierra sola (1,4 s) | Enviar es un acto de terminar |
+
+Mientras se despide se bloquean las puntuaciones y el comentario: un POST más no aporta nada, y texto escrito en ese segundo y medio se iría con la ventana mientras el ✓ dice que se guardó. Cerrar a mano (✕, Escape, «Cerrar») cancela el reloj.
+
+### 3. «No se pudo procesar el reembolso» cuando en realidad no se sabe
+
+*«cuando se devuelve un importe menor que el total genera error, pero sí devuelve al cliente.»*
+
+**Los datos estaban perfectos.** El parcial del pedido `260728018953` (1,00 € de 1,50 €) quedó cobrado en Stripe, registrado por los dos caminos (panel + webhook `charge.refunded`, como está previsto), con su evento a nombre de Jonathan y el correo al cliente enviado. Ni un error en los logs de Postgres. Al volver a probarlo ya no se reprodujo: fue una respuesta perdida.
+
+Lo que sí era un problema de verdad es **el mensaje**, y ese se ha arreglado. El panel trataba igual dos fallos que no se parecen:
+
+| Qué pasó | Se sabe del dinero | Qué dice ahora |
+|---|---|---|
+| La API respondió un error | **No salió** — nada se toca antes de que Stripe conteste | El mensaje de la API, y se puede corregir y reintentar |
+| No hubo respuesta (red, proxy que corta) | **No se sabe** | «No hemos podido confirmar la devolución… compruébalo antes de volver a intentarlo», y relee el pedido del servidor |
+
+⚠️ **Por qué esto importa y no es cosmético**: decir «no se pudo» es afirmar algo que no consta, y quien lo lee reintenta. La clave de idempotencia de Stripe (`reembolso:pedido:ya:importe`) protege el reintento **del mismo importe**; si al reintentar se cambia el importe o el motivo, ya no protege y **el cliente cobra dos veces**.
+
+### 4. En el reembolso no se podía escribir «0,5»
+
+El campo era `type="number"`: ante una coma el navegador devuelve `value = ""`, así que **el campo se vaciaba solo** y el botón se quedaba apagado sin explicar por qué. El `replace(",", ".")` ya estaba puesto —la intención era aceptarla— pero el input se la comía antes de llegar.
+
+Ahora es `type="text"` con `inputMode="decimal"` y se filtra al escribir: un separador, dígitos a los lados, dos decimales, y **se conserva la coma tal como se teclea** (quien escribe coma espera ver coma).
+
+⚠️ **La regla general**: para importes en español, `type="number"` no sirve. El navegador decide qué es un número según su idioma y **devuelve vacío en vez de decir que no le gusta**, así que el fallo llega a la pantalla como un campo que no responde.
+
+**Tests: 208** en la API (sin cambios: los cuatro arreglos son de la web y de SQL). `pnpm turbo type-check` limpio.
 
 ---
 
