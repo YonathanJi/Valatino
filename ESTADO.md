@@ -10,11 +10,13 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-⚠️ **Lo del 2026-07-28 está escrito y verificado, pero NO probado en producción por Jonathan todavía.** Son cuatro arreglos de bugs que él encontró usando el sistema (ver la sesión de abajo). Lo que conviene comprobar, en este orden:
+⚠️ **Lo del 2026-07-28 está desplegado y verificado por HTTP, pero NO probado a mano por Jonathan todavía.** Son cuatro arreglos de bugs que él encontró usando el sistema (ver la sesión de abajo). Migración **043 aplicada al remoto**, web desplegada (el chunk nuevo de la confirmación sirve «Cerrando…»), API sana (`/health` 200). Lo que queda es probarlo en pantalla, en este orden:
 
-1. **Módulo Clientes** → el teléfono del cliente con cuenta debe salir **658498050** (el que él actualizó en su perfil), no `658498049`. Ya está así en la BD: la migración **043 está aplicada al remoto** y verificada, así que esto funciona sin desplegar nada.
-2. **Calificar una compra y pulsar «Enviar»** → la ventana debe mostrar el ✓ y **cerrarse sola**. Es lo que antes se quedaba abierto y hacía calificar dos veces. *(Necesita el despliegue de la web.)*
-3. **Reembolso de un importe menor que el total** → debe poder escribirse **con coma** («0,5»). Antes el campo se vaciaba solo. *(Necesita el despliegue de la web.)*
+1. **Módulo Clientes** → el teléfono del cliente con cuenta debe salir **658498050** (el que él actualizó en su perfil), no `658498049`.
+2. **Calificar una compra y pulsar «Enviar»** → la ventana debe mostrar el ✓ y **cerrarse sola**. Es lo que antes se quedaba abierto y hacía calificar dos veces.
+3. **Reembolso de un importe menor que el total** → debe poder escribirse **con coma** («0,5»). Antes el campo se vaciaba solo.
+
+⚠️ Del punto 3 queda **una cosa sin poder comprobar por HTTP**: el bundle de `/backoffice/pedidos` no se puede leer sin sesión (la ruta responde **307**, que es lo correcto), así que del reembolso solo se sabe que va en el mismo build atómico que lo ya verificado. **Es el que hay que mirar con más atención al probar.**
 
 Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €); el pedido `260728018953` tiene además **1,00 € de reembolso parcial** y sigue en PROCESANDO, que es lo correcto.
 
