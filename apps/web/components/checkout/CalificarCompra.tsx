@@ -28,6 +28,12 @@ const claveDescarte = (token: string) => `calificacion-descartada:${token}`;
 
 type Estado = "quieto" | "guardando" | "guardado" | "error";
 
+/**
+ * Lo que se ve el ✓ antes de que la ventana se cierre sola tras pulsar «Enviar».
+ * Suficiente para leerlo; más y parece que se ha quedado colgada.
+ */
+const MS_ANTES_DE_CERRAR = 1400;
+
 interface CalificarCompraProps {
   token: string;
 }
@@ -52,7 +58,10 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
   const [comentario, setComentario] = useState("");
   const [estado, setEstado] = useState<Estado>("quieto");
   const [mensajeError, setMensajeError] = useState<string | null>(null);
+  // Se está yendo sola tras pulsar «Enviar»: nada más que tocar mientras.
+  const [cerrandose, setCerrandose] = useState(false);
   const dialogo = useRef<HTMLDivElement>(null);
+  const relojDeCierre = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Se abre sola solo si el token vale, no lo descartó y no ha opinado ya:
   // recargar la página de confirmación no debe volver a saltar.
@@ -83,9 +92,18 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
   }, [token]);
 
   const cerrar = () => {
+    if (relojDeCierre.current) clearTimeout(relojDeCierre.current);
     localStorage.setItem(claveDescarte(token), "1");
     setAbierto(false);
   };
+
+  // Cerrar a mano durante el cierre automático no debe dejar el reloj corriendo.
+  useEffect(
+    () => () => {
+      if (relojDeCierre.current) clearTimeout(relojDeCierre.current);
+    },
+    [],
+  );
 
   // Escape cierra, y al abrir se lleva el foco al diálogo para que el lector de
   // pantalla anuncie de qué va la ventana que acaba de aparecer.
@@ -100,7 +118,25 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto]);
 
-  const guardar = async (e: EsfuerzoCompra, s: SatisfaccionCompra, texto: string) => {
+  /**
+   * `alPulsarEnviar` distingue las dos formas de guardar, que son distintas de
+   * verdad:
+   *
+   * - **Automático** (al completar las dos puntuaciones): la ventana se queda,
+   *   porque justo después aparece el hueco del comentario y cerrarla se lo
+   *   llevaría por delante.
+   * - **Pulsando «Enviar»**: enviar es un acto de terminar. Se muestra el ✓ y la
+   *   ventana se va sola. Dejarla abierta hacía creer que no había enviado, así
+   *   que se volvía a puntuar —y cada toque manda otro POST— o se pulsaba otra
+   *   vez. Mismo error que en la versión de la tarjeta, con otra cara: el éxito
+   *   estaba escrito, pero no pasaba nada de lo que se espera al enviar algo.
+   */
+  const guardar = async (
+    e: EsfuerzoCompra,
+    s: SatisfaccionCompra,
+    texto: string,
+    alPulsarEnviar = false,
+  ) => {
     setEstado("guardando");
     setMensajeError(null);
     try {
@@ -112,6 +148,10 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
 
       if (res.ok) {
         setEstado("guardado");
+        if (alPulsarEnviar) {
+          setCerrandose(true);
+          relojDeCierre.current = setTimeout(cerrar, MS_ANTES_DE_CERRAR);
+        }
         return;
       }
 
@@ -134,6 +174,7 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
    * pide DESPUÉS, que es cuando ya ha invertido dos toques.
    */
   const responder = (e: EsfuerzoCompra | null, s: SatisfaccionCompra | null) => {
+    if (cerrandose) return; // ya se está despidiendo: otro POST no aporta nada
     setEsfuerzo(e);
     setSatisfaccion(s);
     if (e && s) void guardar(e, s, comentario);
@@ -176,7 +217,7 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
           </button>
         </div>
 
-        <fieldset disabled={estado === "guardando"}>
+        <fieldset disabled={estado === "guardando" || cerrandose}>
           <legend className="text-sm font-medium">El proceso te resultó…</legend>
           <div className="mt-2 flex flex-wrap gap-2">
             {ESFUERZOS.map((valor) => (
@@ -197,7 +238,7 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
           </div>
         </fieldset>
 
-        <fieldset disabled={estado === "guardando"}>
+        <fieldset disabled={estado === "guardando" || cerrandose}>
           <legend className="text-sm font-medium">¿Cómo lo calificarías?</legend>
           <div className="mt-2 flex flex-wrap gap-2">
             {SATISFACCIONES.map((valor) => (
@@ -236,8 +277,11 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
               }}
               maxLength={2000}
               rows={3}
+              // Mientras se cierra no se escribe: el texto nuevo se iría con la
+              // ventana y el ✓ diría que se guardó.
+              disabled={cerrandose}
               placeholder="Lo que quieras contarnos"
-              className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
+              className="w-full rounded-lg border bg-background px-3 py-2 text-sm disabled:opacity-60"
             />
           </div>
         )}
@@ -257,7 +301,8 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
               }`}
             >
               {estado === "guardando" && "Guardando…"}
-              {estado === "guardado" && "✓ Guardado. ¡Gracias!"}
+              {estado === "guardado" &&
+                (cerrandose ? "✓ ¡Gracias! Cerrando…" : "✓ Guardado. ¡Gracias!")}
               {estado === "error" && mensajeError}
             </p>
 
@@ -271,7 +316,7 @@ export function CalificarCompra({ token }: CalificarCompraProps) {
                   type="button"
                   size="sm"
                   disabled={estado === "guardando"}
-                  onClick={() => void guardar(esfuerzo, satisfaccion, comentario)}
+                  onClick={() => void guardar(esfuerzo, satisfaccion, comentario, true)}
                 >
                   {estado === "guardando" ? "Guardando…" : "Enviar"}
                 </Button>
