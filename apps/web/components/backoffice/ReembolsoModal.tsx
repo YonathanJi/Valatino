@@ -13,9 +13,47 @@ interface ReembolsoModalProps {
   onClose: () => void;
   /** Se llama con el resultado para refrescar la fila sin recargar la tabla */
   onReembolsado: (resultado: ResultadoReembolso) => void;
+  /**
+   * Releer el pedido desde la API. Se usa cuando la petición se queda sin
+   * respuesta y no sabemos si el dinero salió: lo único fiable entonces es
+   * volver a preguntar al servidor.
+   */
+  onRefrescar: () => void;
 }
 
-export function ReembolsoModal({ pedido, onClose, onReembolsado }: ReembolsoModalProps) {
+/**
+ * Deja escribir el importe como se escribe en España: **la coma vale igual que
+ * el punto**.
+ *
+ * Antes el campo era `type="number"` y no había forma de teclear «0,5»: ante una
+ * coma el navegador devuelve `value = ""`, así que el campo se vaciaba solo y el
+ * botón de devolver se quedaba apagado sin explicar por qué. El `replace(",")`
+ * de abajo ya estaba puesto —la intención era aceptarla— pero el input se la
+ * comía antes de llegar.
+ *
+ * Se filtra al escribir en vez de al enviar: un separador, dígitos a los lados y
+ * como mucho dos decimales, que es lo que hay en un euro.
+ */
+function sanearImporte(valor: string): string {
+  const limpio = valor.replace(/[^\d.,]/g, "");
+  const sep = limpio.search(/[.,]/);
+  if (sep === -1) return limpio.slice(0, 9);
+
+  const entero = limpio.slice(0, sep).slice(0, 9);
+  const decimales = limpio
+    .slice(sep + 1)
+    .replace(/[.,]/g, "")
+    .slice(0, 2);
+  // Se conserva el separador tal como lo escribió: quien teclea coma espera ver coma.
+  return `${entero}${limpio[sep]}${decimales}`;
+}
+
+export function ReembolsoModal({
+  pedido,
+  onClose,
+  onReembolsado,
+  onRefrescar,
+}: ReembolsoModalProps) {
   const total = Number(pedido.total);
   const yaDevuelto = Number(pedido.total_reembolsado ?? 0);
   const restante = Math.round((total - yaDevuelto) * 100) / 100;
@@ -24,7 +62,9 @@ export function ReembolsoModal({ pedido, onClose, onReembolsado }: ReembolsoModa
   const [importe, setImporte] = useState("");
   const [motivo, setMotivo] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const [sinConfirmacion, setSinConfirmacion] = useState(false);
 
+  // NaN con «,» o «0,» a medio escribir: parcialValido lo descarta solo.
   const importeParcial = Number(importe.replace(",", "."));
   const parcialValido = importe !== "" && importeParcial > 0 && importeParcial <= restante;
   const puedeEnviar = !enviando && (modo === "total" || parcialValido);
@@ -56,10 +96,67 @@ export function ReembolsoModal({ pedido, onClose, onReembolsado }: ReembolsoModa
       onReembolsado(resultado);
       onClose();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "No se pudo procesar el reembolso");
-      setEnviando(false);
+      /*
+       * Dos fallos que parecen uno, y contarlos igual es peligroso:
+       *
+       * · **La API respondió un error** (ApiError) → el reembolso NO se cobró:
+       *   nada se toca antes de que Stripe conteste. Se dice qué pasó y se puede
+       *   corregir el importe y reintentar sin más.
+       *
+       * · **No hubo respuesta** (red caída, la pestaña pierde la conexión, el
+       *   proxy corta la espera) → NO SE SABE. La API pudo cobrar la devolución
+       *   entera y quedarse sin poder contarlo. Aquí el mensaje de antes —«no se
+       *   pudo procesar el reembolso»— afirmaba algo que no consta, y quien lo
+       *   lee reintenta: si al reintentar cambia el importe o el motivo, la clave
+       *   de idempotencia de Stripe ya no protege y el cliente cobra dos veces.
+       *   Así que se dice la verdad y se manda a comprobarlo.
+       */
+      if (err instanceof ApiError) {
+        toast.error(err.message);
+        setEnviando(false);
+        return;
+      }
+      setSinConfirmacion(true);
     }
   };
+
+  if (sinConfirmacion) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reembolso-incierto-titulo"
+      >
+        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-6 shadow-lg">
+          <div className="flex gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+            <div className="space-y-2">
+              <h2 id="reembolso-incierto-titulo" className="font-semibold">
+                No hemos podido confirmar la devolución
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Se perdió la conexión antes de recibir la respuesta, así que{" "}
+                <strong>puede haberse hecho igualmente</strong>. Comprueba en el pedido lo
+                que figura como devuelto <strong>antes de volver a intentarlo</strong>.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={() => {
+                onRefrescar();
+                onClose();
+              }}
+            >
+              Comprobar el pedido
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -133,16 +230,17 @@ export function ReembolsoModal({ pedido, onClose, onReembolsado }: ReembolsoModa
           {modo === "parcial" && (
             <div className="pl-3">
               <div className="relative max-w-[180px]">
+                {/* type="text": con "number" el navegador rechaza la coma y
+                    dejaba el campo vacío. El filtrado lo hace sanearImporte. */}
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.01"
-                  min="0.01"
-                  max={restante}
+                  autoComplete="off"
                   value={importe}
-                  onChange={(e) => setImporte(e.target.value)}
+                  onChange={(e) => setImporte(sanearImporte(e.target.value))}
                   autoFocus
                   aria-label="Importe a devolver en euros"
+                  aria-invalid={importe !== "" && !parcialValido}
                   className="w-full rounded-lg border bg-background py-2 pl-3 pr-8 text-sm font-mono"
                   placeholder="0,00"
                 />
@@ -150,9 +248,15 @@ export function ReembolsoModal({ pedido, onClose, onReembolsado }: ReembolsoModa
                   €
                 </span>
               </div>
-              {importe !== "" && !parcialValido && (
+              {importe !== "" && !parcialValido ? (
                 <p className="mt-1.5 text-xs text-destructive">
-                  Introduce un importe entre 0,01 € y {formatEUR(restante)}.
+                  {importeParcial > restante
+                    ? `De este pedido solo quedan ${formatEUR(restante)} por devolver.`
+                    : `Introduce un importe entre 0,01 € y ${formatEUR(restante)}.`}
+                </p>
+              ) : (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Con coma o con punto, como prefieras: 0,50 o 0.50.
                 </p>
               )}
             </div>
