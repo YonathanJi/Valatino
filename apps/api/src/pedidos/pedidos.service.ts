@@ -273,12 +273,20 @@ export class PedidosService {
     estado?: string,
     desde?: string,
     hasta?: string,
+    /**
+     * Incluir los pedidos que nunca llegaron a pagarse y quedaron cancelados al
+     * cambiar el cliente de forma de pago. Por defecto **no**: son un paso del
+     * checkout ajeno, no trabajo del equipo, y duplican la lista cada vez que
+     * alguien se lo piensa mejor. Se pueden ver con el interruptor del panel,
+     * porque la traza tiene que seguir a mano si alguien pregunta por un ingreso.
+     */
+    incluirIntentos = false,
   ): Promise<PaginatedResponse<unknown>> {
     const offset = (page - 1) * limit;
 
     let qb = this.supabase
       .from("pedidos")
-      .select("*, pedido_items(*)", { count: "exact" });
+      .select("*, pedido_items(*), transacciones_pago(estado)", { count: "exact" });
 
     if (estado) qb = qb.eq("estado", estado);
     if (desde) qb = qb.gte("created_at", desde);
@@ -290,15 +298,50 @@ export class PedidosService {
 
     if (error) throw new InternalServerErrorException("No se pudieron cargar los pedidos");
 
+    const crudos = (data ?? []) as Array<{
+      id: string;
+      estado: string;
+      numero_pedido: string | null;
+      reemplazado_por: string | null;
+      transacciones_pago?: { estado: string }[];
+    }>;
+
+    const visibles = incluirIntentos
+      ? crudos
+      : crudos.filter(
+          (p) =>
+            p.estado !== "CANCELADO" ||
+            (p.transacciones_pago ?? []).some((t) => t.estado === "exitoso"),
+        );
+
     // Lo ya devuelto de cada pedido, en UNA consulta para toda la página: el
     // panel necesita saber cuánto queda por reembolsar y consultarlo fila a
     // fila serían 20 viajes extra.
-    const pedidos = (data ?? []) as Array<{ id: string }>;
-    const reembolsados = await this.reembolsos.totalesReembolsados(pedidos.map((p) => p.id));
+    const reembolsados = await this.reembolsos.totalesReembolsados(visibles.map((p) => p.id));
+
+    /*
+     * Los dos pedidos del mismo carrito, enlazados en las dos direcciones: el
+     * cancelado dice quién ocupó su lugar y el pagado a quién sustituye. Es la
+     * alternativa a fusionarlos, que sería reescribir un documento comercial —
+     * el cancelado tuvo número propio y ese número se le dio al cliente como
+     * concepto de la transferencia.
+     */
+    const numeroPorId = new Map(crudos.map((p) => [p.id, p.numero_pedido]));
+    const sustituyeA = new Map<string, string | null>();
+    for (const p of crudos) {
+      if (p.reemplazado_por) sustituyeA.set(p.reemplazado_por, p.numero_pedido);
+    }
 
     return {
-      data: pedidos.map((p) => ({ ...p, total_reembolsado: reembolsados.get(p.id) ?? 0 })),
-      total: count ?? 0,
+      data: visibles.map(({ transacciones_pago: _sinExponer, ...p }) => ({
+        ...p,
+        total_reembolsado: reembolsados.get(p.id) ?? 0,
+        reemplazado_por_numero: p.reemplazado_por
+          ? (numeroPorId.get(p.reemplazado_por) ?? null)
+          : null,
+        sustituye_a_numero: sustituyeA.get(p.id) ?? null,
+      })),
+      total: Math.max((count ?? 0) - (crudos.length - visibles.length), visibles.length),
       page,
       limit,
     };

@@ -445,6 +445,17 @@ export interface Pedido {
    * listados del storefront.
    */
   total_reembolsado?: number;
+  /** Forma de pago concreta según la pasarela (`card`, `bizum`…). */
+  metodo_detalle?: string | null;
+  /**
+   * Número del pedido que sustituyó a este cuando el cliente cambió de forma de
+   * pago, y el inverso. Los rellena el panel para poder contar la historia sin
+   * fusionar los dos pedidos —que sería reescribir un documento comercial: el
+   * cancelado tuvo número propio y ese número se le dio al cliente como
+   * concepto de la transferencia.
+   */
+  reemplazado_por_numero?: string | null;
+  sustituye_a_numero?: string | null;
 }
 
 // ============================================================

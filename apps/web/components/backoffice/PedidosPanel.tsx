@@ -30,11 +30,17 @@ export function PedidosPanel() {
   // historial: quien acaba de mover algo debe ver su propia línea, no la de
   // hace un minuto.
   const [refrescoFicha, setRefrescoFicha] = useState(0);
+  // Los pedidos que nunca se pagaron y se cancelaron al cambiar el cliente de
+  // forma de pago. Fuera por defecto: duplicaban la lista cada vez que alguien
+  // se lo pensaba mejor en el checkout.
+  const [verIntentos, setVerIntentos] = useState(false);
   const supabase = createSupabaseBrowserClient();
 
-  const loadPedidos = async () => {
+  const loadPedidos = async (conIntentos = verIntentos) => {
     try {
-      const json = await apiFetch<PaginatedResponse<Pedido>>("/admin/pedidos?limit=100");
+      const json = await apiFetch<PaginatedResponse<Pedido>>(
+        `/admin/pedidos?limit=100${conIntentos ? "&incluir_intentos=true" : ""}`,
+      );
       setPedidos(json.data ?? []);
     } catch {
       // sin sesión o sin permisos: el layout ya protege la ruta
@@ -181,10 +187,26 @@ export function PedidosPanel() {
         title="Panel de Pedidos"
         description="Seguimiento de pedidos de la tienda"
       >
-        <span className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs text-muted-foreground">En tiempo real</span>
-        </span>
+        <div className="flex items-center gap-4">
+          {/* El intento de pago no es un pedido del equipo, pero tiene que
+              poder verse: si alguien pregunta por un ingreso con ese número,
+              la traza está aquí. */}
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={verIntentos}
+              onChange={(e) => {
+                setVerIntentos(e.target.checked);
+                void loadPedidos(e.target.checked);
+              }}
+            />
+            Ver intentos sin pagar
+          </label>
+          <span className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs text-muted-foreground">En tiempo real</span>
+          </span>
+        </div>
       </PageHeader>
 
       <PedidoTabla

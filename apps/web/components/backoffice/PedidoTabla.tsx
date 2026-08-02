@@ -140,6 +140,20 @@ export function PedidoFila({
     >
       <td className="p-3 font-mono text-xs">
         {pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}
+        {/* Los dos pedidos del mismo carrito, enlazados. No se fusionan porque
+            el cancelado tuvo número propio y ese número se le dio al cliente
+            como concepto de la transferencia: si llegó a ingresar, el apunte
+            del banco lleva ese número y tiene que poder encontrarse. */}
+        {pedido.reemplazado_por_numero && (
+          <span className="mt-0.5 block font-sans text-[11px] font-normal text-muted-foreground">
+            ↳ reemplazado por {pedido.reemplazado_por_numero}
+          </span>
+        )}
+        {pedido.sustituye_a_numero && (
+          <span className="mt-0.5 block font-sans text-[11px] font-normal text-muted-foreground">
+            ↳ sustituye al {pedido.sustituye_a_numero}
+          </span>
+        )}
       </td>
       <td className="p-3 text-muted-foreground">
         {new Date(pedido.created_at).toLocaleDateString("es-ES")}
@@ -157,7 +171,11 @@ export function PedidoFila({
           </span>
         )}
       </td>
-      <td className="p-3 capitalize text-muted-foreground">{pedido.metodo_pago}</td>
+      <td className="p-3 capitalize text-muted-foreground">
+        {/* Lo que usó el cliente, no la pasarela: desde Bizum, «stripe» ya no
+            dice cómo pagó nadie. */}
+        {pedido.metodo_detalle ?? pedido.metodo_pago}
+      </td>
       <td className="p-3">
         <EstadoBadge estado={pedido.estado} />
       </td>

@@ -44,8 +44,19 @@ export class AdminPedidosController {
     @Query("estado") estado?: string,
     @Query("desde") desde?: string,
     @Query("hasta") hasta?: string,
+    // Los pedidos que nunca se pagaron y quedaron cancelados al cambiar el
+    // cliente de forma de pago. Fuera por defecto: son un paso del checkout
+    // ajeno, no trabajo del equipo.
+    @Query("incluir_intentos") incluirIntentos?: string,
   ) {
-    return this.pedidosService.findAll(page, limit, estado, desde, hasta);
+    return this.pedidosService.findAll(
+      page,
+      limit,
+      estado,
+      desde,
+      hasta,
+      incluirIntentos === "true",
+    );
   }
 
   /**
