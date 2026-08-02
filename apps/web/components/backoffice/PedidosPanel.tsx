@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ShoppingCart } from "lucide-react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
+import { formatEUR } from "@lib/utils";
 import { PedidoTabla } from "@components/backoffice/PedidoTabla";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { useNivel } from "@components/backoffice/PermisosProvider";
@@ -126,6 +127,53 @@ export function PedidosPanel() {
     setRefrescoFicha((n) => n + 1);
   };
 
+  /**
+   * Da por recibida la transferencia. Se pide confirmación porque no tiene
+   * vuelta atrás cómoda: consume el stock reservado y pone el pedido a
+   * prepararse, así que un clic de más manda mercancía sin haber cobrado.
+   */
+  const confirmarTransferencia = async (pedido: Pedido) => {
+    const numero = pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase();
+    if (
+      !window.confirm(
+        `¿Confirmas que ha llegado la transferencia de ${formatEUR(Number(pedido.total))} del pedido ${numero}?\n\n` +
+          "El pedido pasará a Procesando y sus unidades se descontarán del inventario.",
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const r = await apiFetch<{ confirmado: boolean; sin_reserva: number }>(
+        `/admin/pedidos/${pedido.id}/confirmar-transferencia`,
+        { method: "POST" },
+      );
+
+      if (!r.confirmado) {
+        toast.info("Este pedido ya no estaba pendiente de pago.");
+      } else if (r.sin_reserva > 0) {
+        // Se cobró después de vencer el plazo: el stock ya había vuelto a la
+        // venta y se ha descontado otra vez. Puede haber quedado por debajo de
+        // lo real si alguien compró entretanto, así que se dice.
+        toast.warning(
+          `Pago confirmado, pero el plazo ya había vencido y las unidades habían vuelto a la tienda. Revisa el inventario del pedido ${numero}.`,
+          { duration: 10000 },
+        );
+      } else {
+        toast.success(`Pago recibido. El pedido ${numero} pasa a Procesando.`);
+      }
+
+      setPedidos((prev) =>
+        prev.map((p) => (p.id === pedido.id ? { ...p, estado: "PROCESANDO" as PedidoEstado } : p)),
+      );
+      setRefrescoFicha((n) => n + 1);
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.message : "No se pudo confirmar el pago del pedido",
+      );
+    }
+  };
+
   return (
     <div className="p-6 space-y-4">
       <PageHeader
@@ -147,6 +195,9 @@ export function PedidosPanel() {
         // Devolver dinero es cosa de admin: la API rechaza al asesor con un 403,
         // así que tampoco se le ofrece el botón.
         onReembolsar={nivel === "total" ? setReembolsando : undefined}
+        // Confirmar un ingreso es afirmar que ha entrado dinero, y de eso
+        // depende que la mercancía salga: mismo nivel que reembolsar.
+        onConfirmarTransferencia={nivel === "total" ? confirmarTransferencia : undefined}
         onAbrir={setViendo}
       />
 

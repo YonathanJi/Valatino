@@ -139,6 +139,51 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
           </div>
         ) : (
           <div className="space-y-7 p-5">
+            {/* Cómo pagar, cuando el pedido espera una transferencia.
+                Va lo PRIMERO y por delante del seguimiento: quien entra aquí con
+                un pedido sin pagar viene justo a por el IBAN y el concepto, y el
+                que cerró la pestaña del checkout no los tiene en ningún otro
+                sitio. */}
+            {pedido.instrucciones_pago && (
+              <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                  Falta tu transferencia
+                </h3>
+                <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300/90">
+                  Tenemos tus artículos apartados. En cuanto veamos el ingreso preparamos el
+                  pedido.
+                </p>
+                <dl className="mt-3 space-y-2 rounded-lg bg-card/80 p-3 text-sm">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">IBAN</dt>
+                    <dd className="break-all font-mono">{pedido.instrucciones_pago.iban}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Titular</dt>
+                    <dd>{pedido.instrucciones_pago.titular}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Importe</dt>
+                    <dd className="font-mono">
+                      {formatEUR(pedido.instrucciones_pago.importe)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Concepto</dt>
+                    <dd className="font-mono font-semibold">
+                      {pedido.instrucciones_pago.concepto}
+                    </dd>
+                  </div>
+                </dl>
+                {pedido.instrucciones_pago.vence_el && (
+                  <p className="mt-2.5 text-xs text-amber-800 dark:text-amber-300/90">
+                    Guardamos el pedido hasta el{" "}
+                    <strong>{fechaLarga(pedido.instrucciones_pago.vence_el)}</strong>.
+                  </p>
+                )}
+              </section>
+            )}
+
             {/* Seguimiento — lo primero, porque es a lo que se entra.
                 Si viniera vacío no se pinta el titular: una sección con un
                 encabezado y nada debajo parece rota, y durante una ventana de

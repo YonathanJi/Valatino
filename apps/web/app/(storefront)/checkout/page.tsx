@@ -6,6 +6,7 @@ import { PayPalScriptProvider } from "@paypal/react-paypal-js";
 import { toast } from "sonner";
 import { StripeCheckoutForm } from "@components/checkout/StripeCheckout";
 import { PaypalCheckoutButton } from "@components/checkout/PaypalCheckout";
+import { TransferenciaCheckout } from "@components/checkout/TransferenciaCheckout";
 import { DireccionSelector } from "@components/checkout/DireccionSelector";
 import {
   DireccionForm,
@@ -22,9 +23,12 @@ import { formatEUR } from "@lib/utils";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { normalizarTelefono } from "@valatino/types";
-import type { ReservaCheckoutResponse } from "@valatino/types";
+import type {
+  DisponibilidadTransferencia,
+  ReservaCheckoutResponse,
+} from "@valatino/types";
 
-type MetodoPago = "stripe" | "paypal";
+type MetodoPago = "stripe" | "paypal" | "transferencia";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const DOCUMENTO_REGEX = /^([0-9]{8}[A-Za-z]|[XYZxyz][0-9]{7}[A-Za-z])$/;
@@ -38,6 +42,10 @@ function formatCountdown(ms: number): string {
 
 export default function CheckoutPage() {
   const [metodo, setMetodo] = useState<MetodoPago>("stripe");
+  // La transferencia solo se ofrece si hay cuenta configurada en la API.
+  // Pintar la opción y luego no poder decir a dónde pagar es peor que no
+  // ofrecerla, así que se pregunta antes de enseñarla.
+  const [transferencia, setTransferencia] = useState<DisponibilidadTransferencia | null>(null);
   const [direccionEnvioId, setDireccionEnvioId] = useState("");
   const [direccionesGuardadas, setDireccionesGuardadas] = useState<number | null>(null);
   const [telefonoPendiente, setTelefonoPendiente] = useState(false);
@@ -93,6 +101,14 @@ export default function CheckoutPage() {
       void reservarStock();
     }
   }, [carrito, reservaOk, reservando, reservaExpirada, reservarStock]);
+
+  // ¿Se aceptan transferencias? Si la llamada falla se deja en null y la opción
+  // no se pinta: ante la duda, no ofrecer un método que quizá no funcione.
+  useEffect(() => {
+    void apiFetch<DisponibilidadTransferencia>("/pagos/transferencia/disponibilidad")
+      .then(setTransferencia)
+      .catch(() => setTransferencia(null));
+  }, []);
 
   // Countdown de la reserva (TTL 15 min)
   useEffect(() => {
@@ -294,14 +310,17 @@ export default function CheckoutPage() {
             <DireccionForm value={direccionInline} onChange={setDireccionInline} />
           )}
 
-          {/* Selector de método de pago */}
-          <div className="flex gap-3">
+          {/* Selector de método de pago.
+              «Tarjeta o Bizum» en el mismo botón porque los dos los sirve el
+              mismo Payment Element de Stripe: qué aparece dentro lo decide lo
+              que esté activado en su Dashboard, no este archivo. */}
+          <div className="flex flex-wrap gap-3">
             <Button
               variant={metodo === "stripe" ? "default" : "outline"}
               onClick={() => setMetodo("stripe")}
               className="flex-1"
             >
-              💳 Tarjeta
+              💳 Tarjeta o Bizum
             </Button>
             <Button
               variant={metodo === "paypal" ? "default" : "outline"}
@@ -310,6 +329,15 @@ export default function CheckoutPage() {
             >
               🅿️ PayPal
             </Button>
+            {transferencia?.disponible && (
+              <Button
+                variant={metodo === "transferencia" ? "default" : "outline"}
+                onClick={() => setMetodo("transferencia")}
+                className="flex-1"
+              >
+                🏦 Transferencia
+              </Button>
+            )}
           </div>
 
           {metodo === "stripe" && (
@@ -334,6 +362,15 @@ export default function CheckoutPage() {
                 disabled={!puedePagar}
               />
             </PayPalScriptProvider>
+          )}
+
+          {metodo === "transferencia" && transferencia?.disponible && (
+            <TransferenciaCheckout
+              total={carrito.total}
+              payload={payload}
+              diasPlazo={transferencia.dias_plazo}
+              disabled={!puedePagar}
+            />
           )}
         </div>
 

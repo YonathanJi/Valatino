@@ -1,4 +1,4 @@
-import { Undo2 } from "lucide-react";
+import { Landmark, Undo2 } from "lucide-react";
 import { EstadoBadge } from "./EstadoBadge";
 import { EstadoSelector } from "./EstadoSelector";
 import { Skeleton } from "@components/ui/Skeleton";
@@ -17,6 +17,8 @@ interface PedidoTablaProps {
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   /** Abre el modal de devolución. Ausente para quien no puede reembolsar. */
   onReembolsar?: (pedido: Pedido) => void;
+  /** Dar por recibida la transferencia. Solo con nivel total. */
+  onConfirmarTransferencia?: (pedido: Pedido) => void;
   /** Abre la ficha del pedido. */
   onAbrir: (pedido: Pedido) => void;
 }
@@ -42,6 +44,7 @@ export function PedidoTabla({
   nivel,
   onEstadoChange,
   onReembolsar,
+  onConfirmarTransferencia,
   onAbrir,
 }: PedidoTablaProps) {
   if (isLoading) {
@@ -83,6 +86,7 @@ export function PedidoTabla({
               nivel={nivel}
               onEstadoChange={onEstadoChange}
               onReembolsar={onReembolsar}
+              onConfirmarTransferencia={onConfirmarTransferencia}
               onAbrir={onAbrir}
             />
           ))}
@@ -97,6 +101,8 @@ interface PedidoFilaProps {
   nivel: NivelPermiso;
   onEstadoChange: (pedidoId: string, nuevoEstado: PedidoEstado) => Promise<boolean>;
   onReembolsar?: (pedido: Pedido) => void;
+  /** Dar por recibida la transferencia. Solo con nivel total. */
+  onConfirmarTransferencia?: (pedido: Pedido) => void;
   onAbrir: (pedido: Pedido) => void;
 }
 
@@ -105,10 +111,18 @@ export function PedidoFila({
   nivel,
   onEstadoChange,
   onReembolsar,
+  onConfirmarTransferencia,
   onAbrir,
 }: PedidoFilaProps) {
   const devuelto = Number(pedido.total_reembolsado ?? 0);
   const mostrarReembolso = Boolean(onReembolsar) && puedeReembolsarse(pedido);
+  // Solo en el pedido que de verdad espera un ingreso. La regla del panel es
+  // que lo que no se puede hacer no se pinta, así que no se deshabilita: no
+  // aparece.
+  const mostrarConfirmar =
+    Boolean(onConfirmarTransferencia) &&
+    pedido.metodo_pago === "transferencia" &&
+    pedido.estado === "PENDIENTE_PAGO";
 
   return (
     <tr
@@ -158,6 +172,17 @@ export function PedidoFila({
             nivel={nivel}
             onCambiar={onEstadoChange}
           />
+          {mostrarConfirmar && onConfirmarTransferencia && (
+            <button
+              type="button"
+              onClick={() => onConfirmarTransferencia(pedido)}
+              title="Dar por recibida la transferencia de este pedido"
+              className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100"
+            >
+              <Landmark className="h-3.5 w-3.5" />
+              Pago recibido
+            </button>
+          )}
           {mostrarReembolso && onReembolsar && (
             <button
               type="button"

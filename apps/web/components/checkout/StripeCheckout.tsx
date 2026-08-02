@@ -51,15 +51,22 @@ export function StripeCheckoutForm({ total, payload, documentoRegistrado, disabl
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Haz clic en "Continuar" para inicializar el pago de forma segura con Stripe.
+          Haz clic en «Continuar» para elegir cómo pagar de forma segura con Stripe.
         </p>
+        {/*
+         * El texto no nombra la tarjeta a propósito. Qué métodos aparecen aquí
+         * lo decide `automatic_payment_methods` de la API junto con lo que esté
+         * activado en el Dashboard de Stripe —tarjeta, Bizum, Apple Pay…—, así
+         * que prometer «tarjeta» en el botón dejaría fuera de la frase a los
+         * demás en cuanto se active uno nuevo, sin que nadie toque este archivo.
+         */}
         <Button
           onClick={() => void initializePayment()}
           disabled={isProcessing || disabled}
           className="w-full"
           size="lg"
         >
-          {isProcessing ? "Preparando pago..." : "Continuar con tarjeta"}
+          {isProcessing ? "Preparando pago..." : "Continuar con el pago"}
         </Button>
         {disabled && (
           <p className="text-xs text-center text-muted-foreground">
@@ -145,7 +152,7 @@ function StripePaymentForm({
         {isProcessing ? "Procesando..." : `Pagar ${total.toFixed(2)} EUR`}
       </Button>
       <p className="text-xs text-center text-muted-foreground">
-        🔒 Pago seguro procesado por Stripe. No almacenamos datos de tu tarjeta.
+        🔒 Pago seguro procesado por Stripe. No guardamos tus datos de pago.
       </p>
     </form>
   );
