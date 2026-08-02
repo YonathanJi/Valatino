@@ -13,6 +13,7 @@ import {
 } from "@nestjs/common";
 import { PedidosService } from "./pedidos.service";
 import { ReembolsosService } from "./reembolsos.service";
+import { TransferenciaService } from "./transferencia.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
@@ -33,6 +34,7 @@ export class AdminPedidosController {
   constructor(
     private readonly pedidosService: PedidosService,
     private readonly reembolsosService: ReembolsosService,
+    private readonly transferenciaService: TransferenciaService,
   ) {}
 
   @Get()
@@ -95,5 +97,19 @@ export class AdminPedidosController {
     @CurrentUser() user: JwtPayload,
   ): Promise<ResultadoReembolso> {
     return this.reembolsosService.reembolsar(id, dto, user.email, user.sub);
+  }
+
+  /**
+   * Da por recibida la transferencia de un pedido: pasa a PROCESANDO y su stock
+   * —retenido desde que se hizo el pedido— se consume.
+   *
+   * Exige `total` por lo mismo que el reembolso: es afirmar que ha entrado
+   * dinero, y de esa afirmación cuelga que la mercancía salga por la puerta.
+   * Quien lo pulsa tiene que ser quien mira el extracto del banco.
+   */
+  @Post(":id/confirmar-transferencia")
+  @Nivel("total")
+  confirmarTransferencia(@Param("id") id: string, @CurrentUser() user: JwtPayload) {
+    return this.transferenciaService.confirmarPago(id, user.sub);
   }
 }

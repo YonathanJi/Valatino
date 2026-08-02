@@ -26,6 +26,7 @@ import type {
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
+import { TransferenciaService } from "./transferencia.service";
 import { CalificacionesService } from "../calificaciones/calificaciones.service";
 
 /** Lo poco del historial interno que se lee para el seguimiento del cliente. */
@@ -143,6 +144,7 @@ export class PedidosService {
     private readonly inventario: InventarioService,
     private readonly email: EmailService,
     private readonly reembolsos: ReembolsosService,
+    private readonly transferencia: TransferenciaService,
     private readonly calificaciones: CalificacionesService,
   ) {}
 
@@ -218,6 +220,11 @@ export class PedidosService {
     const devueltos = articulos.get(pedidoId) ?? [];
     const totalDevuelto = totales.get(pedidoId) ?? 0;
 
+    // Solo mientras el pedido de verdad espera un ingreso. Enseñar el IBAN de
+    // uno ya pagado invitaría a pagarlo dos veces.
+    const esperaTransferencia =
+      pedido.metodo_pago === "transferencia" && pedido.estado === "PENDIENTE_PAGO";
+
     return {
       ...pedido,
       total_reembolsado: totalDevuelto,
@@ -228,6 +235,9 @@ export class PedidosService {
         totalDevuelto,
         pedido.created_at,
       ),
+      instrucciones_pago: esperaTransferencia
+        ? await this.transferencia.instrucciones(pedidoId).catch(() => null)
+        : null,
     };
   }
 

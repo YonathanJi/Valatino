@@ -75,11 +75,14 @@ function servicioCon(estadoActual: PedidoEstado | null) {
   // el caso normal: la gran mayoría de los pedidos no están calificados.
   const calificaciones = { porPedido: async () => null };
 
+  const transferencia = { instrucciones: async () => null };
+
   const servicio = new PedidosService(
     cliente as never,
     inventario as never,
     email as never,
     reembolsos as never,
+    transferencia as never,
     calificaciones as never,
   );
 
@@ -134,6 +137,7 @@ function servicioDeCliente(opciones: {
     {} as never,
     {} as never,
     reembolsos as never,
+    { instrucciones: async () => null } as never,
     {} as never,
   );
 
@@ -538,6 +542,7 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
         },
       } as never,
       { totalesReembolsados: async () => new Map() } as never,
+      { instrucciones: async () => null } as never,
       { porPedido: async () => null } as never,
     );
 

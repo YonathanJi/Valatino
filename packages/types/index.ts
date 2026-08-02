@@ -566,6 +566,44 @@ export interface PedidoDeCliente extends Pedido {
   articulos_devueltos: ArticuloDevuelto[];
 }
 
+// ============================================================
+// Pago por transferencia bancaria
+// ============================================================
+
+/**
+ * Si la tienda acepta transferencias y con qué plazo. Lo consulta el checkout
+ * para decidir si ofrece la opción.
+ *
+ * `disponible` es false cuando no hay cuenta configurada: sin IBAN no se puede
+ * pedir a nadie que transfiera, y enseñar la opción para luego no dar dónde
+ * pagar es peor que no ofrecerla.
+ */
+export interface DisponibilidadTransferencia {
+  disponible: boolean;
+  /** Días laborables que se conceden para pagar. */
+  dias_plazo: number;
+}
+
+/**
+ * Lo que se le dice al cliente para que pueda hacer la transferencia.
+ *
+ * El **concepto es el número de pedido** y no es decorativo: es lo único que
+ * permite casar un ingreso en el banco con un pedido. Sin él, alguien tiene que
+ * adivinar de quién es cada apunte.
+ */
+export interface InstruccionesTransferencia {
+  pedido_id: string;
+  numero_pedido: string;
+  importe: number;
+  iban: string;
+  titular: string;
+  banco: string | null;
+  /** Lo que el cliente debe escribir en el concepto: el número de pedido. */
+  concepto: string;
+  /** Hasta cuándo se guarda el pedido; pasado el plazo se cancela solo. */
+  vence_el: string;
+}
+
 /** Clases de hito del seguimiento, para elegir icono y color en la pantalla. */
 export type TipoHito =
   | "pedido"
@@ -597,6 +635,13 @@ export interface HitoPedido {
 export interface PedidoClienteDetalle extends PedidoDeCliente {
   /** Del más antiguo al más reciente. */
   seguimiento: HitoPedido[];
+  /**
+   * Cómo pagar, cuando el pedido está esperando una transferencia. `null` en
+   * todo lo demás. Va aquí y no en una llamada aparte porque el cliente que
+   * cerró la pestaña del checkout necesita poder volver a por el IBAN y el
+   * concepto: sin esto tendría el pedido reservado y ninguna forma de pagarlo.
+   */
+  instrucciones_pago: InstruccionesTransferencia | null;
 }
 
 /** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */

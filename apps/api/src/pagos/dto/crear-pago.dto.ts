@@ -93,3 +93,16 @@ export class CrearPagoDto {
   @Type(() => DireccionSnapshotDto)
   direccion?: DireccionSnapshotDto;
 }
+
+/**
+ * Iniciar un pedido que se pagará por transferencia.
+ *
+ * Lo que lo distingue del resto es la clave de idempotencia: aquí no hay una
+ * pasarela que devuelva un identificador de pago con el que reconocer el
+ * intento, así que la trae el navegador. Un doble clic reutiliza el pedido en
+ * vez de crear dos con el mismo carrito.
+ */
+export class CrearTransferenciaDto extends CrearPagoDto {
+  @IsUUID("4", { message: "clave_idempotencia debe ser un UUID generado por el navegador" })
+  clave_idempotencia!: string;
+}

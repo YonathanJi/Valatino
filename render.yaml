@@ -50,6 +50,21 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+      # --- Transferencia bancaria ---
+      # Sin IBAN y titular la opción NO se ofrece en el checkout: el método se
+      # apaga solo en vez de enseñarse para luego no poder decir a dónde pagar.
+      # Se rellenan en el dashboard porque son datos de la empresa, no del
+      # repositorio (cambiar de cuenta no debe exigir un despliegue).
+      - key: TRANSFERENCIA_IBAN
+        sync: false
+      - key: TRANSFERENCIA_TITULAR
+        sync: false
+      - key: TRANSFERENCIA_BANCO
+        sync: false
+      # Días LABORABLES que se conceden para pagar. Es también el tiempo que el
+      # pedido retiene su stock, así que subirlo inmoviliza inventario más rato.
+      - key: TRANSFERENCIA_DIAS_PLAZO
+        value: "3"
       # --- PayPal (opcional; sin estas la API arranca igual y PayPal da 503) ---
       # - key: PAYPAL_CLIENT_ID
       #   sync: false

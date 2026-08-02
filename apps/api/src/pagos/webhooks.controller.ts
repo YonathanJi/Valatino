@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Req,
   Body,
@@ -16,6 +17,7 @@ import {
 import { Request } from "express";
 import { StripeService } from "./stripe.service";
 import { PaypalService } from "./paypal.service";
+import { TransferenciaService } from "../pedidos/transferencia.service";
 import {
   InventarioService,
   type DireccionSnapshotPedido,
@@ -23,7 +25,11 @@ import {
 import { CarritoService } from "../carrito/carrito.service";
 import { ConfirmacionPedidoService } from "../pedidos/confirmacion-pedido.service";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
-import { CrearPagoDto, DireccionSnapshotDto } from "./dto/crear-pago.dto";
+import {
+  CrearPagoDto,
+  CrearTransferenciaDto,
+  DireccionSnapshotDto,
+} from "./dto/crear-pago.dto";
 import { CapturarOrdenDto } from "./dto/capturar-orden.dto";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
@@ -49,6 +55,7 @@ export class PagosController {
     private readonly inventarioService: InventarioService,
     private readonly carritoService: CarritoService,
     private readonly confirmacionPedido: ConfirmacionPedidoService,
+    private readonly transferenciaService: TransferenciaService,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
   ) {}
 
@@ -143,6 +150,60 @@ export class PagosController {
       user_id: userId ?? "",
       email_cliente: dto.email?.toLowerCase() ?? "",
       documento_cliente: dto.documento ?? "",
+    });
+  }
+
+  // ──────────────────────────────────────────────
+  // Transferencia bancaria: crear el pedido que espera el ingreso
+  // ──────────────────────────────────────────────
+
+  /**
+   * Si la tienda acepta transferencias. Público y sin datos de la cuenta: el
+   * checkout solo necesita saber si pintar la opción, y el IBAN se entrega al
+   * crear el pedido, junto al concepto con el que hay que pagarlo.
+   */
+  @Get("transferencia/disponibilidad")
+  disponibilidadTransferencia() {
+    return this.transferenciaService.disponibilidad();
+  }
+
+  /**
+   * A diferencia de tarjeta o Bizum, aquí el pedido se crea AHORA y sin dinero
+   * cobrado: queda en PENDIENTE_PAGO reteniendo su stock hasta que alguien del
+   * equipo confirme el ingreso, o hasta que venza el plazo y se cancele solo.
+   */
+  @Post("transferencia/crear-pedido")
+  @UseGuards(OptionalJwtGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async crearPedidoTransferencia(
+    @Req() req: SessionRequest,
+    @Body() dto: CrearTransferenciaDto,
+  ) {
+    const sessionId = req.sessionId ?? "";
+    const userId = req.user?.sub;
+
+    const carrito = await this.carritoService.getCarrito(sessionId, userId);
+    if (carrito.items.length === 0) {
+      throw new BadRequestException("El carrito está vacío");
+    }
+
+    // Misma validación de dirección y datos que los otros métodos: la provincia
+    // se recalcula desde el CP y el municipio se comprueba contra ella.
+    await this.validarYGuardarCheckout(sessionId, userId, dto);
+
+    return this.transferenciaService.crearPedido({
+      sessionId,
+      usuarioAutenticado: userId,
+      userId,
+      claveIdempotencia: dto.clave_idempotencia,
+      direccionEnvioId: dto.direccion_envio_id,
+      email: dto.email?.toLowerCase(),
+      documento: dto.documento,
+      // Normalizada, no la del DTO: la provincia se deriva del CP y el
+      // municipio se guarda con su nombre oficial del INE (041). Este snapshot
+      // acaba en las columnas `envio_*` del pedido, que es de donde el módulo
+      // Clientes deriva el nombre y el teléfono reales.
+      envio: dto.direccion ? this.normalizarDireccion(dto.direccion) : null,
     });
   }
 

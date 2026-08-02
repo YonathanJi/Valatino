@@ -300,6 +300,17 @@ export class ReembolsosService {
       );
     }
 
+    if (pedido.metodo_pago === "transferencia") {
+      // El dinero nunca pasó por Stripe, así que no hay nada que devolver por
+      // aquí. Decirlo explícito importa: si cayera en el mensaje de PayPal, se
+      // mandaría a alguien a buscar el cobro a un panel donde no está.
+      throw new BadRequestException(
+        "Este pedido se pagó por transferencia: la devolución hay que hacerla desde el banco, " +
+          "a la cuenta desde la que llegó el ingreso. Cuando la hagas, cancela el pedido para " +
+          "que sus unidades vuelvan al inventario.",
+      );
+    }
+
     if (pedido.metodo_pago !== "stripe") {
       throw new BadRequestException(
         "Este pedido se pagó con PayPal: la devolución hay que hacerla desde el panel de PayPal. " +
