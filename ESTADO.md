@@ -22,16 +22,20 @@
 | **Transferencia bancaria** (045-047) — el primer pago asíncrono de la tienda | Probado, incluido «Pago recibido» en el panel |
 | **Cuenta de cobro editable en TI → Ajustes** (046) | Funcionando, con validación del IBAN |
 | **Pedidos enlazados y notas en el historial** (049-050) | Funcionando |
-| **Correos de la transferencia** (instrucciones + pago recibido) | Desplegado, **sin probar a mano todavía** |
+| **Correos de la transferencia** (instrucciones + pago recibido) | Desplegado, **sin probar a mano** |
+| **051-052** (madrugada del 3) — cancelar libera stock, y las reservas de un pedido son intocables | Desplegado y verificado en el remoto |
 
 ### 🔜 Lo único pendiente al volver
 
-1. **Probar el correo de la transferencia**: hacer un pedido por transferencia y comprobar que llega el correo con el IBAN y el concepto, y que aparece en el histórico del pedido. Es lo último que se hizo (`69db126`) y lo único sin verificar en pantalla.
-2. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
-   - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar, así que el definitivo no se podrá colar mal tecleado.
-3. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
+1. **Probar el correo de la transferencia**: hacer un pedido por transferencia y comprobar que llega el correo con el IBAN y el concepto, y que aparece en el histórico. Es lo único sin verificar en pantalla.
+2. **Probar de nuevo el escenario que falló** (`052`): pedido por transferencia → cerrar sesión → volver a entrar → pagar con Bizum. Ahora debe enlazarse y cancelarse el anterior. Verificado en seco contra el remoto, no en pantalla.
+3. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
+   - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar.
+4. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
 
 ⚠️ **Sigue en pie**: `NODE_ENV` está en `development` en Render (ver «Pendientes de Jonathan»), y conviene re-guardar la plantilla del correo de acceso en el Dashboard de Supabase.
+
+⚠️ **Lección de la madrugada, que vale para lo que venga**: los dos fallos peores de la sesión (las reservas barridas, el `update … from` que aplica una sola fila) **no se vieron razonando el código, salieron al ejecutar el escenario contra datos reales en transacción revertida**. Con el stock de por medio, esa prueba en seco no es opcional.
 
 Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €).
 
