@@ -14,7 +14,7 @@
 
 🔨 **PENDIENTE DE DESPLEGAR (lo último del 2026-08-02): Bizum y el pago por transferencia.** Migración **045 aplicada al remoto** y probada, código listo y en verde, pero **sin desplegar y con dos acciones tuyas por delante**:
 
-1. **Activar Bizum en el Dashboard de Stripe** (Configuración → Métodos de pago). Hasta entonces no aparece: qué métodos se ofrecen lo decide Stripe, no el código.
+1. ~~Activar Bizum en Stripe~~ → **hecho el 2026-08-02 por API** y verificado en un PaymentIntent real. También se añadió `refund.updated` al webhook (ver la sesión).
 2. **Poner las variables de la cuenta bancaria en Render**: `TRANSFERENCIA_IBAN`, `TRANSFERENCIA_TITULAR`, `TRANSFERENCIA_BANCO` (ver `render.yaml`). **Sin ellas la opción de transferencia no se ofrece**, que es a propósito. El IBAN que hay ahora es de prueba; falta el definitivo.
 
 Luego, probar: comprar por transferencia → ver el IBAN y el concepto → «Pago recibido» en el panel → comprobar que el stock se descuenta y el pedido pasa a Procesando. Ver la sesión de abajo.
@@ -119,8 +119,16 @@ La API ya creaba el PaymentIntent con `automatic_payment_methods: { enabled: tru
 
 Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Continuar con tarjeta») y habrían dejado fuera de la frase a todo lo demás. Ahora el botón dice «Tarjeta o Bizum» y el interior no nombra ningún método.
 
-⚠️ **Queda una acción manual de Jonathan: activar Bizum en el Dashboard de Stripe.** Hasta que lo haga no aparece nada nuevo, y el código no puede saberlo.
-⚠️ **Sin comprobar todavía**: que Stripe admita reembolsos **parciales** de Bizum. Todo el reembolso por artículos asume que se puede. Si Stripe los rechaza, el error viaja tal cual al panel (se verá el mensaje de Stripe, no un fallo mudo), pero conviene probarlo con una devolución pequeña antes de fiarse.
+✅ **Bizum ya está ACTIVADO** (2026-08-02, por API de Stripe a petición de Jonathan). Se hizo con `POST /v1/payment_method_configurations/pmc_1TmwxzL1kwgv5hCuZKpYAjLh` → `bizum[display_preference][preference]=on`. Antes figuraba con `available: false`; activarlo lo puso en `available: true`. **Verificado creando un PaymentIntent igual que los del checkout**: `bizum` aparece en sus `payment_method_types` (el intent de prueba se canceló). La cuenta es `acct_1TmwxTL1kwgv5hCu`, país ES y moneda EUR, que es lo que Bizum exige.
+
+✅ **Reembolsos de Bizum: admite totales y parciales**, hasta 395 días después de la compra. La duda queda cerrada y el reembolso por artículos funciona igual con Bizum.
+
+⚠️⚠️ **PERO los reembolsos de Bizum son ASÍNCRONOS y pueden fallar DESPUÉS de darlos por buenos**, y eso abrió un agujero que hubo que tapar en la misma sesión. Con tarjeta, que Stripe acepte el reembolso equivale a que el dinero sale. Con Bizum tarda hasta 5 minutos y puede acabar en `failed`: Stripe devuelve el importe a nuestro saldo y **el cliente se queda sin su dinero**, con el pedido ya marcado como reembolsado, el stock repuesto, los artículos apuntados y el correo enviado.
+
+- Ahora se escucha `refund.updated` (y `charge.refund.updated`) y, si el estado llega en `failed` o `canceled`, se deja constancia **en la línea de tiempo del pedido** —donde lo verá quien lo abra— y como ERROR en el log.
+- ⚠️ **No se revierte nada automáticamente**, y es deliberado: deshacer el apunte, volver a descontar el stock y reabrir el pedido a ciegas puede empeorarlo si alguien ya actuó o la mercancía ya volvió. Lo que hacía falta es que no pase inadvertido.
+- ⚠️ **El nombre del evento importa**: la documentación de Stripe habla de `refund.failed`, pero **ese evento no existe en la versión de API de esta cuenta** (2024-06-20, librería 16.12). Aquí el fallo llega como `refund.updated` con el estado ya puesto. Si algún día se sube la versión de API, revisar esto.
+- ⚠️ **El webhook escuchaba solo 4 eventos** (`payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`), así que el aviso no habría llegado nunca. Se añadió `refund.updated` por API al endpoint `we_1Tw2mHL1kwgv5hCuBoKht7CL`. **Si se recrea el webhook al pasar a Stripe `live`, hay que volver a incluirlo.**
 
 ### La transferencia es otra cosa: el primer pago ASÍNCRONO de la tienda
 
