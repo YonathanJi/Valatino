@@ -4,6 +4,7 @@ import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
+import { EventosPedidoService } from "../eventos/eventos-pedido.service";
 
 /**
  * Pago confirmado por un proveedor, ya verificado y normalizado por el
@@ -46,6 +47,8 @@ export class ConfirmacionPedidoService {
     private readonly emailService: EmailService,
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     private readonly reembolsos: ReembolsosService,
+    // Para dejar constancia de un reembolso que no llegó a completarse.
+    private readonly eventos: EventosPedidoService,
   ) {}
 
   async confirmarPago(pago: PagoConfirmado): Promise<string> {
@@ -98,6 +101,54 @@ export class ConfirmacionPedidoService {
 
     await this.enviarEmailPedido(pedidoId, false);
     return pedidoId;
+  }
+
+  /**
+   * Un reembolso que Stripe aceptó pero que después NO llegó a completarse.
+   *
+   * ⚠️ Existe por Bizum: sus devoluciones son **asíncronas**. Con tarjeta, que
+   * Stripe acepte el reembolso equivale a que el dinero sale; con Bizum puede
+   * fallar minutos más tarde, y para entonces el panel ya dio la devolución por
+   * hecha — repuso el stock, apuntó los artículos, quizá cerró el pedido y
+   * avisó al cliente por correo—. Stripe devuelve el importe a nuestro saldo y
+   * el cliente se queda sin su dinero.
+   *
+   * **No se revierte nada automáticamente**, y es deliberado: deshacer el
+   * apunte, volver a descontar el stock y reabrir el pedido a ciegas puede
+   * empeorarlo si alguien ya actuó sobre él —o si la mercancía ya volvió—. Lo
+   * que hace falta es que no pase inadvertido, así que queda en la línea de
+   * tiempo del pedido, donde lo va a ver quien lo abra, y en el log como error.
+   */
+  async procesarReembolsoFallido(datos: {
+    referenciaPago: string;
+    importe: number;
+    motivo: string | null;
+  }): Promise<string | null> {
+    const pedido = await this.inventarioService.findPedidoPorReferencia(datos.referenciaPago);
+    if (!pedido) {
+      this.logger.error(
+        `Reembolso FALLIDO sin pedido asociado (ref ${datos.referenciaPago}, ${datos.importe} €)`,
+      );
+      return null;
+    }
+
+    this.logger.error(
+      `El reembolso de ${datos.importe} € del pedido ${pedido.id} NO se ha completado` +
+        `${datos.motivo ? ` (${datos.motivo})` : ""}. El dinero ha vuelto al saldo de Stripe y el cliente NO lo ha recibido: ` +
+        "hay que devolvérselo por otra vía. El pedido puede figurar ya como reembolsado.",
+    );
+
+    await this.eventos.registrar({
+      pedidoId: pedido.id,
+      tipo: "reembolso",
+      importe: datos.importe,
+      detalle:
+        `LA DEVOLUCIÓN NO SE COMPLETÓ${datos.motivo ? ` (${datos.motivo})` : ""}. ` +
+        "El dinero volvió a nuestro saldo y el cliente no lo ha recibido: hay que devolvérselo por otra vía.",
+      origen: "webhook",
+    });
+
+    return pedido.id;
   }
 
   /**

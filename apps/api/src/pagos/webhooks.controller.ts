@@ -313,6 +313,39 @@ export class PagosController {
       }
     }
 
+    /*
+     * El reembolso se aceptó pero no llegó a completarse. Con tarjeta esto
+     * prácticamente no pasa; con **Bizum sí**, porque sus devoluciones son
+     * asíncronas y pueden fallar minutos después de darlas por buenas. Stripe
+     * devuelve el importe a nuestro saldo y el cliente se queda sin su dinero,
+     * con el pedido ya marcado como reembolsado. Tiene que quedar constancia.
+     */
+    /*
+     * La documentación de Bizum habla de `refund.failed`, pero ese evento no
+     * existe en la versión de API que usa esta cuenta (2024-06-20): aquí el
+     * fallo llega como `refund.updated` con el estado ya en «failed». Se
+     * escuchan los dos nombres del mismo aviso —`charge.refund.updated` es el
+     * heredado— y se filtra por estado, que es lo que de verdad importa.
+     */
+    if (event.type === "refund.updated" || event.type === "charge.refund.updated") {
+      const refund = event.data.object as Stripe.Refund;
+
+      if (refund.status === "failed" || refund.status === "canceled") {
+        const paymentIntentId =
+          typeof refund.payment_intent === "string"
+            ? refund.payment_intent
+            : refund.payment_intent?.id;
+
+        if (paymentIntentId) {
+          await this.confirmacionPedido.procesarReembolsoFallido({
+            referenciaPago: paymentIntentId,
+            importe: (refund.amount ?? 0) / 100,
+            motivo: refund.failure_reason ?? refund.status,
+          });
+        }
+      }
+    }
+
     if (event.type === "charge.refunded") {
       const charge = event.data.object as Stripe.Charge;
       const paymentIntentId =

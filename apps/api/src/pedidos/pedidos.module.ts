@@ -8,6 +8,7 @@ import { AdminPedidosController } from "./admin-pedidos.controller";
 import { InventarioModule } from "../inventario/inventario.module";
 import { StripeModule } from "../pagos/stripe.module";
 import { CalificacionesModule } from "../calificaciones/calificaciones.module";
+import { EventosModule } from "../eventos/eventos.module";
 
 @Module({
   // StripeModule y no PagosModule: PagosModule importa este módulo, así que
@@ -16,7 +17,7 @@ import { CalificacionesModule } from "../calificaciones/calificaciones.module";
   // CalificacionesModule va en este sentido y no al revés: la ficha del pedido
   // adjunta la opinión, pero la calificación no necesita saber nada de pedidos
   // más allá de su id.
-  imports: [InventarioModule, StripeModule, CalificacionesModule],
+  imports: [InventarioModule, StripeModule, CalificacionesModule, EventosModule],
   controllers: [PedidosController, PedidosPublicController, AdminPedidosController],
   providers: [PedidosService, ConfirmacionPedidoService, ReembolsosService, TransferenciaService],
   // TransferenciaService se exporta porque lo usa PagosController: el pedido

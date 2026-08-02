@@ -70,7 +70,13 @@ function montar(totalPedido: number | null, yaReembolsado = 0) {
     },
   } as unknown as ReembolsosService;
 
-  const servicio = new ConfirmacionPedidoService(inventario, email, {} as never, reembolsos);
+  const servicio = new ConfirmacionPedidoService(
+    inventario,
+    email,
+    {} as never,
+    reembolsos,
+    { registrar: async () => undefined } as never,
+  );
   return { servicio, llamadas };
 }
 
