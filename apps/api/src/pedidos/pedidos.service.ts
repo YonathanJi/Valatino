@@ -454,15 +454,21 @@ export class PedidosService {
   ) {
     const { data: pedido, error } = await this.supabase
       .from("pedidos")
-      .select("estado")
+      .select("estado, metodo_pago")
       .eq("id", pedidoId)
       .single();
 
     if (error || !pedido) throw new NotFoundException("Pedido no encontrado");
 
-    const estadoActual = (pedido as { estado: PedidoEstado }).estado;
+    const { estado: estadoActual, metodo_pago: metodoPago } = pedido as {
+      estado: PedidoEstado;
+      metodo_pago: string;
+    };
 
-    if (!transicionesPermitidas(estadoActual, nivelUsuario).includes(nuevoEstado)) {
+    // El método importa: un pedido por transferencia pendiente de pago solo
+    // avanza por «Pago recibido», nunca por el desplegable. Ocultarlo en el
+    // panel no basta — la ruta seguiría abierta.
+    if (!transicionesPermitidas(estadoActual, nivelUsuario, metodoPago).includes(nuevoEstado)) {
       throw new ForbiddenException(
         `Transición ${estadoActual} → ${nuevoEstado} no está permitida con nivel «${NIVEL_LABELS[nivelUsuario]}» en pedidos`,
       );

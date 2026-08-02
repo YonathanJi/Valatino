@@ -188,6 +188,7 @@ export function PedidoFila({
             pedidoId={pedido.id}
             estadoActual={pedido.estado}
             nivel={nivel}
+            metodoPago={pedido.metodo_pago}
             onCambiar={onEstadoChange}
           />
           {mostrarConfirmar && onConfirmarTransferencia && (

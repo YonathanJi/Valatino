@@ -185,8 +185,31 @@ export const ESTADOS_REEMBOLSABLES: readonly PedidoEstado[] = [
 export function transicionesPermitidas(
   estado: PedidoEstado,
   nivel: NivelPermiso,
+  /**
+   * Cómo se paga el pedido. Solo importa en `transferencia`: ver abajo.
+   */
+  metodoPago?: string,
 ): PedidoEstado[] {
   if (nivel === "lectura") return [];
+
+  /*
+   * ⚠️ Un pedido por TRANSFERENCIA pendiente de pago no se mueve a mano.
+   *
+   * El desplegable ofrecía «Pendiente de pago → Procesando», y usarlo pondría
+   * el pedido en marcha SIN HABER COBRADO: se saltaría el consumo de la reserva
+   * de stock (que seguiría viva hasta vencer, y entonces el cron devolvería
+   * unidades de un pedido que ya se está preparando) y el correo que le dice al
+   * cliente que su dinero llegó.
+   *
+   * La única forma de avanzarlo es «Pago recibido», que es
+   * `confirmar_pago_transferencia` y hace las tres cosas a la vez. Cancelar sí
+   * se permite —hay que poder cerrar el pedido de quien dice que no va a
+   * pagar—, y al hacerlo se liberan sus reservas (migración 051).
+   */
+  if (estado === "PENDIENTE_PAGO" && metodoPago === "transferencia") {
+    return nivel === "total" ? ["CANCELADO"] : [];
+  }
+
   const tabla = nivel === "total" ? TRANSICIONES_PEDIDO : TRANSICIONES_PEDIDO_EDICION;
   return tabla[estado] ?? [];
 }

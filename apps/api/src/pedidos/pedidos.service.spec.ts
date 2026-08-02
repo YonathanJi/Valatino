@@ -552,3 +552,46 @@ describe("PedidosService.updateEstado — aviso al cliente", () => {
     expect(updates[0]).toMatchObject({ estado: "ENVIADO" });
   });
 });
+
+/**
+ * Un pedido por transferencia pendiente de pago NO se avanza a mano.
+ *
+ * El desplegable ofrecía «Pendiente de pago → Procesando», y usarlo pondría el
+ * pedido en marcha SIN HABER COBRADO: se saltaría el consumo de la reserva de
+ * stock —que seguiría viva hasta vencer, y entonces el cron devolvería unidades
+ * de un pedido que ya se está preparando— y el correo que le dice al cliente
+ * que su dinero llegó. La única vía es «Pago recibido».
+ */
+describe("transicionesPermitidas — pedido por transferencia sin pagar", () => {
+  it("no deja avanzarlo a Procesando, ni con control total", () => {
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "total", "transferencia")).not.toContain(
+      "PROCESANDO",
+    );
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "edicion", "transferencia")).toEqual([]);
+  });
+
+  /** Hay que poder cerrar el pedido de quien dice que no va a pagar. */
+  it("cancelar sí se permite, y solo con control total", () => {
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "total", "transferencia")).toEqual([
+      "CANCELADO",
+    ]);
+  });
+
+  it("una vez pagado se mueve como cualquier otro pedido", () => {
+    expect(transicionesPermitidas("PROCESANDO", "total", "transferencia")).toEqual([
+      "ENVIADO",
+      "CANCELADO",
+    ]);
+  });
+
+  /** La restricción es solo de la transferencia: los demás no cambian. */
+  it("un pedido con tarjeta pendiente de pago se sigue pudiendo avanzar", () => {
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "total", "stripe")).toContain("PROCESANDO");
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "edicion")).toEqual(["PROCESANDO"]);
+  });
+
+  it("con solo lectura no se ofrece nada, sea cual sea el método", () => {
+    expect(transicionesPermitidas("PENDIENTE_PAGO", "lectura", "transferencia")).toEqual([]);
+    expect(transicionesPermitidas("PROCESANDO", "lectura", "stripe")).toEqual([]);
+  });
+});
