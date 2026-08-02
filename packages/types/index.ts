@@ -566,6 +566,39 @@ export interface PedidoDeCliente extends Pedido {
   articulos_devueltos: ArticuloDevuelto[];
 }
 
+/** Clases de hito del seguimiento, para elegir icono y color en la pantalla. */
+export type TipoHito =
+  | "pedido"
+  | "preparacion"
+  | "envio"
+  | "entrega"
+  | "devolucion"
+  | "cancelacion";
+
+/**
+ * Un paso de lo que le ha pasado al pedido, **contado para el cliente**.
+ *
+ * NO es `PedidoEvento`. El historial interno lleva quién tocó cada cosa, su
+ * correo, el origen y textos de máquina (`payment_intent.succeeded`,
+ * `charge.refunded`, `reembolso.backoffice`), y está dicho desde el primer día
+ * que el cliente no lo ve. Esto se construye en el servidor a partir de aquello,
+ * traducido y con los pasos internos fuera: lo que aquí no se pone, no viaja.
+ */
+export interface HitoPedido {
+  tipo: TipoHito;
+  titulo: string;
+  /** Los artículos de una devolución, o null cuando no aplica. */
+  detalle: string | null;
+  importe: number | null;
+  fecha: string;
+}
+
+/** Ficha del pedido para su dueño (GET /pedidos/:id). */
+export interface PedidoClienteDetalle extends PedidoDeCliente {
+  /** Del más antiguo al más reciente. */
+  seguimiento: HitoPedido[];
+}
+
 /** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */
 export interface ResultadoReembolso {
   pedido_id: string;

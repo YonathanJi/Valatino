@@ -13,16 +13,126 @@ import type {
   NivelPermiso,
   PaginatedResponse,
   Pedido,
+  ArticuloDevuelto,
+  HitoPedido,
+  PedidoClienteDetalle,
   PedidoDeCliente,
   PedidoDetalle,
   PedidoEstado,
   PedidoEvento,
   PedidoItem,
+  TipoHito,
 } from "@valatino/types";
 import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
 import { CalificacionesService } from "../calificaciones/calificaciones.service";
+
+/** Lo poco del historial interno que se lee para el seguimiento del cliente. */
+interface EventoParaSeguimiento {
+  tipo: string;
+  estado_nuevo: PedidoEstado | null;
+  created_at: string;
+}
+
+/**
+ * Cómo se le cuenta cada estado al cliente. Los textos son los de la tienda, no
+ * los del panel: aquí no se dice «PROCESANDO», se dice qué está pasando.
+ *
+ * PENDIENTE_PAGO no está: un pedido que nunca llegó a pagarse no es un paso del
+ * que informar, es ruido.
+ */
+const HITO_POR_ESTADO: Partial<Record<PedidoEstado, { tipo: TipoHito; titulo: string }>> = {
+  PROCESANDO: { tipo: "preparacion", titulo: "Pago confirmado. Estamos preparando tu pedido" },
+  ENVIADO: { tipo: "envio", titulo: "Tu pedido va en camino" },
+  ENTREGADO: { tipo: "entrega", titulo: "Pedido entregado" },
+  CANCELADO: { tipo: "cancelacion", titulo: "Pedido cancelado" },
+  REEMBOLSADO: { tipo: "devolucion", titulo: "Pedido reembolsado por completo" },
+};
+
+/**
+ * Traduce el historial interno a lo que se le puede enseñar a quien compró.
+ *
+ * Se queda fuera todo lo que es de puertas adentro: quién movió el pedido, los
+ * correos que se le enviaron (ya los tiene en su buzón), los avisos de la
+ * pasarela y los textos de máquina. La consulta que alimenta esto ni siquiera
+ * pide las columnas de autor — lo que no se lee no se puede filtrar mal.
+ */
+export function construirSeguimiento(
+  eventos: EventoParaSeguimiento[],
+  devueltos: ArticuloDevuelto[],
+  totalDevuelto: number,
+  pedidoCreadoEl: string,
+): HitoPedido[] {
+  const hitos: HitoPedido[] = [];
+
+  for (const e of eventos) {
+    if (e.tipo !== "estado" || !e.estado_nuevo) continue;
+    const plantilla = HITO_POR_ESTADO[e.estado_nuevo];
+    if (!plantilla) continue;
+    hitos.push({ ...plantilla, detalle: null, importe: null, fecha: e.created_at });
+  }
+
+  // Respaldo para los pedidos anteriores al historial (migración 039): sin
+  // eventos, el seguimiento saldría vacío y parecería que no ha pasado nada.
+  if (hitos.length === 0) {
+    hitos.push({
+      tipo: "pedido",
+      titulo: "Pedido realizado",
+      detalle: null,
+      importe: null,
+      fecha: pedidoCreadoEl,
+    });
+  }
+
+  /*
+   * Las devoluciones NO se sacan de los eventos, y es a propósito: allí el
+   * importe es el ACUMULADO devuelto hasta ese momento (lo necesita el cálculo
+   * de cuánto queda), así que una segunda devolución de 10 € figura como 10,50.
+   * Mostrárselo al cliente junto al artículo que se le devolvió sería contarle
+   * mal su dinero. Aquí el importe sale de las líneas, que llevan lo de cada una.
+   *
+   * Se agrupan por fecha porque todas las líneas de una misma devolución se
+   * insertan en la misma transacción, y `now()` es constante dentro de ella:
+   * misma marca de tiempo equivale a mismo reembolso, sin exponer su id.
+   */
+  const porDevolucion = new Map<string, ArticuloDevuelto[]>();
+  for (const a of devueltos) {
+    porDevolucion.set(a.fecha, [...(porDevolucion.get(a.fecha) ?? []), a]);
+  }
+
+  let contabilizado = 0;
+  for (const [fecha, articulos] of porDevolucion) {
+    const importe = articulos.reduce((s, a) => s + a.importe, 0);
+    contabilizado += importe;
+    hitos.push({
+      tipo: "devolucion",
+      titulo: "Devolución tramitada",
+      detalle: articulos
+        .map((a) => (a.cantidad > 1 ? `${a.nombre_producto} × ${a.cantidad}` : a.nombre_producto))
+        .join(", "),
+      importe,
+      fecha,
+    });
+  }
+
+  // Dinero devuelto que no consta de ningún artículo (devolución por importe, o
+  // hecha desde el panel de Stripe). Se cuenta igual: el cliente lo va a ver en
+  // su banco y no encontrarlo aquí es peor que no dar el detalle.
+  const suelto = Math.round((totalDevuelto - contabilizado) * 100) / 100;
+  if (suelto > 0) {
+    const ultimoReembolso = [...eventos].reverse().find((e) => e.tipo === "reembolso");
+    hitos.push({
+      tipo: "devolucion",
+      titulo: "Devolución tramitada",
+      detalle: null,
+      importe: suelto,
+      fecha: ultimoReembolso?.created_at ?? pedidoCreadoEl,
+    });
+  }
+
+  return hitos.sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
+}
 
 @Injectable()
 export class PedidosService {
@@ -79,7 +189,7 @@ export class PedidosService {
     };
   }
 
-  async findOneByUser(pedidoId: string, userId: string): Promise<PedidoDeCliente> {
+  async findOneByUser(pedidoId: string, userId: string): Promise<PedidoClienteDetalle> {
     const { data, error } = await this.supabase
       .from("pedidos")
       .select("*, pedido_items(*), direcciones_envio(*)")
@@ -95,15 +205,29 @@ export class PedidosService {
 
     // Después de comprobar de quién es el pedido, nunca antes: leer lo devuelto
     // de un pedido ajeno y descartarlo al fallar el guard sigue siendo leerlo.
-    const [totales, articulos] = await Promise.all([
+    const [totales, articulos, { data: eventos }] = await Promise.all([
       this.reembolsos.totalesReembolsados([pedidoId]),
       this.reembolsos.articulosDevueltos([pedidoId]),
+      this.supabase
+        .from("pedido_eventos")
+        .select("tipo, estado_nuevo, created_at")
+        .eq("pedido_id", pedidoId)
+        .order("created_at", { ascending: true }),
     ]);
+
+    const devueltos = articulos.get(pedidoId) ?? [];
+    const totalDevuelto = totales.get(pedidoId) ?? 0;
 
     return {
       ...pedido,
-      total_reembolsado: totales.get(pedidoId) ?? 0,
-      articulos_devueltos: articulos.get(pedidoId) ?? [],
+      total_reembolsado: totalDevuelto,
+      articulos_devueltos: devueltos,
+      seguimiento: construirSeguimiento(
+        (eventos ?? []) as EventoParaSeguimiento[],
+        devueltos,
+        totalDevuelto,
+        pedido.created_at,
+      ),
     };
   }
 

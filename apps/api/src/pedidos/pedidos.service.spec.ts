@@ -1,5 +1,5 @@
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
-import { PedidosService } from "./pedidos.service";
+import { PedidosService, construirSeguimiento } from "./pedidos.service";
 import {
   transicionesPermitidas,
   NIVELES_PERMISO,
@@ -219,6 +219,151 @@ describe("PedidosService — lo que el cliente ve de sus devoluciones", () => {
 
     await expect(servicio.findOneByUser("p1", "u1")).rejects.toThrow(ForbiddenException);
     expect(consultasDeReembolso).toEqual([]);
+  });
+});
+
+describe("construirSeguimiento — lo que se le cuenta al cliente", () => {
+  const ev = (tipo: string, estado_nuevo: string | null, created_at: string) =>
+    ({ tipo, estado_nuevo, created_at }) as never;
+
+  const CREADO = "2026-08-02T16:51:28Z";
+
+  it("traduce los estados a lenguaje de tienda, sin nombres internos", async () => {
+    const hitos = construirSeguimiento(
+      [
+        ev("estado", "PROCESANDO", "2026-08-02T16:51:28Z"),
+        ev("estado", "ENVIADO", "2026-08-02T16:55:43Z"),
+      ],
+      [],
+      0,
+      CREADO,
+    );
+
+    expect(hitos.map((h) => h.titulo)).toEqual([
+      "Pago confirmado. Estamos preparando tu pedido",
+      "Tu pedido va en camino",
+    ]);
+    expect(JSON.stringify(hitos)).not.toMatch(/PROCESANDO|ENVIADO/);
+  });
+
+  /**
+   * Los correos enviados, los avisos de la pasarela y el registro del cobro son
+   * de puertas adentro. El cliente ya tiene los correos en su buzón; verlos
+   * repetidos aquí como pasos del pedido es ruido, no información.
+   */
+  it("deja fuera los correos, los pagos y los avisos de la pasarela", async () => {
+    const hitos = construirSeguimiento(
+      [
+        ev("estado", "PROCESANDO", "2026-08-02T16:51:28Z"),
+        ev("pago", null, "2026-08-02T16:51:28Z"),
+        ev("email", null, "2026-08-02T16:51:29Z"),
+        ev("reembolso", null, "2026-08-02T16:55:34Z"),
+      ],
+      [],
+      0,
+      CREADO,
+    );
+
+    expect(hitos).toHaveLength(1);
+    expect(hitos[0]!.tipo).toBe("preparacion");
+  });
+
+  /**
+   * El fallo que esto evita: en el historial interno el importe del reembolso es
+   * el ACUMULADO devuelto hasta ese momento, así que la segunda devolución
+   * figura como 10,50 € aunque devolviera 10,00 €. Enseñárselo al cliente junto
+   * al artículo devuelto sería contarle mal su dinero.
+   */
+  it("el importe de cada devolución es el de ESA devolución, no el acumulado", async () => {
+    const hitos = construirSeguimiento(
+      [ev("reembolso", null, "2026-08-02T17:00:35Z")],
+      [
+        {
+          nombre_producto: "Bon Bon Bum",
+          cantidad: 1,
+          importe: 0.5,
+          fecha: "2026-08-02T16:55:33Z",
+        },
+        { nombre_producto: "Milo 400G", cantidad: 1, importe: 10, fecha: "2026-08-02T17:00:35Z" },
+      ],
+      10.5, // acumulado, como lo guarda transacciones_pago
+      CREADO,
+    );
+
+    const devoluciones = hitos.filter((h) => h.tipo === "devolucion");
+    expect(devoluciones.map((d) => d.importe)).toEqual([0.5, 10]);
+    expect(devoluciones.map((d) => d.detalle)).toEqual(["Bon Bon Bum", "Milo 400G"]);
+  });
+
+  it("agrupa en un solo paso los artículos devueltos a la vez", async () => {
+    const cuando = "2026-08-02T17:00:35Z";
+    const hitos = construirSeguimiento(
+      [],
+      [
+        { nombre_producto: "Nucita", cantidad: 2, importe: 5, fecha: cuando },
+        { nombre_producto: "Milo 400G", cantidad: 1, importe: 10, fecha: cuando },
+      ],
+      15,
+      CREADO,
+    );
+
+    const devoluciones = hitos.filter((h) => h.tipo === "devolucion");
+    expect(devoluciones).toHaveLength(1);
+    expect(devoluciones[0]).toMatchObject({ importe: 15, detalle: "Nucita × 2, Milo 400G" });
+  });
+
+  /** Dinero devuelto sin artículo asociado: se cuenta igual, sin detalle. */
+  it("cuenta el dinero devuelto que no consta de ningún artículo", async () => {
+    const hitos = construirSeguimiento(
+      [ev("reembolso", null, "2026-08-02T18:00:00Z")],
+      [],
+      3,
+      CREADO,
+    );
+
+    expect(hitos.filter((h) => h.tipo === "devolucion")).toEqual([
+      {
+        tipo: "devolucion",
+        titulo: "Devolución tramitada",
+        detalle: null,
+        importe: 3,
+        fecha: "2026-08-02T18:00:00Z",
+      },
+    ]);
+  });
+
+  it("no inventa un paso extra cuando las líneas ya cubren lo devuelto", async () => {
+    const hitos = construirSeguimiento(
+      [],
+      [{ nombre_producto: "Nucita", cantidad: 1, importe: 2.5, fecha: "2026-08-02T17:00:00Z" }],
+      2.5,
+      CREADO,
+    );
+
+    expect(hitos.filter((h) => h.tipo === "devolucion")).toHaveLength(1);
+  });
+
+  it("ordena los pasos por fecha, mezclando estados y devoluciones", async () => {
+    const hitos = construirSeguimiento(
+      [
+        ev("estado", "PROCESANDO", "2026-08-02T16:51:00Z"),
+        ev("estado", "ENVIADO", "2026-08-02T17:30:00Z"),
+      ],
+      [{ nombre_producto: "Nucita", cantidad: 1, importe: 2.5, fecha: "2026-08-02T17:00:00Z" }],
+      2.5,
+      CREADO,
+    );
+
+    expect(hitos.map((h) => h.tipo)).toEqual(["preparacion", "devolucion", "envio"]);
+  });
+
+  /** Los pedidos anteriores al historial (039) no tienen eventos. */
+  it("un pedido sin historial no se queda en blanco", async () => {
+    const hitos = construirSeguimiento([], [], 0, CREADO);
+
+    expect(hitos).toEqual([
+      { tipo: "pedido", titulo: "Pedido realizado", detalle: null, importe: null, fecha: CREADO },
+    ]);
   });
 });
 
