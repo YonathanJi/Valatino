@@ -13,6 +13,7 @@ import type {
   NivelPermiso,
   PaginatedResponse,
   Pedido,
+  PedidoDeCliente,
   PedidoDetalle,
   PedidoEstado,
   PedidoEvento,
@@ -35,7 +36,19 @@ export class PedidosService {
     private readonly calificaciones: CalificacionesService,
   ) {}
 
-  async findByUser(userId: string, page = 1, limit = 20): Promise<PaginatedResponse<unknown>> {
+  /**
+   * Los pedidos del cliente, con lo que se le haya devuelto.
+   *
+   * El reembolso va aquí y no en una llamada aparte porque **un reembolso
+   * parcial no cambia el estado del pedido** —sigue en ENVIADO o ENTREGADO, que
+   * es lo correcto—: sin esto, el cliente no tiene ninguna forma de enterarse de
+   * que se le ha abonado dinero. El estado solo cuenta el reembolso total.
+   */
+  async findByUser(
+    userId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<PaginatedResponse<PedidoDeCliente>> {
     const offset = (page - 1) * limit;
     const { data, count, error } = await this.supabase
       .from("pedidos")
@@ -45,10 +58,28 @@ export class PedidosService {
       .range(offset, offset + limit - 1);
 
     if (error) throw new InternalServerErrorException("No se pudieron cargar los pedidos");
-    return { data: data ?? [], total: count ?? 0, page, limit };
+
+    // Dos consultas para toda la página, no dos por pedido.
+    const pedidos = (data ?? []) as Pedido[];
+    const ids = pedidos.map((p) => p.id);
+    const [totales, articulos] = await Promise.all([
+      this.reembolsos.totalesReembolsados(ids),
+      this.reembolsos.articulosDevueltos(ids),
+    ]);
+
+    return {
+      data: pedidos.map((p) => ({
+        ...p,
+        total_reembolsado: totales.get(p.id) ?? 0,
+        articulos_devueltos: articulos.get(p.id) ?? [],
+      })),
+      total: count ?? 0,
+      page,
+      limit,
+    };
   }
 
-  async findOneByUser(pedidoId: string, userId: string) {
+  async findOneByUser(pedidoId: string, userId: string): Promise<PedidoDeCliente> {
     const { data, error } = await this.supabase
       .from("pedidos")
       .select("*, pedido_items(*), direcciones_envio(*)")
@@ -57,12 +88,23 @@ export class PedidosService {
 
     if (error || !data) throw new NotFoundException("Pedido no encontrado");
 
-    const pedido = data as { user_id: string };
+    const pedido = data as Pedido;
     if (pedido.user_id !== userId) {
       throw new ForbiddenException("No tienes acceso a este pedido");
     }
 
-    return data;
+    // Después de comprobar de quién es el pedido, nunca antes: leer lo devuelto
+    // de un pedido ajeno y descartarlo al fallar el guard sigue siendo leerlo.
+    const [totales, articulos] = await Promise.all([
+      this.reembolsos.totalesReembolsados([pedidoId]),
+      this.reembolsos.articulosDevueltos([pedidoId]),
+    ]);
+
+    return {
+      ...pedido,
+      total_reembolsado: totales.get(pedidoId) ?? 0,
+      articulos_devueltos: articulos.get(pedidoId) ?? [],
+    };
   }
 
   async findAll(
@@ -173,7 +215,7 @@ export class PedidosService {
       pedido_items?: unknown[];
     };
 
-    const [{ data: eventos, error: errorEventos }, reembolsados, calificacion] =
+    const [{ data: eventos, error: errorEventos }, reembolsados, calificacion, reembolsoLineas] =
       await Promise.all([
         this.supabase
           .from("pedido_eventos")
@@ -185,6 +227,9 @@ export class PedidosService {
         // ficha tiene contexto (quién lo tocó, cuánto tardó, qué opinó), y es
         // donde de verdad se puede hacer algo con ella.
         this.calificaciones.porPedido(pedidoId),
+        // Qué artículos se han devuelto ya. Lo usa la ficha para marcarlos y el
+        // modal de reembolso para no volver a ofrecer lo que ya no queda.
+        this.reembolsos.lineasDevueltas(pedidoId),
       ]);
 
     if (errorEventos) throw new InternalServerErrorException("No se pudo cargar el historial");
@@ -194,6 +239,7 @@ export class PedidosService {
       items: items as PedidoItem[],
       eventos: (eventos ?? []) as PedidoEvento[],
       calificacion,
+      reembolso_lineas: reembolsoLineas,
     };
   }
 

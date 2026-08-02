@@ -164,7 +164,13 @@ export class InventarioService {
     estado: string,
     importe: number,
     payloadRaw: object,
-    historial?: { tipo: TipoEventoPedido; actorId?: string | null; origen?: OrigenEvento },
+    historial?: {
+      tipo: TipoEventoPedido;
+      actorId?: string | null;
+      origen?: OrigenEvento;
+      /** Qué contar en la línea de tiempo. Por defecto, el tipo de evento. */
+      detalle?: string;
+    },
   ): Promise<void> {
     const { error } = await this.supabase.from("transacciones_pago").insert({
       pedido_id: pedidoId,
@@ -192,7 +198,7 @@ export class InventarioService {
         pedidoId,
         tipo: historial.tipo,
         importe,
-        detalle: tipoEvento,
+        detalle: historial.detalle ?? tipoEvento,
         actorId: historial.actorId,
         origen: historial.origen,
       });

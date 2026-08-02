@@ -2,12 +2,33 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { ReembolsosService } from "./reembolsos.service";
 
 /**
- * Filtro encadenable: el servicio hace .select().in().in() y luego await, así
- * que cada eslabón devuelve algo que es a la vez promesa y encadenable.
+ * Filtro encadenable: el servicio encadena .select().in().in(), .select().eq()
+ * y .select().eq().order() según la tabla, y luego hace await. Cada eslabón
+ * devuelve algo que es a la vez promesa y encadenable.
  */
 function consulta<T>(resultado: T) {
   const p = Promise.resolve(resultado);
-  return Object.assign(p, { in: () => consulta(resultado) });
+  return Object.assign(p, {
+    in: () => consulta(resultado),
+    eq: () => consulta(resultado),
+    order: () => consulta(resultado),
+    maybeSingle: async () => resultado,
+  });
+}
+
+interface ItemMock {
+  id: string;
+  nombre_producto: string;
+  cantidad: number;
+  precio_unitario: number;
+}
+
+interface LineaDevueltaMock {
+  pedido_item_id: string;
+  cantidad: number;
+  importe: number;
+  repuesto_al_stock: boolean;
+  created_at: string;
 }
 
 interface Opciones {
@@ -20,7 +41,20 @@ interface Opciones {
   /** false = el pedido ya estaba REEMBOLSADO cuando entró el RPC */
   rpcActuo?: boolean;
   existe?: boolean;
+  /** Líneas del pedido, para los reembolsos por artículo */
+  items?: ItemMock[];
+  /** Artículos ya devueltos antes de esta operación */
+  lineasPrevias?: LineaDevueltaMock[];
+  /** Lo que contesta registrar_reembolso_lineas */
+  rpcLineas?: Record<string, unknown>;
+  /** El RPC de líneas falla: el dinero ya salió y no puede propagarse */
+  rpcLineasError?: string;
 }
+
+const ITEMS_POR_DEFECTO: ItemMock[] = [
+  { id: "it-1", nombre_producto: "Nucita", cantidad: 2, precio_unitario: 2.5 },
+  { id: "it-2", nombre_producto: "Pony Malta", cantidad: 3, precio_unitario: 15 },
+];
 
 function montar(o: Opciones = {}) {
   const {
@@ -31,12 +65,22 @@ function montar(o: Opciones = {}) {
     reembolsosPrevios = [],
     rpcActuo = true,
     existe = true,
+    items = ITEMS_POR_DEFECTO,
+    lineasPrevias = [],
+    rpcLineas,
+    rpcLineasError,
   } = o;
 
   const registro = {
     refunds: [] as Array<{ importeCents: number; idempotencyKey: string }>,
-    transacciones: [] as Array<{ estado: string; importe: number; eventoId: string }>,
+    transacciones: [] as Array<{
+      estado: string;
+      importe: number;
+      eventoId: string;
+      detalle?: string;
+    }>,
     rpc: [] as string[],
+    rpcParams: [] as Array<Record<string, unknown>>,
     emails: [] as Array<{ importe?: number }>,
   };
 
@@ -49,28 +93,49 @@ function montar(o: Opciones = {}) {
             error: null,
           });
         }
-        return {
-          eq: () => ({
-            maybeSingle: async () =>
-              existe
-                ? {
-                    data: {
-                      id: "ped-1",
-                      estado,
-                      total,
-                      metodo_pago: metodoPago,
-                      referencia_pago: referenciaPago,
-                      numero_pedido: "260725018055",
-                    },
-                    error: null,
-                  }
-                : { data: null, error: null },
-          }),
-        };
+        if (tabla === "pedido_items") {
+          return consulta({ data: items, error: null });
+        }
+        if (tabla === "reembolso_lineas") {
+          return consulta({ data: lineasPrevias, error: null });
+        }
+        return consulta(
+          existe
+            ? {
+                data: {
+                  id: "ped-1",
+                  estado,
+                  total,
+                  metodo_pago: metodoPago,
+                  referencia_pago: referenciaPago,
+                  numero_pedido: "260725018055",
+                },
+                error: null,
+              }
+            : { data: null, error: null },
+        );
       },
     }),
-    rpc: async (fn: string, params: { p_pedido_id: string }) => {
-      registro.rpc.push(`${fn}:${params.p_pedido_id}`);
+    rpc: async (fn: string, params: Record<string, unknown>) => {
+      registro.rpc.push(`${fn}:${params["p_pedido_id"] as string}`);
+      registro.rpcParams.push(params);
+
+      if (fn === "registrar_reembolso_lineas") {
+        if (rpcLineasError) return { data: null, error: { message: rpcLineasError } };
+        return {
+          data: rpcLineas ?? {
+            registradas: (params["p_lineas"] as unknown[]).length,
+            pedidas: (params["p_lineas"] as unknown[]).length,
+            unidades: 1,
+            importe: 0,
+            unidades_repuestas: params["p_reponer_stock"] ? 1 : 0,
+            repuesto: Boolean(params["p_reponer_stock"]),
+            marcado_total: Boolean(params["p_marcar_total"]),
+          },
+          error: null,
+        };
+      }
+
       return { data: rpcActuo, error: null };
     },
   };
@@ -90,8 +155,15 @@ function montar(o: Opciones = {}) {
       _tipoEvento: string,
       estadoTx: string,
       importe: number,
+      _payload?: object,
+      historial?: { detalle?: string },
     ) => {
-      registro.transacciones.push({ estado: estadoTx, importe, eventoId });
+      registro.transacciones.push({
+        estado: estadoTx,
+        importe,
+        eventoId,
+        detalle: historial?.detalle,
+      });
     },
     getPedidoConItems: async () => ({
       id: "ped-1",
@@ -154,6 +226,105 @@ describe("ReembolsosService.totalesReembolsados", () => {
     const { servicio } = montar();
 
     expect(await servicio.totalReembolsado("ped-1")).toBe(0);
+  });
+});
+
+/**
+ * Lo que se le enseña al cliente en «Mis pedidos». La tabla guarda además si la
+ * mercancía volvió al almacén, quién tramitó la devolución y el identificador
+ * del cobro en Stripe: nada de eso es asunto de quien compró.
+ */
+describe("ReembolsosService.articulosDevueltos", () => {
+  function montarConsulta(filas: Array<Record<string, unknown>>) {
+    const seleccionado: string[] = [];
+    const supabase = {
+      from: () => ({
+        select: (campos: string) => {
+          seleccionado.push(campos);
+          return consulta({ data: filas, error: null });
+        },
+      }),
+    };
+    const servicio = new ReembolsosService(
+      supabase as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    return { servicio, seleccionado };
+  }
+
+  const FILA = {
+    pedido_id: "ped-1",
+    cantidad: 2,
+    importe: "5.00",
+    created_at: "2026-08-02T10:00:00Z",
+    pedido_items: { nombre_producto: "Nucita" },
+  };
+
+  it("devuelve qué artículo, cuántas unidades, cuánto y cuándo", async () => {
+    const { servicio } = montarConsulta([FILA]);
+
+    const porPedido = await servicio.articulosDevueltos(["ped-1"]);
+
+    expect(porPedido.get("ped-1")).toEqual([
+      {
+        nombre_producto: "Nucita",
+        cantidad: 2,
+        importe: 5,
+        fecha: "2026-08-02T10:00:00Z",
+      },
+    ]);
+  });
+
+  it("no expone nada interno aunque la fila lo traiga", async () => {
+    const { servicio } = montarConsulta([
+      { ...FILA, repuesto_al_stock: true, refund_id: "re_secreto", actor_user_id: "admin-1" },
+    ]);
+
+    const [articulo] = (await servicio.articulosDevueltos(["ped-1"])).get("ped-1") ?? [];
+
+    expect(Object.keys(articulo ?? {}).sort()).toEqual([
+      "cantidad",
+      "fecha",
+      "importe",
+      "nombre_producto",
+    ]);
+  });
+
+  /** Un `select("*")` publicaría cada columna nueva que se añada a la tabla. */
+  it("pide campos concretos, nunca el comodín", async () => {
+    const { servicio, seleccionado } = montarConsulta([]);
+
+    await servicio.articulosDevueltos(["ped-1"]);
+
+    expect(seleccionado[0]).not.toContain("*");
+    expect(seleccionado[0]).not.toContain("repuesto_al_stock");
+    expect(seleccionado[0]).not.toContain("refund_id");
+  });
+
+  it("sin pedidos no consulta nada", async () => {
+    const { servicio, seleccionado } = montarConsulta([FILA]);
+
+    expect((await servicio.articulosDevueltos([])).size).toBe(0);
+    expect(seleccionado).toEqual([]);
+  });
+
+  it("agrupa varias devoluciones del mismo pedido", async () => {
+    const { servicio } = montarConsulta([
+      FILA,
+      { ...FILA, cantidad: 1, importe: "1.50", pedido_items: { nombre_producto: "Pony Malta" } },
+    ]);
+
+    expect((await servicio.articulosDevueltos(["ped-1"])).get("ped-1")).toHaveLength(2);
+  });
+
+  it("si el producto ya no está, usa una etiqueta neutra en vez de un hueco", async () => {
+    const { servicio } = montarConsulta([{ ...FILA, pedido_items: null }]);
+
+    const [articulo] = (await servicio.articulosDevueltos(["ped-1"])).get("ped-1") ?? [];
+
+    expect(articulo?.nombre_producto).toBe("Artículo del pedido");
   });
 });
 
@@ -290,5 +461,312 @@ describe("ReembolsosService.reembolsar", () => {
     await dejarQueSalgaElEmail();
 
     expect(registro.emails).toEqual([{ importe: 30 }]);
+  });
+});
+
+/**
+ * Devolver artículos concretos en vez de una cifra (migración 044). Lo que
+ * distingue a este camino es que el reembolso SÍ dice qué unidades vuelven, y
+ * de ahí que pueda reponer stock en un parcial —cosa que la 037 dejó fuera a
+ * propósito porque un importe suelto no da esa información.
+ */
+describe("ReembolsosService.reembolsar por artículos", () => {
+  it("el importe lo ponen los precios del servidor, no el navegador", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    // 2 × Nucita a 2,50 = 5,00. El cliente no manda importe en ningún momento.
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0]!.importeCents).toBe(500);
+    expect(r.importe).toBe(5);
+    expect(r.unidades_devueltas).toBe(2);
+  });
+
+  it("suma varias líneas con precios distintos", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    await servicio.reembolsar(
+      "ped-1",
+      {
+        lineas: [
+          { pedido_item_id: "it-1", cantidad: 1 }, // 2,50
+          { pedido_item_id: "it-2", cantidad: 2 }, // 30,00
+        ],
+      },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0]!.importeCents).toBe(3250);
+  });
+
+  it("rechaza un artículo que no es de este pedido, sin cobrar nada", async () => {
+    const { servicio, registro } = montar();
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-de-otro", cantidad: 1 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  it("rechaza más unidades de las que se compraron", async () => {
+    const { servicio, registro } = montar();
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-1", cantidad: 3 }] }, // se compraron 2
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/solo quedan 2 unidades/i);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  /** La razón de ser de la tabla: la segunda devolución sabe qué queda. */
+  it("descuenta lo ya devuelto de esa misma línea", async () => {
+    const { servicio, registro } = montar({
+      lineasPrevias: [
+        {
+          pedido_item_id: "it-1",
+          cantidad: 1,
+          importe: 2.5,
+          repuesto_al_stock: true,
+          created_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+    });
+
+    // De las 2 compradas ya se devolvió 1: pedir 2 se pasa.
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/queda 1 unidad/i);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  it("rechaza una línea ya devuelta por completo", async () => {
+    const { servicio } = montar({
+      lineasPrevias: [
+        {
+          pedido_item_id: "it-1",
+          cantidad: 2,
+          importe: 5,
+          repuesto_al_stock: true,
+          created_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+    });
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/ya se devolvió por completo/i);
+  });
+
+  it("rechaza la misma línea repetida en vez de sumarla a escondidas", async () => {
+    const { servicio, registro } = montar();
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        {
+          lineas: [
+            { pedido_item_id: "it-1", cantidad: 1 },
+            { pedido_item_id: "it-1", cantidad: 1 },
+          ],
+        },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/repetido/i);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  it("rechaza artículos e importe a la vez: no hay cuál gana", async () => {
+    const { servicio, registro } = montar();
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { importe: 1, lineas: [{ pedido_item_id: "it-1", cantidad: 1 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  it("rechaza artículos que suman más de lo que queda por devolver", async () => {
+    // Antes se devolvieron 48 € sin decir de qué artículo: quedan 2 €, pero los
+    // artículos siguen figurando como no devueltos.
+    const { servicio, registro } = montar({ total: 50, reembolsosPrevios: [48] });
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-2", cantidad: 1 }] }, // 15 €
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/solo quedan 2,00 €|solo quedan 2.00 €/);
+    expect(registro.refunds).toEqual([]);
+  });
+
+  it("registra qué se devolvió y si repone stock", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }], reponer_stock: true },
+      "admin@valatino.es",
+    );
+
+    expect(registro.rpc).toEqual(["registrar_reembolso_lineas:ped-1"]);
+    expect(registro.rpcParams[0]).toMatchObject({
+      p_lineas: [{ pedido_item_id: "it-1", cantidad: 1 }],
+      p_reponer_stock: true,
+      p_marcar_total: false,
+      p_refund_id: "re_1",
+    });
+    expect(r.stock_repuesto).toBe(true);
+  });
+
+  it("sin reponer stock, la mercancía no vuelve al inventario", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }], reponer_stock: false },
+      "admin@valatino.es",
+    );
+
+    expect(registro.rpcParams[0]).toMatchObject({ p_reponer_stock: false });
+    expect(r.stock_repuesto).toBe(false);
+  });
+
+  /**
+   * El orden importa y por eso va todo en una llamada: si se marcara el pedido
+   * REEMBOLSADO antes de apuntar las líneas, `reembolsar_pedido_total` no las
+   * vería y repondría su stock por segunda vez.
+   */
+  it("cierra el pedido dentro de la misma llamada, no con una aparte", async () => {
+    const { servicio, registro } = montar({ total: 5 }); // 2 × Nucita = 5 € = el total
+
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }], reponer_stock: true },
+      "admin@valatino.es",
+    );
+
+    expect(registro.rpc).toEqual(["registrar_reembolso_lineas:ped-1"]);
+    expect(registro.rpc).not.toContain("reembolsar_pedido_total:ped-1");
+    expect(registro.rpcParams[0]).toMatchObject({ p_marcar_total: true });
+    expect(r.es_total).toBe(true);
+    expect(r.estado).toBe("REEMBOLSADO");
+  });
+
+  /**
+   * Dos líneas distintas pueden costar lo mismo. Sin la huella de los artículos
+   * en la clave, devolver una y luego la otra daría la misma clave: Stripe
+   * devolvería el refund de la primera sin cobrar nada y el panel diría que la
+   * segunda se devolvió.
+   */
+  it("la clave de idempotencia distingue dos selecciones del mismo importe", async () => {
+    const items: ItemMock[] = [
+      { id: "it-a", nombre_producto: "A", cantidad: 1, precio_unitario: 10 },
+      { id: "it-b", nombre_producto: "B", cantidad: 1, precio_unitario: 10 },
+    ];
+
+    const a = montar({ total: 50, items });
+    await a.servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-a", cantidad: 1 }] },
+      "admin@valatino.es",
+    );
+
+    const b = montar({ total: 50, items });
+    await b.servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-b", cantidad: 1 }] },
+      "admin@valatino.es",
+    );
+
+    const claveA = a.registro.refunds[0]!.idempotencyKey;
+    const claveB = b.registro.refunds[0]!.idempotencyKey;
+    expect(claveA).toContain("reembolso:ped-1:0:1000:");
+    expect(claveB).toContain("reembolso:ped-1:0:1000:");
+    expect(claveA).not.toBe(claveB);
+  });
+
+  it("el mismo conjunto en distinto orden es la misma devolución", async () => {
+    const a = montar({ total: 50 });
+    await a.servicio.reembolsar(
+      "ped-1",
+      {
+        lineas: [
+          { pedido_item_id: "it-1", cantidad: 1 },
+          { pedido_item_id: "it-2", cantidad: 1 },
+        ],
+      },
+      "admin@valatino.es",
+    );
+
+    const b = montar({ total: 50 });
+    await b.servicio.reembolsar(
+      "ped-1",
+      {
+        lineas: [
+          { pedido_item_id: "it-2", cantidad: 1 },
+          { pedido_item_id: "it-1", cantidad: 1 },
+        ],
+      },
+      "admin@valatino.es",
+    );
+
+    expect(a.registro.refunds[0]!.idempotencyKey).toBe(b.registro.refunds[0]!.idempotencyKey);
+  });
+
+  it("la línea de tiempo dice qué artículos se devolvieron, no solo cuánto", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.transacciones[0]!.detalle).toContain("2 × Nucita");
+  });
+
+  /**
+   * El dinero ya salió de Stripe cuando se llama al RPC. Si falla el registro,
+   * dejar caer la petición convertiría una devolución hecha en un error en
+   * pantalla, y quien lo lea reintentará.
+   */
+  it("si no se pueden apuntar las líneas, la devolución no se convierte en error", async () => {
+    const { servicio, registro } = montar({
+      total: 50,
+      rpcLineasError: "conexión perdida con la base",
+    });
+
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }], reponer_stock: true },
+      "admin@valatino.es",
+    );
+
+    expect(r.importe).toBe(2.5);
+    expect(r.stock_repuesto).toBe(false);
+    expect(registro.refunds).toHaveLength(1);
   });
 });

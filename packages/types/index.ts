@@ -495,6 +495,75 @@ export interface PedidoDetalle {
    * de los pedidos: es opcional a propósito.
    */
   calificacion: Calificacion | null;
+  /**
+   * Qué artículos se han devuelto ya, una fila por línea y devolución. Vacío en
+   * los pedidos sin reembolsos y en los que se devolvieron por importe suelto
+   * (antes de la 044 no había otra forma).
+   */
+  reembolso_lineas: ReembolsoLinea[];
+}
+
+// ============================================================
+// Reembolsos
+// ============================================================
+
+/**
+ * Un artículo que se devuelve, tal como lo pide el panel. Va sin importe a
+ * propósito: **el precio lo pone el servidor** desde `pedido_items`, que es el
+ * único sitio donde consta lo que se cobró. Si el importe viniera del navegador
+ * habría que creerle, y lo que hay al otro lado es dinero saliendo.
+ */
+export interface LineaReembolso {
+  pedido_item_id: string;
+  cantidad: number;
+}
+
+/** Un artículo ya devuelto, tal como quedó registrado. Vista del backoffice. */
+export interface ReembolsoLinea {
+  pedido_item_id: string;
+  cantidad: number;
+  importe: number;
+  /**
+   * Si esas unidades volvieron al inventario. `false` es una decisión tomada
+   * —mercancía defectuosa o perdida—, no un pendiente.
+   */
+  repuesto_al_stock: boolean;
+  created_at: string;
+}
+
+/**
+ * Un artículo devuelto **tal como se le cuenta al cliente**: qué era, cuántas
+ * unidades, cuánto dinero y cuándo.
+ *
+ * Es un tipo aparte de `ReembolsoLinea` a propósito, y no un `Omit<>`: lo que
+ * el cliente no debe ver —si la mercancía volvió al almacén, quién tramitó la
+ * devolución, el identificador del cobro en Stripe— tiene que quedarse fuera
+ * **por construcción**. Con un tipo derivado, añadir mañana una columna interna
+ * a la tabla la publicaría sola.
+ */
+export interface ArticuloDevuelto {
+  nombre_producto: string;
+  cantidad: number;
+  importe: number;
+  fecha: string;
+}
+
+/**
+ * Un pedido tal como lo ve su dueño en «Mis pedidos»: lo de siempre más lo que
+ * se le ha devuelto.
+ *
+ * Hace falta porque **un reembolso parcial no cambia el estado del pedido** —
+ * sigue en ENVIADO o ENTREGADO, que es lo correcto—, así que sin esto el cliente
+ * no tiene ninguna forma de enterarse de que se le ha abonado dinero.
+ */
+export interface PedidoDeCliente extends Pedido {
+  total_reembolsado: number;
+  /**
+   * Vacío cuando la devolución se hizo por un importe suelto o llegó desde el
+   * panel de Stripe: hay dinero devuelto pero no consta de qué artículo. La
+   * pantalla debe seguir diciendo el importe en ese caso.
+   */
+  articulos_devueltos: ArticuloDevuelto[];
 }
 
 /** Resultado de devolver dinero de un pedido (POST /admin/pedidos/:id/reembolso) */
@@ -507,8 +576,10 @@ export interface ResultadoReembolso {
   /** Si con esto se ha devuelto el pedido completo */
   es_total: boolean;
   estado: PedidoEstado;
-  /** Unidades repuestas al inventario (solo en reembolso total) */
+  /** Si han vuelto unidades al inventario con esta devolución */
   stock_repuesto: boolean;
+  /** Unidades devueltas, cuando el reembolso se hizo eligiendo artículos */
+  unidades_devueltas?: number;
 }
 
 // ============================================================
