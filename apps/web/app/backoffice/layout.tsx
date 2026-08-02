@@ -40,6 +40,7 @@ const NAV_ITEMS: {
     children: [
       { href: "/backoffice/ti/usuarios", label: "Usuarios", iconKey: "usuarios" },
       { href: "/backoffice/ti/cargos", label: "Cargos", iconKey: "cargos" },
+      { href: "/backoffice/ti/ajustes", label: "Ajustes", iconKey: "ajustes" },
     ],
   },
 ];
