@@ -206,18 +206,43 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {detalle.items.map((it) => (
-                      <tr key={it.id}>
-                        <td className="p-3">{it.nombre_producto}</td>
-                        <td className="p-3 text-right">{it.cantidad}</td>
-                        <td className="p-3 text-right text-muted-foreground">
-                          {formatEUR(Number(it.precio_unitario))}
-                        </td>
-                        <td className="p-3 text-right font-medium">
-                          {formatEUR(Number(it.precio_unitario) * it.cantidad)}
-                        </td>
-                      </tr>
-                    ))}
+                    {detalle.items.map((it) => {
+                      // Qué se ha devuelto de esta línea. Sin esto, un pedido
+                      // con reembolso parcial solo dice cuánto dinero volvió,
+                      // y averiguar de qué artículo era obligaba a mirar Stripe.
+                      // `?? []`: Vercel despliega antes que Render, así que
+                      // durante la ventana la API puede no mandar el campo.
+                      const lineasDevueltas = detalle.reembolso_lineas ?? [];
+                      const devueltas = lineasDevueltas
+                        .filter((l) => l.pedido_item_id === it.id)
+                        .reduce((s, l) => s + l.cantidad, 0);
+                      const sinReponer = lineasDevueltas.some(
+                        (l) => l.pedido_item_id === it.id && !l.repuesto_al_stock,
+                      );
+
+                      return (
+                        <tr key={it.id}>
+                          <td className="p-3">
+                            {it.nombre_producto}
+                            {devueltas > 0 && (
+                              <span className="ml-2 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                {devueltas === it.cantidad
+                                  ? "Devuelto"
+                                  : `${devueltas} de ${it.cantidad} devueltas`}
+                                {sinReponer && " · no repuesto"}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-right">{it.cantidad}</td>
+                          <td className="p-3 text-right text-muted-foreground">
+                            {formatEUR(Number(it.precio_unitario))}
+                          </td>
+                          <td className="p-3 text-right font-medium">
+                            {formatEUR(Number(it.precio_unitario) * it.cantidad)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot className="border-t">
                     <tr>

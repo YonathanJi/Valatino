@@ -17,7 +17,7 @@ import {
   normalizarTelefono,
   provinciaPorCP,
   telefonoValido,
-  type Pedido,
+  type PedidoDeCliente,
   type PaginatedResponse,
 } from "@valatino/types";
 import { useMunicipios } from "@lib/hooks/useMunicipios";
@@ -62,7 +62,7 @@ export default function PerfilPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ email?: string; created_at?: string } | null>(null);
   const [direcciones, setDirecciones] = useState<Direccion[]>([]);
-  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [pedidos, setPedidos] = useState<PedidoDeCliente[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -103,7 +103,7 @@ export default function PerfilPage() {
       // a /backoffice/perfil (áreas separadas).
       await loadDirecciones();
       try {
-        const json = await apiFetch<PaginatedResponse<Pedido>>("/pedidos?limit=50");
+        const json = await apiFetch<PaginatedResponse<PedidoDeCliente>>("/pedidos?limit=50");
         setPedidos(json.data ?? []);
       } catch {
         // sin pedidos o API inalcanzable: el resumen se muestra a cero
@@ -176,9 +176,13 @@ export default function PerfilPage() {
   }
 
   const numPedidos = pedidos.length;
+  // Descontando lo devuelto. Un pedido REEMBOLSADO del todo ya queda fuera por
+  // su estado, pero una devolución PARCIAL no cambia el estado —sigue en
+  // ENVIADO— y sumaría el importe entero: el cliente vería «te devolvimos
+  // 2,50 €» en Mis pedidos y un total gastado que no se ha enterado.
   const totalGastado = pedidos
     .filter((p) => ESTADOS_PAGADOS.includes(p.estado))
-    .reduce((s, p) => s + Number(p.total), 0);
+    .reduce((s, p) => s + Math.max(Number(p.total) - Number(p.total_reembolsado ?? 0), 0), 0);
   const enCurso = pedidos.filter((p) => ESTADOS_EN_CURSO.includes(p.estado)).length;
   const ultimoPedido =
     [...pedidos].sort(
