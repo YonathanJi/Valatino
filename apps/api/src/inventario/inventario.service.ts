@@ -110,9 +110,17 @@ export class InventarioService {
    * cancelado): devuelve las unidades al stock y borra las reservas.
    */
   async liberarReservas(sessionId: string, userId?: string): Promise<void> {
-    const filter = userId
-      ? this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("user_id", userId)
-      : this.supabase.from("stock_reservas").select("id, producto_id, cantidad").eq("session_id", sessionId);
+    const base = this.supabase
+      .from("stock_reservas")
+      .select("id, producto_id, cantidad")
+      // ⚠️ Nunca las de un pedido. Esto se llama cuando un pago falla o se
+      // cancela, y sin el filtro un intento fallido con tarjeta soltaría el
+      // stock que retiene un pedido por transferencia del mismo cliente, que no
+      // tiene nada que ver. Una reserva con `pedido_id` solo se suelta por el
+      // ciclo de vida de su pedido (migración 052).
+      .is("pedido_id", null);
+
+    const filter = userId ? base.eq("user_id", userId) : base.eq("session_id", sessionId);
 
     const { data: reservas } = await filter;
 
