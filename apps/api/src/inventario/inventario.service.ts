@@ -40,7 +40,7 @@ export interface CrearPedidoDto {
    */
   usuarioAutenticado?: string;
   sessionId: string;
-  metodoPago: "stripe" | "paypal";
+  metodoPago: "stripe" | "paypal" | "transferencia";
   referenciaPago: string;
   direccionEnvioId?: string;
   emailCliente?: string;
@@ -287,7 +287,8 @@ export class InventarioService {
     numero_pedido: string | null;
     estado: string;
     total: number;
-    metodo_pago: "stripe" | "paypal";
+    metodo_pago: "stripe" | "paypal" | "transferencia";
+    metodo_detalle: string | null;
     email_cliente: string | null;
     envio_nombre: string | null;
     envio_linea1: string | null;
@@ -302,7 +303,7 @@ export class InventarioService {
     const { data: pedido } = await this.supabase
       .from("pedidos")
       .select(
-        "id, numero_pedido, estado, total, metodo_pago, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
+        "id, numero_pedido, estado, total, metodo_pago, metodo_detalle, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
       )
       .eq("id", pedidoId)
       .maybeSingle();
@@ -320,7 +321,8 @@ export class InventarioService {
         numero_pedido: string | null;
         estado: string;
         total: number;
-        metodo_pago: "stripe" | "paypal";
+        metodo_pago: "stripe" | "paypal" | "transferencia";
+    metodo_detalle: string | null;
         email_cliente: string | null;
         envio_nombre: string | null;
         envio_linea1: string | null;

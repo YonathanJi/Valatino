@@ -548,6 +548,7 @@ export class ReembolsosService {
         items: pedido.items,
         total: Number(pedido.total),
         metodoPago: pedido.metodo_pago,
+        metodoDetalle: pedido.metodo_detalle,
         direccionEnvio: pedido.envio_nombre
           ? {
               nombre_destinatario: pedido.envio_nombre,

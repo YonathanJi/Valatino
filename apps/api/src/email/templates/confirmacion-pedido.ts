@@ -12,7 +12,12 @@ export interface DatosEmailPedido {
   email: string;
   items: ItemPedidoEmail[];
   total: number;
-  metodoPago: "stripe" | "paypal";
+  metodoPago: "stripe" | "paypal" | "transferencia";
+  /**
+   * Cómo pagó de verdad, según la pasarela («card», «bizum»…). Cuando falta
+   * —pedidos anteriores a la 048— se cae al nombre de la pasarela.
+   */
+  metodoDetalle?: string | null;
   direccionEnvio: {
     nombre_destinatario: string;
     linea1: string;
@@ -70,9 +75,48 @@ const renderDireccion = (direccion: DatosEmailPedido["direccionEnvio"]): string 
     .join("");
 };
 
+/**
+ * Cómo se le nombra al cliente su forma de pago.
+ *
+ * Antes esto era `metodoPago === "stripe" ? "Tarjeta (Stripe)" : "PayPal"`, y
+ * al activar Bizum pasó a mentir: quien pagaba por Bizum recibía un correo que
+ * decía «Tarjeta (Stripe)». Ni fue una tarjeta ni Stripe es una forma de pagar
+ * —es por dónde pasó el dinero, algo que al cliente no le dice nada—.
+ *
+ * Un método desconocido se muestra tal cual capitalizado en vez de caer en
+ * «Tarjeta»: si mañana se activa otro en Stripe, el correo dirá algo escueto
+ * pero cierto, en lugar de algo pulido y falso.
+ */
+export function etiquetaMetodoPago(
+  pasarela: "stripe" | "paypal" | "transferencia",
+  detalle?: string | null,
+): string {
+  const conocidos: Record<string, string> = {
+    card: "Tarjeta",
+    bizum: "Bizum",
+    link: "Link",
+    paypal: "PayPal",
+    sepa_debit: "Domiciliación SEPA",
+    apple_pay: "Apple Pay",
+    google_pay: "Google Pay",
+  };
+
+  if (detalle) {
+    const limpio = detalle.trim().toLowerCase();
+    return conocidos[limpio] ?? limpio.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  }
+
+  // Sin detalle: los pedidos anteriores a la 048 y los que no pasan por una
+  // pasarela. «Tarjeta» a secas y no «Tarjeta (Stripe)»: el nombre de la
+  // pasarela nunca aportó nada a quien lee el correo.
+  if (pasarela === "paypal") return "PayPal";
+  if (pasarela === "transferencia") return "Transferencia bancaria";
+  return "Tarjeta";
+}
+
 export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
   const esReembolso = datos.esReembolso ?? false;
-  const metodoPagoLabel = datos.metodoPago === "stripe" ? "Tarjeta (Stripe)" : "PayPal";
+  const metodoPagoLabel = etiquetaMetodoPago(datos.metodoPago, datos.metodoDetalle);
   const numeroPedido = datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
 
   // Céntimos: 49.99 !== 49.99 en coma flotante según de dónde venga cada cifra

@@ -1,9 +1,10 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
 import Stripe from "stripe";
 import { ConfigService } from "@nestjs/config";
 
 @Injectable()
 export class StripeService {
+  private readonly logger = new Logger(StripeService.name);
   private readonly stripe: Stripe;
   readonly webhookSecret: string;
 
@@ -30,6 +31,33 @@ export class StripeService {
       moneda: "eur",
       payment_intent_id: intent.id,
     };
+  }
+
+  /**
+   * Con qué pagó de verdad el cliente: `card`, `bizum`, `link`…
+   *
+   * El PaymentIntent no lo trae —solo dice qué métodos se le ofrecieron—, así
+   * que hay que mirar el cargo. Hace falta desde que la cuenta acepta Bizum:
+   * hasta entonces «Stripe» y «tarjeta» eran lo mismo y el correo podía dar por
+   * hecho lo segundo.
+   *
+   * Devuelve null si no se puede averiguar. Nunca lanza: esto es una etiqueta
+   * para el correo, y un pedido cobrado no puede fallar por no saber ponerle
+   * nombre a la forma de pago.
+   */
+  async tipoDePago(paymentIntentId: string): Promise<string | null> {
+    try {
+      const intent = await this.stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ["latest_charge"],
+      });
+      const cargo = intent.latest_charge as Stripe.Charge | null;
+      return cargo?.payment_method_details?.type ?? null;
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo averiguar la forma de pago de ${paymentIntentId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   /**

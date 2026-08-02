@@ -164,15 +164,37 @@ export class PedidosService {
     const offset = (page - 1) * limit;
     const { data, count, error } = await this.supabase
       .from("pedidos")
-      .select("*, pedido_items(*), direcciones_envio(*)", { count: "exact" })
+      .select("*, pedido_items(*), direcciones_envio(*), transacciones_pago(estado)", {
+        count: "exact",
+      })
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw new InternalServerErrorException("No se pudieron cargar los pedidos");
 
+    const pedidos = (data as Array<Pedido & { transacciones_pago?: { estado: string }[] }>)
+      // Fuera los intentos que nunca llegaron a ser una compra.
+      //
+      // Elegir «transferencia» crea un pedido en PENDIENTE_PAGO, y si el
+      // cliente cambia de idea y paga con tarjeta ese pedido se cancela solo
+      // (047). Enseñárselo es contarle como pedido algo que solo fue un paso de
+      // su propio checkout — y con el mismo importe que el que sí pagó, parece
+      // un cobro doble que falló.
+      //
+      // La condición es «cancelado Y sin ningún pago»: un pedido que se cobró y
+      // se canceló después SÍ se muestra, porque ahí hubo dinero de por medio y
+      // el cliente tiene todo el derecho a verlo.
+      .filter(
+        (p) =>
+          p.estado !== "CANCELADO" ||
+          (p.transacciones_pago ?? []).some((t) => t.estado === "exitoso"),
+      )
+      .map(({ transacciones_pago: _sinExponer, ...p }) => p as Pedido);
+
+    const ocultados = (data?.length ?? 0) - pedidos.length;
+
     // Dos consultas para toda la página, no dos por pedido.
-    const pedidos = (data ?? []) as Pedido[];
     const ids = pedidos.map((p) => p.id);
     const [totales, articulos] = await Promise.all([
       this.reembolsos.totalesReembolsados(ids),
@@ -185,7 +207,11 @@ export class PedidosService {
         total_reembolsado: totales.get(p.id) ?? 0,
         articulos_devueltos: articulos.get(p.id) ?? [],
       })),
-      total: count ?? 0,
+      // Descontando lo ocultado en esta página, para que el contador no prometa
+      // pedidos que no se ven. Con varias páginas el número sigue siendo
+      // aproximado; con `limit=50` y los pedidos que tiene un cliente, en la
+      // práctica no hay segunda página.
+      total: Math.max((count ?? 0) - ocultados, pedidos.length),
       page,
       limit,
     };

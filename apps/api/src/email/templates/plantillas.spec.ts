@@ -1,6 +1,6 @@
 import { PEDIDO_ESTADOS, type PedidoEstado } from "@valatino/types";
 import { renderCambioEstado, COPIAS_ESTADO, type DatosEmailEstado } from "./estado-pedido";
-import { renderConfirmacionPedido, type DatosEmailPedido } from "./confirmacion-pedido";
+import { renderConfirmacionPedido, type DatosEmailPedido, etiquetaMetodoPago } from "./confirmacion-pedido";
 
 const datosEstado = (
   estado: PedidoEstado,
@@ -118,5 +118,44 @@ describe("renderConfirmacionPedido — reembolsos", () => {
 
     expect(html).toContain("PAGADO");
     expect(html.toLowerCase()).not.toContain("reembols");
+  });
+});
+
+/**
+ * Reportado por Jonathan: pagó con Bizum y el correo decía «Tarjeta (Stripe)».
+ * Ni fue una tarjeta ni Stripe es una forma de pagar.
+ */
+describe("etiquetaMetodoPago", () => {
+  it("dice Bizum cuando se pagó con Bizum", () => {
+    expect(etiquetaMetodoPago("stripe", "bizum")).toBe("Bizum");
+  });
+
+  it("dice Tarjeta cuando se pagó con tarjeta, sin nombrar la pasarela", () => {
+    expect(etiquetaMetodoPago("stripe", "card")).toBe("Tarjeta");
+  });
+
+  /** Los pedidos anteriores a la 048 no tienen detalle guardado. */
+  it("sin detalle cae a la pasarela, y nunca a «Stripe»", () => {
+    expect(etiquetaMetodoPago("stripe", null)).toBe("Tarjeta");
+    expect(etiquetaMetodoPago("paypal")).toBe("PayPal");
+    expect(etiquetaMetodoPago("transferencia")).toBe("Transferencia bancaria");
+  });
+
+  /**
+   * Si mañana se activa otro método en Stripe, el correo dirá algo escueto pero
+   * cierto en vez de algo pulido y falso. Es justo el fallo que se está
+   * arreglando: caer en «Tarjeta» por defecto es lo que hizo mentir al correo.
+   */
+  it("un método desconocido se muestra tal cual, no como Tarjeta", () => {
+    expect(etiquetaMetodoPago("stripe", "klarna")).toBe("Klarna");
+    expect(etiquetaMetodoPago("stripe", "apple_pay")).toBe("Apple Pay");
+    expect(etiquetaMetodoPago("stripe", "metodo_nuevo")).toBe("Metodo nuevo");
+  });
+
+  it("el correo de un pago con Bizum no menciona Stripe ni tarjeta", () => {
+    const html = renderConfirmacionPedido(datosPedido({ metodoDetalle: "bizum" }));
+
+    expect(html).toContain("Bizum");
+    expect(html).not.toMatch(/Tarjeta \(Stripe\)/);
   });
 });

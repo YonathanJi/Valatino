@@ -22,6 +22,12 @@ export interface PagoConfirmado {
   referenciaPago: string;
   importe: number;
   payloadRaw: object;
+  /**
+   * Cómo pagó de verdad («card», «bizum»…), tal como lo llama la pasarela.
+   * `metodo_pago` guarda solo por dónde pasó el dinero, y desde que Stripe
+   * también sirve Bizum eso ya no describe la forma de pago.
+   */
+  metodoDetalle?: string | null;
 }
 
 export interface ReembolsoNotificado {
@@ -87,6 +93,21 @@ export class ConfirmacionPedidoService {
       emailCliente: emailCliente || undefined,
       documentoCliente: documentoCliente || undefined,
     });
+
+    // Antes del correo: es lo que decide si dirá «Bizum» o «Tarjeta». Nunca
+    // propaga — un pedido cobrado no puede fallar por no saber etiquetar la
+    // forma de pago.
+    if (pago.metodoDetalle) {
+      const { error } = await this.supabase.rpc("anotar_metodo_detalle", {
+        p_pedido_id: pedidoId,
+        p_detalle: pago.metodoDetalle,
+      });
+      if (error) {
+        this.logger.warn(
+          `No se pudo anotar la forma de pago del pedido ${pedidoId}: ${error.message}`,
+        );
+      }
+    }
 
     await this.inventarioService.registrarTransaccion(
       pedidoId,
@@ -238,6 +259,7 @@ export class ConfirmacionPedidoService {
         items: pedido.items,
         total: Number(pedido.total),
         metodoPago: pedido.metodo_pago,
+        metodoDetalle: pedido.metodo_detalle,
         direccionEnvio: pedido.envio_nombre
           ? {
               nombre_destinatario: pedido.envio_nombre,

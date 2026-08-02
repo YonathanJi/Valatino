@@ -286,7 +286,13 @@ export class PagosController {
     if (event.type === "payment_intent.succeeded") {
       const intent = event.data.object as Stripe.PaymentIntent;
 
+      // Con qué pagó: el intent solo dice qué se le ofreció, el tipo real está
+      // en el cargo. Hace falta desde que la cuenta acepta Bizum — antes
+      // «Stripe» y «tarjeta» eran lo mismo y el correo lo daba por hecho.
+      const metodoDetalle = await this.stripeService.tipoDePago(intent.id);
+
       await this.confirmacionPedido.confirmarPago({
+        metodoDetalle,
         proveedor: "stripe",
         eventoId: event.id,
         tipoEvento: event.type,
