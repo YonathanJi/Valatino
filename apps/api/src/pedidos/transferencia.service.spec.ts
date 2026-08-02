@@ -2,21 +2,37 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { TransferenciaService } from "./transferencia.service";
 
 const CUENTA = {
-  TRANSFERENCIA_IBAN: "ES48 9490 0934 2392 2994 3748",
+  TRANSFERENCIA_IBAN: "ES33 9490 0934 2392 2994 3748",
   TRANSFERENCIA_TITULAR: "Valentino Jimenez Mendoza",
   TRANSFERENCIA_BANCO: "BBVA",
 };
 
 function montar(
   entorno: Record<string, string> = CUENTA,
-  opciones: { pedido?: Record<string, unknown> | null; rpc?: unknown; error?: unknown } = {},
+  opciones: {
+    pedido?: Record<string, unknown> | null;
+    rpc?: unknown;
+    error?: unknown;
+    ajustes?: Record<string, unknown> | null;
+  } = {},
 ) {
-  const { pedido = null, rpc = null, error = null } = opciones;
+  const { pedido = null, rpc = null, error = null, ajustes = null } = opciones;
   const llamadas: Array<{ fn: string; params: Record<string, unknown> }> = [];
 
   const supabase = {
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: pedido, error: null }) }) }),
+    from: (tabla: string) => ({
+      select: () => {
+        // La cuenta de cobro vive ahora en ajustes_tienda (046); el entorno es
+        // solo respaldo. Sin fila, el servicio cae a las variables.
+        if (tabla === "ajustes_tienda") {
+          return {
+            maybeSingle: async () => ({ data: ajustes, error: null }),
+            eq: () => ({ maybeSingle: async () => ({ data: ajustes, error: null }) }),
+          };
+        }
+        return { eq: () => ({ maybeSingle: async () => ({ data: pedido, error: null }) }) };
+      },
+      update: () => ({ eq: async () => ({ error: null }) }),
     }),
     rpc: async (fn: string, params: Record<string, unknown>) => {
       llamadas.push({ fn, params });
@@ -35,29 +51,29 @@ describe("TransferenciaService — disponibilidad", () => {
    * ofrecer transferencia y ofrecerla para luego no poder decir a dónde pagar,
    * que deja al cliente con un pedido y sin salida.
    */
-  it("no está disponible sin IBAN", () => {
+  it("no está disponible sin IBAN", async () => {
     const { servicio } = montar({ TRANSFERENCIA_TITULAR: "Alguien" });
-    expect(servicio.disponibilidad().disponible).toBe(false);
+    expect((await servicio.disponibilidad()).disponible).toBe(false);
   });
 
-  it("no está disponible sin titular", () => {
-    const { servicio } = montar({ TRANSFERENCIA_IBAN: "ES4894900934239229943748" });
-    expect(servicio.disponibilidad().disponible).toBe(false);
+  it("no está disponible sin titular", async () => {
+    const { servicio } = montar({ TRANSFERENCIA_IBAN: "ES3394900934239229943748" });
+    expect((await servicio.disponibilidad()).disponible).toBe(false);
   });
 
-  it("está disponible con cuenta y titular, con el plazo por defecto", () => {
+  it("está disponible con cuenta y titular, con el plazo por defecto", async () => {
     const { servicio } = montar();
-    expect(servicio.disponibilidad()).toEqual({ disponible: true, dias_plazo: 3 });
+    expect(await servicio.disponibilidad()).toEqual({ disponible: true, dias_plazo: 3 });
   });
 
-  it("el plazo se puede configurar", () => {
+  it("el plazo se puede configurar", async () => {
     const { servicio } = montar({ ...CUENTA, TRANSFERENCIA_DIAS_PLAZO: "5" });
-    expect(servicio.disponibilidad().dias_plazo).toBe(5);
+    expect((await servicio.disponibilidad()).dias_plazo).toBe(5);
   });
 
-  it("un plazo ilegible cae al valor por defecto en vez de dejarlo en NaN", () => {
+  it("un plazo ilegible cae al valor por defecto en vez de dejarlo en NaN", async () => {
     const { servicio } = montar({ ...CUENTA, TRANSFERENCIA_DIAS_PLAZO: "pronto" });
-    expect(servicio.disponibilidad().dias_plazo).toBe(3);
+    expect((await servicio.disponibilidad()).dias_plazo).toBe(3);
   });
 
   it("crear un pedido sin cuenta configurada se rechaza, no falla a medias", async () => {
@@ -83,7 +99,7 @@ describe("TransferenciaService — instrucciones de pago", () => {
     const { servicio } = montar(CUENTA, { pedido: PEDIDO });
     const i = await servicio.instrucciones("ped-1");
 
-    expect(i.iban).toBe("ES48 9490 0934 2392 2994 3748");
+    expect(i.iban).toBe("ES33 9490 0934 2392 2994 3748");
   });
 
   /**
@@ -191,5 +207,90 @@ describe("TransferenciaService — crear el pedido", () => {
       fn: "crear_pedido_transferencia",
       params: { p_clave_idempotencia: "clave-1", p_dias_plazo: 4, p_session_id: "s-1" },
     });
+  });
+});
+
+/**
+ * La cuenta de cobro se guarda desde TI → Ajustes (migración 046). Nació como
+ * variable de entorno y se movió aquí porque un IBAN no es un secreto: se le
+ * enseña a cada cliente que compra, y tenerlo en Render obligaba a entrar allí
+ * para cambiar de cuenta.
+ */
+describe("TransferenciaService — la cuenta se edita desde el panel", () => {
+  const GUARDADA = {
+    transferencia_iban: "ES9121000418450200051332",
+    transferencia_titular: "Tienda Valatino SL",
+    transferencia_banco: "CaixaBank",
+    transferencia_dias_plazo: 5,
+    updated_at: "2026-08-02T20:00:00Z",
+  };
+
+  it("lo guardado en el panel gana al entorno", async () => {
+    const { servicio } = montar(CUENTA, { ajustes: GUARDADA });
+
+    const d = await servicio.disponibilidad();
+    expect(d).toEqual({ disponible: true, dias_plazo: 5 });
+    expect((await servicio.ajustes()).origen).toBe("panel");
+  });
+
+  it("sin nada en el panel se usa el entorno, y se dice de dónde viene", async () => {
+    const { servicio } = montar(CUENTA, { ajustes: null });
+
+    expect((await servicio.disponibilidad()).disponible).toBe(true);
+    expect((await servicio.ajustes()).origen).toBe("entorno");
+  });
+
+  it("sin panel ni entorno, no se ofrece", async () => {
+    const { servicio } = montar({}, { ajustes: null });
+
+    expect((await servicio.disponibilidad()).disponible).toBe(false);
+    expect((await servicio.ajustes()).origen).toBe("sin_configurar");
+  });
+
+  /**
+   * Lo que de verdad protege esto: **un IBAN con una errata manda a los
+   * clientes a transferir a una cuenta que no existe**, y no se descubre hasta
+   * que alguien reclama un pedido que nunca se preparó. Los dos dígitos de
+   * control existen para cazarlo.
+   */
+  it("rechaza un IBAN cuyo dígito de control no cuadra", async () => {
+    const { servicio } = montar({}, { ajustes: null });
+
+    await expect(
+      // El mismo número de cuenta con el control equivocado (48 en vez de 33).
+      servicio.guardarAjustes({ iban: "ES48 9490 0934 2392 2994 3748", titular: "Alguien" }),
+    ).rejects.toThrow(/dígito de control/i);
+  });
+
+  it("acepta el mismo número con el dígito correcto", async () => {
+    const { servicio } = montar({}, { ajustes: GUARDADA });
+
+    await expect(
+      servicio.guardarAjustes({ iban: "ES33 9490 0934 2392 2994 3748", titular: "Alguien" }),
+    ).resolves.toBeDefined();
+  });
+
+  it("un IBAN válido pero sin titular se rechaza", async () => {
+    const { servicio } = montar({}, { ajustes: null });
+
+    await expect(
+      servicio.guardarAjustes({ iban: "ES9121000418450200051332", titular: "  " }),
+    ).rejects.toThrow(/titular/i);
+  });
+
+  /** Vaciar los dos campos es la forma de dejar de aceptar transferencias. */
+  it("vaciar IBAN y titular apaga el método sin dar error", async () => {
+    const { servicio } = montar({}, { ajustes: null });
+
+    await expect(servicio.guardarAjustes({ iban: "", titular: "" })).resolves.toBeDefined();
+  });
+
+  it("un IBAN guardado que no valida deja el método apagado", async () => {
+    // Pudo entrar antes de existir la validación, o por el respaldo de entorno.
+    const { servicio } = montar({}, {
+      ajustes: { ...GUARDADA, transferencia_iban: "ES4894900934239229943748" },
+    });
+
+    expect((await servicio.disponibilidad()).disponible).toBe(false);
   });
 });

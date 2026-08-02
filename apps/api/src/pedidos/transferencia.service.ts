@@ -8,10 +8,20 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { formatearIban, ibanValido, normalizarIban } from "@valatino/types";
 import type {
+  AjustesTransferencia,
   DisponibilidadTransferencia,
   InstruccionesTransferencia,
 } from "@valatino/types";
+
+/** La cuenta a la que se pide transferir, venga del panel o del entorno. */
+interface CuentaCobro {
+  iban: string;
+  titular: string;
+  banco: string | null;
+  diasPlazo: number;
+}
 
 /**
  * Pago por transferencia bancaria: el único método asíncrono de la tienda.
@@ -27,51 +37,165 @@ import type {
 export class TransferenciaService {
   private readonly logger = new Logger(TransferenciaService.name);
 
-  private readonly iban: string;
-  private readonly titular: string;
-  private readonly banco: string | null;
-  private readonly diasPlazo: number;
+  /** Respaldo por entorno, para cuando la tabla de ajustes está vacía. */
+  private readonly porEntorno: CuentaCobro;
 
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
     config: ConfigService,
   ) {
-    /*
-     * Los datos bancarios son configuración, no código: cambiar de cuenta no
-     * puede exigir un despliegue, y el IBAN no tiene por qué quedar escrito en
-     * el historial de git de todo el que clone el repositorio.
-     *
-     * Se normaliza quitando espacios: se teclea «ES48 9490 …» y se compara y
-     * guarda sin ellos, igual que se hizo con los teléfonos en la 040.
-     */
-    this.iban = (config.get<string>("TRANSFERENCIA_IBAN") ?? "").replace(/\s+/g, "").toUpperCase();
-    this.titular = (config.get<string>("TRANSFERENCIA_TITULAR") ?? "").trim();
-    this.banco = (config.get<string>("TRANSFERENCIA_BANCO") ?? "").trim() || null;
-    this.diasPlazo = Number(config.get<string>("TRANSFERENCIA_DIAS_PLAZO") ?? 3) || 3;
+    this.porEntorno = {
+      iban: normalizarIban(config.get<string>("TRANSFERENCIA_IBAN") ?? ""),
+      titular: (config.get<string>("TRANSFERENCIA_TITULAR") ?? "").trim(),
+      banco: (config.get<string>("TRANSFERENCIA_BANCO") ?? "").trim() || null,
+      diasPlazo: Number(config.get<string>("TRANSFERENCIA_DIAS_PLAZO") ?? 3) || 3,
+    };
+  }
 
-    if (!this.disponible()) {
-      this.logger.log(
-        "Transferencia bancaria desactivada: falta TRANSFERENCIA_IBAN o TRANSFERENCIA_TITULAR",
+  /**
+   * La cuenta de cobro: primero la del panel, y si no hay, la del entorno.
+   *
+   * Nació solo por entorno (045) y se movió a la base de datos (046) porque un
+   * IBAN de cobro **no es un secreto** —se le enseña a cada cliente que compra—
+   * sino un dato del negocio, y tenerlo en Render obligaba a entrar allí y
+   * esperar un redespliegue para cambiar de cuenta. El respaldo por entorno se
+   * conserva para no romper a quien ya lo tuviera puesto así.
+   *
+   * Se lee en cada uso en vez de cachearse: cambiar la cuenta desde el panel
+   * tiene que surtir efecto en el pedido siguiente, no cuando se reinicie la
+   * API. Son dos consultas por checkout, no vale la pena optimizarlo.
+   */
+  private async cuenta(): Promise<CuentaCobro> {
+    const { data, error } = await this.supabase
+      .from("ajustes_tienda")
+      .select(
+        "transferencia_iban, transferencia_titular, transferencia_banco, transferencia_dias_plazo",
+      )
+      .maybeSingle();
+
+    if (error) {
+      this.logger.error(
+        `No se pudieron leer los ajustes de la tienda: ${error.message}. Se usa el respaldo por entorno.`,
       );
+      return this.porEntorno;
     }
+
+    const fila = data as {
+      transferencia_iban: string | null;
+      transferencia_titular: string | null;
+      transferencia_banco: string | null;
+      transferencia_dias_plazo: number | null;
+    } | null;
+
+    const iban = normalizarIban(fila?.transferencia_iban ?? "");
+    const titular = (fila?.transferencia_titular ?? "").trim();
+
+    // La fila existe siempre (la crea la migración), así que «no configurado»
+    // es que esté vacía, no que falte.
+    if (!iban || !titular) return this.porEntorno;
+
+    return {
+      iban,
+      titular,
+      banco: (fila?.transferencia_banco ?? "").trim() || null,
+      diasPlazo: fila?.transferencia_dias_plazo ?? 3,
+    };
   }
 
   /**
    * Sin cuenta configurada la opción no se ofrece. Es deliberado que el método
    * se apague solo en vez de fallar al final: enseñar «paga por transferencia»
    * y luego no poder decir a dónde deja al cliente con un pedido y sin salida.
+   *
+   * Un IBAN que no pasa su dígito de control cuenta como no configurado: mandar
+   * a la gente a transferir a una cuenta con una errata es peor que no ofrecer
+   * el método.
    */
-  private disponible(): boolean {
-    return this.iban.length > 0 && this.titular.length > 0;
+  private utilizable(c: CuentaCobro): boolean {
+    return c.iban.length > 0 && c.titular.length > 0 && ibanValido(c.iban);
   }
 
-  disponibilidad(): DisponibilidadTransferencia {
-    return { disponible: this.disponible(), dias_plazo: this.diasPlazo };
+  async disponibilidad(): Promise<DisponibilidadTransferencia> {
+    const c = await this.cuenta();
+    return { disponible: this.utilizable(c), dias_plazo: c.diasPlazo };
   }
 
-  /** Agrupado de cuatro en cuatro, que es como se lee y se teclea un IBAN. */
-  private ibanLegible(): string {
-    return this.iban.replace(/(.{4})/g, "$1 ").trim();
+  /**
+   * Los ajustes tal como se editan en el panel (TI → Ajustes).
+   *
+   * `origen` importa: si la cuenta viene del entorno, cambiarla aquí no surtirá
+   * efecto hasta vaciar aquellas variables, y quien lo edita tiene que saberlo
+   * en vez de descubrirlo guardando y viendo que no cambia nada.
+   */
+  async ajustes(): Promise<AjustesTransferencia> {
+    const { data } = await this.supabase
+      .from("ajustes_tienda")
+      .select(
+        "transferencia_iban, transferencia_titular, transferencia_banco, transferencia_dias_plazo, updated_at",
+      )
+      .maybeSingle();
+
+    const fila = (data ?? {}) as Record<string, string | number | null>;
+    const ibanGuardado = normalizarIban(String(fila["transferencia_iban"] ?? ""));
+    const enUso = await this.cuenta();
+
+    return {
+      iban: ibanGuardado ? formatearIban(ibanGuardado) : "",
+      titular: String(fila["transferencia_titular"] ?? ""),
+      banco: String(fila["transferencia_banco"] ?? ""),
+      dias_plazo: Number(fila["transferencia_dias_plazo"] ?? 3),
+      disponible: this.utilizable(enUso),
+      origen: ibanGuardado ? "panel" : this.porEntorno.iban ? "entorno" : "sin_configurar",
+      actualizado_el: (fila["updated_at"] as string) ?? null,
+    };
+  }
+
+  /** Guarda la cuenta de cobro. El IBAN se valida antes: ver `ibanValido`. */
+  async guardarAjustes(
+    datos: { iban: string; titular: string; banco?: string; dias_plazo?: number },
+    actorId?: string,
+  ): Promise<AjustesTransferencia> {
+    const iban = normalizarIban(datos.iban);
+
+    // Vaciar los dos campos apaga el método a propósito; es una forma legítima
+    // de dejar de aceptar transferencias sin tocar nada más.
+    const apagando = !iban && !datos.titular.trim();
+
+    if (!apagando) {
+      if (!ibanValido(iban)) {
+        throw new BadRequestException(
+          "Ese IBAN no es correcto: no cuadra su dígito de control. Revísalo, porque un IBAN " +
+            "con una errata manda a los clientes a transferir a una cuenta que no existe.",
+        );
+      }
+      if (!datos.titular.trim()) {
+        throw new BadRequestException("Falta el titular de la cuenta");
+      }
+    }
+
+    const { error } = await this.supabase
+      .from("ajustes_tienda")
+      .update({
+        transferencia_iban: iban || null,
+        transferencia_titular: datos.titular.trim() || null,
+        transferencia_banco: datos.banco?.trim() || null,
+        transferencia_dias_plazo: datos.dias_plazo ?? 3,
+        actualizado_por: actorId ?? null,
+      })
+      .eq("id", true);
+
+    if (error) {
+      this.logger.error(`No se pudieron guardar los ajustes: ${error.message}`);
+      throw new BadRequestException("No se pudieron guardar los ajustes");
+    }
+
+    this.logger.log(
+      apagando
+        ? `Pago por transferencia desactivado desde el panel${actorId ? ` por ${actorId}` : ""}`
+        : `Cuenta de cobro actualizada desde el panel${actorId ? ` por ${actorId}` : ""}`,
+    );
+
+    return this.ajustes();
   }
 
   async crearPedido(params: {
@@ -84,7 +208,8 @@ export class TransferenciaService {
     documento?: string;
     envio?: object | null;
   }): Promise<InstruccionesTransferencia> {
-    if (!this.disponible()) {
+    const cuenta = await this.cuenta();
+    if (!this.utilizable(cuenta)) {
       throw new BadRequestException(
         "El pago por transferencia no está disponible ahora mismo. Prueba con tarjeta o Bizum.",
       );
@@ -95,7 +220,7 @@ export class TransferenciaService {
       p_usuario_autenticado: params.usuarioAutenticado ?? null,
       p_user_id: params.userId ?? null,
       p_clave_idempotencia: params.claveIdempotencia,
-      p_dias_plazo: this.diasPlazo,
+      p_dias_plazo: cuenta.diasPlazo,
       p_direccion_envio_id: params.direccionEnvioId ?? null,
       p_email_cliente: params.email ?? null,
       p_documento_cliente: params.documento ?? null,
@@ -119,6 +244,7 @@ export class TransferenciaService {
 
   /** Los datos de pago de un pedido que está esperando su transferencia. */
   async instrucciones(pedidoId: string): Promise<InstruccionesTransferencia> {
+    const cuenta = await this.cuenta();
     const { data, error } = await this.supabase
       .from("pedidos")
       .select("id, numero_pedido, total, pago_vence_el, metodo_pago, estado")
@@ -140,9 +266,9 @@ export class TransferenciaService {
       pedido_id: pedido.id,
       numero_pedido: pedido.numero_pedido,
       importe: Number(pedido.total),
-      iban: this.ibanLegible(),
-      titular: this.titular,
-      banco: this.banco,
+      iban: formatearIban(cuenta.iban),
+      titular: cuenta.titular,
+      banco: cuenta.banco,
       // El número de pedido, tal cual: es lo único que casa el ingreso del
       // banco con el pedido.
       concepto: pedido.numero_pedido,

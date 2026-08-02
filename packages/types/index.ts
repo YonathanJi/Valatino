@@ -570,6 +570,44 @@ export interface PedidoDeCliente extends Pedido {
 // Pago por transferencia bancaria
 // ============================================================
 
+/** Sin espacios ni guiones y en mayúsculas, que es como se guarda y se compara. */
+export function normalizarIban(valor: string): string {
+  return valor.replace(/[\s-]/g, "").toUpperCase();
+}
+
+/**
+ * Valida un IBAN por su dígito de control (mod-97, norma ISO 13616).
+ *
+ * No es una comprobación cosmética: **un IBAN mal tecleado manda a los clientes
+ * a transferir a ninguna parte**, y el error no se descubre hasta que alguien
+ * reclama un pedido que nunca se preparó. Los dos últimos dígitos de control
+ * existen justo para cazar esto, así que se comprueban antes de guardar.
+ *
+ * Lo que sí puede pasar aun siendo válido: que la cuenta no exista. El dígito
+ * de control detecta erratas, no verifica titularidad.
+ */
+export function ibanValido(valor: string): boolean {
+  const iban = normalizarIban(valor);
+  // Entre 15 y 34 según el país; España usa 24.
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) return false;
+
+  // Se mueven los cuatro primeros al final y las letras pasan a números (A=10).
+  const reordenado = iban.slice(4) + iban.slice(0, 4);
+  const numerico = reordenado.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+
+  // Mod 97 a trozos: el número entero no cabe en un Number sin perder precisión.
+  let resto = 0;
+  for (const digito of numerico) {
+    resto = (resto * 10 + Number(digito)) % 97;
+  }
+  return resto === 1;
+}
+
+/** Agrupado de cuatro en cuatro, que es como se lee y se teclea. */
+export function formatearIban(valor: string): string {
+  return normalizarIban(valor).replace(/(.{4})/g, "$1 ").trim();
+}
+
 /**
  * Si la tienda acepta transferencias y con qué plazo. Lo consulta el checkout
  * para decidir si ofrece la opción.
@@ -582,6 +620,24 @@ export interface DisponibilidadTransferencia {
   disponible: boolean;
   /** Días laborables que se conceden para pagar. */
   dias_plazo: number;
+}
+
+/** La cuenta de cobro tal como se edita en TI → Ajustes. */
+export interface AjustesTransferencia {
+  /** Agrupado de cuatro en cuatro para leerlo; se guarda sin espacios. */
+  iban: string;
+  titular: string;
+  banco: string;
+  dias_plazo: number;
+  /** Si con estos datos se ofrece de verdad el método en el checkout. */
+  disponible: boolean;
+  /**
+   * De dónde sale la cuenta que se está usando. Si es `entorno`, lo que se
+   * guarde aquí no surtirá efecto hasta vaciar esas variables en Render — y
+   * quien edita tiene que saberlo antes de guardar, no después.
+   */
+  origen: "panel" | "entorno" | "sin_configurar";
+  actualizado_el: string | null;
 }
 
 /**
