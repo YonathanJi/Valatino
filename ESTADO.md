@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-07-28
+**Última actualización**: 2026-08-02
 
 ---
 
@@ -10,15 +10,22 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-⚠️ **Lo del 2026-07-28 está desplegado y verificado por HTTP, pero NO probado a mano por Jonathan todavía.** Son cuatro arreglos de bugs que él encontró usando el sistema (ver la sesión de abajo). Migración **043 aplicada al remoto**, web desplegada (el chunk nuevo de la confirmación sirve «Cerrando…»), API sana (`/health` 200). Lo que queda es probarlo en pantalla, en este orden:
+✅ **Los cuatro bugs del 2026-07-28 están probados por Jonathan y funcionan.** (Teléfono del cliente al panel, la ventana de calificación que se cierra al enviar, el mensaje honesto del reembolso y la coma en el importe.) Ya no hay nada pendiente de comprobar de esa sesión.
 
-1. **Módulo Clientes** → el teléfono del cliente con cuenta debe salir **658498050** (el que él actualizó en su perfil), no `658498049`.
-2. **Calificar una compra y pulsar «Enviar»** → la ventana debe mostrar el ✓ y **cerrarse sola**. Es lo que antes se quedaba abierto y hacía calificar dos veces.
-3. **Reembolso de un importe menor que el total** → debe poder escribirse **con coma** («0,5»). Antes el campo se vaciaba solo.
+⚠️ **Lo del 2026-08-02 — reembolso por artículos, en el panel y en la cuenta del cliente — está DESPLEGADO pero NO probado a mano todavía.** Al reembolsar se ven los artículos del pedido y se elige cuáles y cuántas unidades; lo devuelto queda registrado, sus unidades pueden volver al inventario, y **el cliente lo ve en «Mis pedidos»**. Ver la sesión de abajo.
 
-⚠️ Del punto 3 queda **una cosa sin poder comprobar por HTTP**: el bundle de `/backoffice/pedidos` no se puede leer sin sesión (la ruta responde **307**, que es lo correcto), así que del reembolso solo se sabe que va en el mismo build atómico que lo ya verificado. **Es el que hay que mirar con más atención al probar.**
+Desplegado en **dos pushes**, como manda la tabla de más abajo (la API pasó a aceptar campos nuevos, así que fue primero): `3e0c135` API + tipos + migración y `b77da43` web. Migración **044 aplicada al remoto**. El redespliegue de Render se confirmó por el corte de `/health` (tres fallos de conexión y vuelta a 200); web y API sanas después.
 
-Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €); el pedido `260728018953` tiene además **1,00 € de reembolso parcial** y sigue en PROCESANDO, que es lo correcto.
+⚠️ **Lo que NO se ha podido verificar por HTTP, y es casi todo**: las tres pantallas que cambian están detrás de login (`/cuenta/pedidos` responde **307**, que es lo correcto), así que del código de la web **solo se sabe que va en el mismo build atómico** que la home, que sirve 200. Es el mismo límite de la sesión del 28. **Hay que probarlo en pantalla**, en este orden:
+
+1. **Panel, con el pedido `260728019405`** (6,30 €, tres artículos distintos — el que más se presta): devolver **un solo artículo**, comprobar el stock de ese producto en Inventario, y volver a abrir el reembolso para ver que esa línea ya sale como devuelta y no se puede volver a elegir.
+2. **La casilla desmarcada** («la mercancía no vuelve»): el stock **no** debe moverse, ni entonces ni al completar después el reembolso del pedido. Es la regla más fácil de romper si alguien toca esto.
+3. **Del lado del cliente**: entrar con la cuenta del comprador → `/cuenta/pedidos` → ese pedido debe mostrar qué artículo se devolvió, cuándo y cuánto, **aunque el pedido siga en ENVIADO** (una devolución parcial no cambia el estado: ese es justo el hueco que esto tapa). Y en `/cuenta/perfil`, el «Total gastado» debe salir ya con lo devuelto descontado.
+4. **Que el dinero llegue de verdad**: contrastar en Stripe que el reembolso figura por el importe de los artículos elegidos.
+
+⚠️ La migración 044 **ya está en el remoto** y es compatible con la API actual: con la tabla vacía, `reembolsar_pedido_total` se comporta exactamente igual que antes (verificado). No hay prisa por desplegar; lo que no se puede es desplegar la web sin la API.
+
+Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €).
 
 ⚠️ **Del login, que dio problemas al cerrar la sesión** (arreglado y confirmado por Jonathan): hay **dos caminos** de entrada. El **código de 6 dígitos es el principal** y el **enlace del correo es el secundario**. El del enlace **nunca había funcionado** —`/auth/callback` era de servidor y no puede completar PKCE ni leer el fragmento de la URL— y solo se destapó cuando un 502 de Supabase hizo que llegara su correo por defecto, que trae enlace en vez de código. Ver sesión 2026-07-27 (cont. 6), y sobre todo el aviso de **NO lanzar `supabase config push`** que hay ahí.
 
@@ -33,7 +40,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
    - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
    - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
-2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 208 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 244 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
@@ -53,7 +60,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **044** (reembolso por artículos: tabla `reembolso_lineas`, RPC `registrar_reembolso_lineas` y `reembolsar_pedido_total` reescrita para no reponer dos veces). Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -61,6 +68,9 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Flujo por capas RRHH → TI (2026-07-24)**: ⚠️ **cambio respecto a lo anterior** — ahora **Gestión Humana crea al empleado SIN cuenta** (persona + cargo; `empleados.user_id` es opcional) y después **TI** le **provisiona la cuenta** (correo + contraseña + módulos) y la vincula. "Usuarios" ya **no** es admin-only suelto: vive dentro del **módulo `ti`** (sidebar TI → Usuarios, ruta `/backoffice/ti/usuarios`). El **súper admin** (`admin`) conserva acceso a todo el core. **Cambiar rol (dar/quitar admin) sigue reservado a admin** (no un asesor de TI). Ver sesión 2026-07-24.
 - **Módulo Gestión Humana**: `gestion_humana` (empleados + cargos + histórico mensual mes a mes con botón «Generar histórico»). Código de empleado estable `EMP-0001` (independiente del cargo).
 - **Avisos de estado y reembolsos (2026-07-25)**: cada cambio de estado en el panel **envía correo al cliente** (en preparación / en camino / entregado / cancelado), y el reembolso es una acción propia (`POST /admin/pedidos/:id/reembolso`, solo admin) que **cobra en Stripe** de verdad, total o parcial. ⚠️ **REEMBOLSADO ya no es una transición del desplegable**: antes elegirlo marcaba el pedido sin mover un euro. Ver sesión 2026-07-25 (cont. 3).
+  - **⭐ Y desde el 2026-08-02 se devuelven ARTÍCULOS, no solo un importe** (migración 044): el modal muestra las líneas del pedido y se elige cuáles y cuántas unidades, con casilla para que esas unidades vuelvan al inventario. Lo devuelto queda registrado en `reembolso_lineas`, así que la siguiente devolución sabe qué queda y la ficha marca cada artículo. Ver sesión 2026-08-02.
+  - ⚠️ **Si tocas el stock del reembolso, la trampa es la doble reposición**: `reembolsar_pedido_total` repone el pedido entero y hay que descontarle lo que ya figure en `reembolso_lineas` —repuesto o no, porque «no repuesto» es una decisión tomada, no un pendiente—. Por eso registrar las líneas y cerrar el pedido van en **una sola llamada** y en ese orden.
+  - ⚠️ **El importe de los artículos lo calcula el servidor**, desde `pedido_items`. El panel manda qué línea y cuántas unidades, nunca euros. Y la clave de idempotencia de Stripe lleva una **huella de las líneas**: dos líneas distintas pueden costar lo mismo, y sin ella la segunda devolución reutilizaría el refund de la primera sin cobrar nada.
 - **⚠️ NIVELES DE PERMISO (2026-07-26) — cambia cómo se otorga todo**: tener un módulo ya **no** significa poder hacer todo lo que contiene. Cada módulo se otorga con un nivel: **`lectura` < `edicion` < `total`** (acumulativos). Y cada **cargo** lleva una **plantilla** de permisos que se copia al provisionar la cuenta, así que dar de alta a quince asesores es una sola configuración. **`POST /admin/usuarios` (alta suelta) se eliminó**: el único camino es RRHH crea el empleado → TI le da acceso. Reembolsar, borrar cliente y borrar empleado **dejaron de ser `@Roles("admin")`** y ahora exigen `total`. El panel muestra el **cargo** real en vez de «Asesor». Ver sesión 2026-07-26.
 - **Ficha del pedido e historial (2026-07-26)**: en el panel, **pinchar un pedido** abre su ficha con los artículos, el cliente, la dirección y una **línea de tiempo** de todo lo que le ha pasado —alta, cambios de estado, pagos, reembolsos y correos— **con el nombre de quién lo hizo**. Lo ve todo el equipo, incluso con solo lectura en Pedidos; el cliente **no**. El registro va por **trigger**, así que ningún cambio de estado se escapa. Ver sesión 2026-07-26 (cont.).
 - **Módulo Clientes (2026-07-25)**: `clientes` — listado con métricas, ficha con pedidos y direcciones, edición de contacto y borrado de cuenta. **Ojo al dato de negocio**: `profiles` está casi vacío porque el registro es por OTP y solo captura el email; el nombre, el documento y (desde el 27) el **teléfono** reales del cliente viven en el **pedido** (`envio_nombre`, `documento_cliente`, `envio_telefono`) y la RPC `listar_clientes` los deriva de ahí. Ver sesión 2026-07-25 (cont. 2).
@@ -88,7 +98,75 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **208 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **244 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-02 — Reembolsar artículos, no solo un importe
+
+Jonathan: *«cuando se va a hacer un reembolso de un pedido que muestre los artículos que se compraron y se pueda elegir cuál reembolsar, así será más fácil ordenar el reembolso y que no queden colas»*.
+
+La cola que esto quita estaba escrita, con todas sus letras, en el comentario de la **migración 037**:
+
+> «Solo repone el reembolso TOTAL: en uno parcial el importe no dice qué unidades vuelven (¿2 de un producto de 5 € o 1 de uno de 10 €?), así que el ajuste se hace a mano desde Inventario cuando la mercancía llega.»
+
+Eso era cierto **mientras un reembolso parcial fuera solo una cifra**. En cuanto se eligen las líneas, el reembolso sí dice qué unidades vuelven, y el ajuste a mano —que es justo lo que se olvida— deja de hacer falta. El pedido de Jonathan y la deuda técnica que había apuntada eran la misma cosa.
+
+### Lo que se guarda ahora es QUÉ se devolvió, no solo cuánto
+
+Tabla `reembolso_lineas` (migración **044**): qué línea, cuántas unidades, cuánto dinero, si volvió al inventario y con qué reembolso de Stripe se pagó. De ahí salen las tres cosas que antes no se podían saber:
+
+- **Qué le queda a este pedido por devolver, línea a línea.** Sin esto, la segunda devolución parcial vuelve a ofrecer lo ya devuelto.
+- **Si esas unidades volvieron al inventario.**
+- **Qué artículos figuran en cada devolución**, en la ficha del pedido.
+
+### ⚠️ El peligro de esta migración era la doble reposición de stock
+
+`reembolsar_pedido_total` (037/039) repone **todas** las unidades del pedido. El escenario normal de esta funcionalidad —devolver un artículo hoy y el resto del pedido mañana— habría repuesto dos veces las unidades del primer parcial y dejado el inventario inflado. Por eso la 044 la reescribe para reponer **solo lo que no figure ya en `reembolso_lineas`**.
+
+Y se descuentan **todas** las líneas registradas, repuestas o no: que una línea esté marcada como no revendible no es un pendiente, es que se decidió que esa mercancía no vuelve. Completar el reembolso después no arregla una caja rota.
+
+Para que el orden no dependa de que alguien lo recuerde, **registrar las líneas y cerrar el pedido van en la misma llamada** (`registrar_reembolso_lineas`, con `p_marcar_total`) y por dentro en la misma transacción. Dejarlo en dos llamadas desde la API era invitar a invertirlas.
+
+### El precio lo pone el servidor, siempre
+
+El panel manda **qué línea y cuántas unidades**, nunca el importe. Lo que vale cada una lo dice `pedido_items`, que es lo que se cobró — y lo mismo hace la RPC al registrar. Un `importe` metido dentro de una línea lo rechaza el `forbidNonWhitelisted` del ValidationPipe antes de llegar al servicio. Hay una prueba dedicada a eso, porque lo que hay al otro lado es dinero saliendo.
+
+⚠️ **La clave de idempotencia necesitó los artículos dentro.** Era `reembolso:<pedido>:<ya>:<importe>`, y **dos líneas distintas del mismo pedido pueden costar lo mismo**: devolver una y luego la otra daba la misma clave, así que Stripe habría devuelto el refund de la primera sin cobrar nada — y el panel diría que la segunda se devolvió. Ahora lleva una huella de las líneas, ordenada (el mismo conjunto en otro orden es la misma devolución).
+
+### Lo que se ve en el panel
+
+- **Modal de reembolso**: los artículos del pedido con su precio, cuántas se compraron y cuántas quedan; casilla por línea y selector de unidades cuando hay más de una. Lo ya devuelto sale descontado y marcado. Total calculado abajo.
+- **Casilla «las unidades vuelven al inventario»**, marcada por defecto y desmarcable cuando la mercancía no se puede revender (decisión de Jonathan).
+- **Se conservan «Todo lo pendiente» y «Otro importe»**: hay devoluciones que no son un artículo (un gesto comercial). El importe suelto avisa de que no queda asociado a nada y por eso no repone stock.
+- **La ficha del pedido** marca cada artículo devuelto («Devuelto», «1 de 3 devueltas», «· no repuesto»), y la línea de tiempo dice **qué** se devolvió en vez de solo cuánto.
+
+### Verificado en el remoto, en transacción revertida
+
+Los doce casos, sobre el pedido real `260728019405` (0,80 + 1,50 + 4,00 = 6,30 €): devolver una línea reponiendo · reintento del mismo refund (no duplica) · otro refund sobre una línea ya devuelta entera (recorta a cero) · una línea marcada como no revendible · **una línea de otro pedido, que se ignora** · y completar el total. Stocks finales exactos: Limón 11→12, Queso 1→2 y **Pony Malta 22→22** —la que se marcó como no revendible, que el total posterior tampoco repuso—. Un total sin líneas previas sigue reponiendo todo, como antes. La BD quedó intacta.
+
+⚠️ **La RPC no lanza por cantidades**: se la llama con el dinero ya cobrado en Stripe, y abortar ahí dejaría la devolución hecha y sin rastro. Recorta a lo que de verdad quedaba y lo cuenta en el resultado; si recorta, la API lo escribe en el log como error, porque significa que se cobró más de lo que consta devuelto en artículos.
+
+**Tests: 244** en la API (eran 208). `pnpm turbo type-check` limpio y `next build` correcto.
+
+### Y el cliente lo ve en «Mis pedidos»
+
+Segunda mitad de la sesión, pedida por Jonathan a continuación: *«que el cliente con su sesión iniciada pueda ver si su pedido se le reembolsó, qué artículo fue y el valor reembolsado»*.
+
+⚠️ **El hueco era real y no era de pantalla: un reembolso parcial NO cambia el estado del pedido** —sigue en ENVIADO o ENTREGADO, y es correcto que siga, porque el resto del pedido continúa su curso—. La etiqueta de estado solo cuenta el reembolso **total**, así que hasta ahora un cliente al que se le devolvían 0,80 € **no tenía ninguna forma de enterarse** desde su cuenta.
+
+Ahora cada pedido de `/cuenta/pedidos` trae `total_reembolsado` y `articulos_devueltos`, y la tarjeta muestra un bloque con qué se devolvió, cuándo y cuánto, más el total tachado y lo «pagado finalmente».
+
+⚠️ **Lo que el cliente NO ve, y por qué está resuelto por construcción**: `reembolso_lineas` guarda también si la mercancía volvió al almacén, quién tramitó la devolución y el identificador del cobro en Stripe. `articulosDevueltos()` **elige campo a campo** —nunca `select("*")`— y el tipo `ArticuloDevuelto` es independiente de `ReembolsoLinea`, no un `Omit<>`: con un tipo derivado, añadir mañana una columna interna a la tabla la publicaría sola. Hay tres pruebas dedicadas a esto, una de ellas comprobando que la consulta no lleva comodín.
+
+- **El pedido ajeno se corta antes de leer nada suyo**: `findOneByUser` consulta lo devuelto **después** del guard de propiedad, no antes. Leerlo y descartarlo al fallar el guard sigue siendo haberlo leído, y hay una prueba que lo fija.
+- **Si hay dinero devuelto pero no consta de qué artículo** (devolución por importe suelto, o hecha desde el panel de Stripe), **se muestra el importe igual** y se dice que no corresponde a un artículo concreto. Callar la cifra por no tener el detalle sería lo peor de las dos opciones.
+- Se avisa de que el abono va al mismo método de pago y **puede tardar unos días** en aparecer en el banco. Es cierto y ahorra el correo de «no me ha llegado».
+
+### Lo que esto NO hace
+- **El correo al cliente sigue diciendo solo el importe**, no qué artículos se le devolvieron. Se puede añadir: `enviarReembolso` ya recibe los items del pedido. Es el siguiente paso natural ahora que el dato existe.
+- **PayPal sigue fuera**: esas devoluciones se hacen desde su panel y llegan por webhook, sin líneas.
+- Un reembolso hecho **desde el panel de Stripe** llega por `charge.refunded` y tampoco trae artículos: se registra el dinero y el estado, no las líneas. El cliente verá el importe sin detalle, que es lo que consta.
 
 ---
 
