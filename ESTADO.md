@@ -48,7 +48,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
    - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
    - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
-2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 277 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 282 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
@@ -106,7 +106,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **277 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **282 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
 
 ---
 
@@ -130,6 +130,19 @@ Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Co
 - ⚠️ **No se revierte nada automáticamente**, y es deliberado: deshacer el apunte, volver a descontar el stock y reabrir el pedido a ciegas puede empeorarlo si alguien ya actuó o la mercancía ya volvió. Lo que hacía falta es que no pase inadvertido.
 - ⚠️ **El nombre del evento importa**: la documentación de Stripe habla de `refund.failed`, pero **ese evento no existe en la versión de API de esta cuenta** (2024-06-20, librería 16.12). Aquí el fallo llega como `refund.updated` con el estado ya puesto. Si algún día se sube la versión de API, revisar esto.
 - ⚠️ **El webhook escuchaba solo 4 eventos** (`payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`), así que el aviso no habría llegado nunca. Se añadió `refund.updated` por API al endpoint `we_1Tw2mHL1kwgv5hCuBoKht7CL`. **Si se recrea el webhook al pasar a Stripe `live`, hay que volver a incluirlo.**
+
+### Dos cosas que Jonathan cazó probando con Bizum
+
+**1. El correo decía «Tarjeta (Stripe)» a quien había pagado con Bizum** (migración 048). Ni fue una tarjeta ni Stripe es una forma de pagar: es por dónde pasó el dinero, algo que al cliente no le dice nada.
+
+`metodo_pago` guarda la **pasarela**, y eso estaba bien mientras Stripe solo sirviera tarjetas. Ahora se guarda además `metodo_detalle` con lo que informa Stripe (`card`, `bizum`…). Son dos cosas distintas y **las dos hacen falta**: la pasarela decide por dónde se reembolsa (`ReembolsosService` la mira para saber si puede cobrar en Stripe) y el detalle es lo que se le cuenta al cliente. Mezclarlas obligaría a que el reembolso supiera que «bizum» también significa Stripe.
+
+- El tipo real **no viene en el PaymentIntent** —solo dice qué métodos se ofrecieron—, hay que mirar el cargo (`latest_charge.payment_method_details.type`). Es una llamada extra a Stripe por pedido; nunca lanza, porque un pedido cobrado no puede fallar por no saber etiquetar la forma de pago.
+- ⚠️ **Un método desconocido se muestra tal cual** («Klarna», «Apple Pay») en vez de caer en «Tarjeta». Caer por defecto es exactamente lo que hizo mentir al correo: si mañana se activa otro método en Stripe, dirá algo escueto pero cierto.
+
+**2. El cliente veía en su cuenta un pedido cancelado que nunca fue una compra.** Al elegir transferencia y luego pagar con Bizum, el pedido de transferencia se cancela solo (047) — correcto— pero se le mostraba, **con el mismo importe que el que sí pagó**, y parecía un cobro doble que falló.
+
+Ahora `/cuenta/pedidos` oculta los **cancelados sin ningún pago exitoso**. La condición importa: un pedido que se cobró y se canceló después **sí se muestra**, porque ahí hubo dinero de por medio. En el panel se siguen viendo todos: el equipo necesita la traza.
 
 ### ⚠️ El carrito no se vacía hasta que el pago existe (migración 047)
 
