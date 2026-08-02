@@ -163,6 +163,17 @@ Ahora cada pedido de `/cuenta/pedidos` trae `total_reembolsado` y `articulos_dev
 - **Si hay dinero devuelto pero no consta de qué artículo** (devolución por importe suelto, o hecha desde el panel de Stripe), **se muestra el importe igual** y se dice que no corresponde a un artículo concreto. Callar la cifra por no tener el detalle sería lo peor de las dos opciones.
 - Se avisa de que el abono va al mismo método de pago y **puede tardar unos días** en aparecer en el banco. Es cierto y ahorra el correo de «no me ha llegado».
 
+### La ficha del pedido para el cliente (tercera parte de la sesión)
+
+Jonathan probó el circuito entero con un pedido nuevo y pidió lo visual: *«que le dé click al pedido y le muestre lo que ha pasado con él, por ejemplo la devolución recibida, no como ahora que está mostrando todo hacia abajo, se ve feo»*.
+
+**Cómo quedó**: la lista de `/cuenta/pedidos` es ahora de tarjetas compactas y pinchables —número, estado, los artículos resumidos en una línea, el importe y un aviso ámbar si hubo devolución—, y al pinchar se abre una ficha con **«Qué ha pasado con tu pedido»**: una línea de tiempo con icono por paso, los artículos, los totales y la dirección. En móvil entra como hoja inferior.
+
+⚠️ **El historial interno NO se le puede enseñar al cliente, y por eso hay uno propio.** `pedido_eventos` lleva quién tocó cada cosa, su correo, el origen y textos de máquina (`payment_intent.succeeded`, `charge.refunded`, `reembolso.backoffice · 1 × Milo 400G`). El seguimiento se construye en el servidor (`construirSeguimiento`) traduciendo solo los cambios de estado, y **la consulta que lo alimenta ni siquiera pide las columnas de autor**: lo que no se lee no se puede filtrar mal. Se quedan fuera los correos (ya los tiene en su buzón), los pagos y los avisos de la pasarela.
+
+⚠️ **Las devoluciones del seguimiento NO salen de los eventos, y esto es lo importante**: allí el importe es el **acumulado** devuelto hasta ese momento —lo necesita el cálculo de cuánto queda—, así que en el pedido de prueba la segunda devolución figura como **10,50 € cuando en realidad devolvió 10,00 €**. Enseñárselo al cliente junto al artículo devuelto sería contarle mal su dinero. El importe sale de `reembolso_lineas`, que lleva lo de cada línea. Hay una prueba dedicada a ese caso exacto.
+  - Las líneas se agrupan por **fecha** para saber cuáles son de la misma devolución: todas las de un mismo reembolso se insertan en la misma transacción y `now()` es constante dentro de ella. Así se agrupa sin exponer el `refund_id`.
+
 ### Lo que esto NO hace
 - **El correo al cliente sigue diciendo solo el importe**, no qué artículos se le devolvieron. Se puede añadir: `enviarReembolso` ya recibe los items del pedido. Es el siguiente paso natural ahora que el dato existe.
 - **PayPal sigue fuera**: esas devoluciones se hacen desde su panel y llegan por webhook, sin líneas.
