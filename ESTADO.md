@@ -131,6 +131,23 @@ Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Co
 - ⚠️ **El nombre del evento importa**: la documentación de Stripe habla de `refund.failed`, pero **ese evento no existe en la versión de API de esta cuenta** (2024-06-20, librería 16.12). Aquí el fallo llega como `refund.updated` con el estado ya puesto. Si algún día se sube la versión de API, revisar esto.
 - ⚠️ **El webhook escuchaba solo 4 eventos** (`payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`), así que el aviso no habría llegado nunca. Se añadió `refund.updated` por API al endpoint `we_1Tw2mHL1kwgv5hCuBoKht7CL`. **Si se recrea el webhook al pasar a Stripe `live`, hay que volver a incluirlo.**
 
+### ⚠️ El carrito no se vacía hasta que el pago existe (migración 047)
+
+Reportado por Jonathan: *«si seleccioné transferencia y luego pasé a tarjeta y Bizum dice que no permite porque el carro está vacío»*.
+
+**La causa**: `crear_pedido_transferencia` vaciaba el carrito al crear el pedido, copiando lo que hace `confirmar_venta`. Allí es correcto —el dinero ya está cobrado—, pero aquí **el pago aún no ha ocurrido**: elegir transferencia no es pagar, es decir cómo se va a pagar. Y dejaba algo peor detrás: un pedido en PENDIENTE_PAGO reteniendo stock que nadie iba a pagar, visible tres días en el panel, **donde alguien podría darlo por bueno y descontar inventario por una venta que no existió**.
+
+**La regla que se adopta: el carrito se vacía cuando el pago se materializa, no cuando se anuncia.**
+1. `crear_pedido_transferencia` deja el carrito intacto.
+2. `confirmar_pago_transferencia` lo vacía, que es cuando entra el dinero.
+3. `confirmar_venta` **cancela el pedido por transferencia que ese mismo checkout dejó a medias**, sin devolver stock: esas unidades se las lleva el pedido que sí se ha pagado.
+
+⚠️ **El pedido a cancelar se identifica por la RESERVA, no por la sesión ni por una ventana de tiempo.** Las reservas que `confirmar_venta` está a punto de consumir son exactamente las que aquel pedido retenía, así que la llamada va **antes** de consumirlas — después ya no existen. Sin heurísticas y sin poder cancelar por error un pedido legítimo de otro día.
+
+⚠️ **Y un segundo fallo en el front, de la misma causa**: la clave de idempotencia vivía en un `useRef`, y cambiar de método de pago desmonta el componente. Volver a «Transferencia» generaba una clave nueva y con ella **un segundo pedido del mismo carrito reteniendo stock por duplicado**. Ahora vive en `sessionStorage` atada al importe: mismo carrito, misma clave; carrito distinto, clave nueva.
+
+**Verificado en el remoto**: elegir transferencia → el carrito sigue lleno → pagar con tarjeta funciona → el pedido de transferencia queda CANCELADO → el stock se consume **una sola vez** → el carrito se vacía al final.
+
 ### ⚠️ Los datos bancarios NO son variables de entorno (migración 046)
 
 Nacieron como tales en la 045 y Jonathan preguntó si hacía falta. La respuesta honesta es que no, y el criterio vale para lo que venga:
