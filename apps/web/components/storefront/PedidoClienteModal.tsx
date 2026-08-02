@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
+import { HITO_COLOR } from "@lib/estados-pedido";
+import { EstadoPedido } from "@components/storefront/EstadoPedido";
 import type { PedidoClienteDetalle, TipoHito } from "@valatino/types";
 
 interface Props {
@@ -98,9 +100,12 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
               Pedido #{pedido?.numero_pedido ?? pedidoId.slice(0, 8).toUpperCase()}
             </h2>
             {pedido && (
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {fechaLarga(pedido.created_at)}
-              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <EstadoPedido estado={pedido.estado} />
+                <span className="text-sm text-muted-foreground">
+                  {fechaLarga(pedido.created_at)}
+                </span>
+              </div>
             )}
           </div>
           <button
@@ -145,21 +150,21 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
                 {seguimiento.map((hito, i) => {
                   const Icono = ICONO_HITO[hito.tipo] ?? Package;
                   const ultimo = i === seguimiento.length - 1;
-                  const esDevolucion = hito.tipo === "devolucion";
 
                   return (
                     <li key={`${hito.fecha}-${i}`} className="flex gap-3.5">
                       {/* Punto + línea: la línea no se pinta bajo el último
-                          hito, o parecería que falta un paso por llegar. */}
+                          hito, o parecería que falta un paso por llegar.
+                          Cada paso lleva el color de lo que es —azul preparar,
+                          violeta camino, verde entregado, naranja devolución—,
+                          los mismos que la etiqueta de estado de arriba. El
+                          último va con anillo para señalar dónde está el pedido
+                          ahora sin recurrir solo al color. */}
                       <div className="flex flex-col items-center">
                         <span
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                            esDevolucion
-                              ? "bg-amber-100 text-amber-700"
-                              : ultimo
-                                ? "bg-neutral-900 text-neutral-50"
-                                : "bg-muted text-muted-foreground"
-                          }`}
+                            HITO_COLOR[hito.tipo]
+                          } ${ultimo ? "ring-2 ring-current ring-offset-2 ring-offset-background" : ""}`}
                         >
                           <Icono className="h-4 w-4" />
                         </span>
@@ -170,7 +175,7 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
                         <div className="flex items-baseline justify-between gap-3">
                           <p className="text-sm font-medium">{hito.titulo}</p>
                           {hito.importe !== null && (
-                            <p className="shrink-0 text-sm font-semibold tabular-nums text-amber-700">
+                            <p className="shrink-0 text-sm font-semibold tabular-nums text-orange-700 dark:text-orange-400">
                               +{formatEUR(hito.importe)}
                             </p>
                           )}
@@ -224,7 +229,7 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
                 </div>
                 {devuelto > 0 && (
                   <>
-                    <div className="flex justify-between text-amber-700">
+                    <div className="flex justify-between text-orange-700 dark:text-orange-400">
                       <dt>Devuelto</dt>
                       <dd className="tabular-nums">−{formatEUR(devuelto)}</dd>
                     </div>

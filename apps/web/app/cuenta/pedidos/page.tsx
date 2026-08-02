@@ -8,21 +8,8 @@ import { apiFetch } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import Link from "next/link";
 import { PedidoClienteModal } from "@components/storefront/PedidoClienteModal";
-import {
-  PEDIDO_ESTADO_LABELS,
-  type PedidoDeCliente,
-  type PaginatedResponse,
-} from "@valatino/types";
-
-// Escala de grises: cada estado se distingue por intensidad, no por tono
-const ESTADO_COLORS: Record<string, string> = {
-  PENDIENTE_PAGO: "bg-neutral-100 text-neutral-500",
-  PROCESANDO: "bg-neutral-200 text-neutral-700",
-  ENVIADO: "bg-neutral-300 text-neutral-800",
-  ENTREGADO: "bg-neutral-900 text-neutral-50",
-  CANCELADO: "bg-neutral-100 text-neutral-400",
-  REEMBOLSADO: "bg-neutral-200 text-neutral-500",
-};
+import { EstadoPedido } from "@components/storefront/EstadoPedido";
+import type { PedidoDeCliente, PaginatedResponse } from "@valatino/types";
 
 /**
  * Los artículos en una línea, sin desplegar la lista entera.
@@ -128,13 +115,7 @@ export default function MisPedidosPage() {
                     <span className="font-mono text-xs text-muted-foreground">
                       #{pedido.numero_pedido ?? pedido.id.slice(0, 8).toUpperCase()}
                     </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        ESTADO_COLORS[pedido.estado] ?? "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {PEDIDO_ESTADO_LABELS[pedido.estado] ?? pedido.estado}
-                    </span>
+                    <EstadoPedido estado={pedido.estado} />
                   </div>
 
                   <p className="truncate text-sm text-muted-foreground">
@@ -145,7 +126,7 @@ export default function MisPedidosPage() {
                       cliente viene a mirar, y esconderla tras un clic le
                       obligaría a abrir pedido por pedido para encontrarla. */}
                   {devuelto > 0 && (
-                    <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-orange-700 dark:text-orange-400">
                       <RotateCcw className="h-3 w-3 shrink-0" />
                       Te devolvimos {formatEUR(devuelto)}
                     </p>
