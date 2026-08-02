@@ -1,4 +1,5 @@
 import { PEDIDO_ESTADOS, type PedidoEstado } from "@valatino/types";
+import { renderInstruccionesTransferencia } from "./instrucciones-transferencia";
 import { renderCambioEstado, COPIAS_ESTADO, type DatosEmailEstado } from "./estado-pedido";
 import { renderConfirmacionPedido, type DatosEmailPedido, etiquetaMetodoPago } from "./confirmacion-pedido";
 
@@ -157,5 +158,66 @@ describe("etiquetaMetodoPago", () => {
 
     expect(html).toContain("Bizum");
     expect(html).not.toMatch(/Tarjeta \(Stripe\)/);
+  });
+});
+
+/**
+ * Es el único correo de la tienda que el cliente necesita PARA ACTUAR: los
+ * demás cuentan algo que ya pasó. Quien cierra la pestaña del checkout se queda
+ * sin el IBAN y sin el concepto, y sin esto no puede pagar lo que ha reservado.
+ */
+describe("instrucciones de transferencia", () => {
+  const datos = {
+    pedidoId: "b46b60d3-c18c-4104-b28d-f161e70c7f6e",
+    numeroPedido: "260802031234",
+    email: "cliente@ejemplo.com",
+    importe: 12.5,
+    iban: "ES33 9490 0934 2392 2994 3748",
+    titular: "Valentino Jimenez Mendoza",
+    banco: "BBVA",
+    concepto: "260802031234",
+    venceEl: "2026-08-05T21:59:59Z",
+  };
+
+  it("lleva todo lo que hace falta para hacer la transferencia", () => {
+    const html = renderInstruccionesTransferencia(datos);
+
+    expect(html).toContain("ES33 9490 0934 2392 2994 3748");
+    expect(html).toContain("Valentino Jimenez Mendoza");
+    expect(html).toContain("BBVA");
+    expect(html).toMatch(/12,50\s*€/);
+  });
+
+  /**
+   * El concepto es lo único que permite casar el ingreso con el pedido: una
+   * transferencia sin él llega al banco como un apunte anónimo. Por eso va dos
+   * veces, una en la tabla de datos y otra en el aviso destacado.
+   */
+  it("repite el concepto para que no se pase por alto", () => {
+    const html = renderInstruccionesTransferencia(datos);
+    const veces = html.split("260802031234").length - 1;
+
+    expect(veces).toBeGreaterThanOrEqual(3); // nº de pedido + concepto + aviso
+    expect(html).toContain("No olvides el concepto");
+  });
+
+  it("dice hasta cuándo se guarda el pedido, en cristiano", () => {
+    const html = renderInstruccionesTransferencia(datos);
+
+    expect(html).toMatch(/5 de agosto de 2026/);
+  });
+
+  it("sin banco configurado no deja una fila vacía", () => {
+    const html = renderInstruccionesTransferencia({ ...datos, banco: null });
+
+    expect(html).not.toContain("Banco");
+  });
+
+  /** Un titular con `<` no puede romper la maquetación del correo. */
+  it("escapa los datos de la cuenta", () => {
+    const html = renderInstruccionesTransferencia({ ...datos, titular: 'Ana <b>"X"' });
+
+    expect(html).toContain("Ana &lt;b&gt;&quot;X&quot;");
+    expect(html).not.toContain("Ana <b>");
   });
 });

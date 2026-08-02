@@ -41,7 +41,19 @@ function montar(
   };
 
   const config = { get: (clave: string) => entorno[clave] };
-  const servicio = new TransferenciaService(supabase as never, config as never);
+  // Los avisos al cliente salen sin await y no son objeto de estas pruebas.
+  const email = {
+    enviarInstruccionesTransferencia: async () => undefined,
+    enviarConfirmacionPedido: async () => undefined,
+  };
+  const inventario = { getPedidoConItems: async () => null };
+
+  const servicio = new TransferenciaService(
+    supabase as never,
+    email as never,
+    inventario as never,
+    config as never,
+  );
   return { servicio, llamadas };
 }
 

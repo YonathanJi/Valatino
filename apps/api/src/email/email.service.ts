@@ -1,6 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createTransport, type Transporter } from "nodemailer";
 import { renderConfirmacionPedido, type DatosEmailPedido } from "./templates/confirmacion-pedido";
+import {
+  renderInstruccionesTransferencia,
+  type DatosEmailTransferencia,
+} from "./templates/instrucciones-transferencia";
 import { renderCambioEstado, type DatosEmailEstado } from "./templates/estado-pedido";
 import { EventosPedidoService } from "../eventos/eventos-pedido.service";
 
@@ -60,6 +64,21 @@ export class EmailService {
     const asunto = esParcial
       ? `Devolución de ${this.importeVisible(devuelto)} — Pedido #${this.numeroVisible(datos)}`
       : `Reembolso procesado — Pedido #${this.numeroVisible(datos)}`;
+
+    if (await this.enviar({ to: datos.email, subject: asunto, html })) {
+      await this.anotar(datos.pedidoId, asunto);
+    }
+  }
+
+  /**
+   * Cómo hacer la transferencia. Es el único correo que el cliente necesita
+   * **para actuar**: quien cierra la pestaña del checkout se queda sin el IBAN
+   * y sin el concepto, y sin esto no tiene forma de pagar lo que acaba de
+   * reservar.
+   */
+  async enviarInstruccionesTransferencia(datos: DatosEmailTransferencia): Promise<void> {
+    const html = renderInstruccionesTransferencia(datos);
+    const asunto = `Cómo pagar tu pedido #${datos.numeroPedido} por transferencia`;
 
     if (await this.enviar({ to: datos.email, subject: asunto, html })) {
       await this.anotar(datos.pedidoId, asunto);

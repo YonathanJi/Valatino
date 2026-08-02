@@ -8,6 +8,8 @@ import {
 import { ConfigService } from "@nestjs/config";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { EmailService } from "../email/email.service";
+import { InventarioService } from "../inventario/inventario.service";
 import { formatearIban, ibanValido, normalizarIban } from "@valatino/types";
 import type {
   AjustesTransferencia,
@@ -42,6 +44,8 @@ export class TransferenciaService {
 
   constructor(
     @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly email: EmailService,
+    private readonly inventario: InventarioService,
     config: ConfigService,
   ) {
     this.porEntorno = {
@@ -239,7 +243,57 @@ export class TransferenciaService {
       throw new BadRequestException("No se pudo preparar el pedido. Inténtalo de nuevo.");
     }
 
-    return this.instrucciones(data as string);
+    const instrucciones = await this.instrucciones(data as string);
+
+    // Sin await: SMTP tarda segundos y el cliente está esperando su IBAN en
+    // pantalla. Es el correo más importante de la tienda —es el único que se
+    // necesita para PODER pagar—, pero también lo tiene delante en ese momento;
+    // si el envío falla, queda en el log y las instrucciones siguen en su ficha
+    // de «Mis pedidos».
+    void this.avisarComoPagar(instrucciones, params.email);
+
+    return instrucciones;
+  }
+
+  /** El correo con el IBAN y el concepto. Nunca propaga. */
+  private async avisarComoPagar(
+    instrucciones: InstruccionesTransferencia,
+    emailDelDto?: string,
+  ): Promise<void> {
+    try {
+      // El correo del pedido, no el del DTO: para un cliente con cuenta el DTO
+      // puede no traerlo, y el pedido siempre tiene a quién avisar (lo garantiza
+      // `pedidos_localizable_check`).
+      const { data } = await this.supabase
+        .from("pedidos")
+        .select("email_cliente")
+        .eq("id", instrucciones.pedido_id)
+        .maybeSingle();
+
+      const destino = (data as { email_cliente: string | null } | null)?.email_cliente ?? emailDelDto;
+      if (!destino) {
+        this.logger.warn(
+          `Pedido ${instrucciones.numero_pedido} por transferencia sin correo: no se pueden enviar las instrucciones`,
+        );
+        return;
+      }
+
+      await this.email.enviarInstruccionesTransferencia({
+        pedidoId: instrucciones.pedido_id,
+        numeroPedido: instrucciones.numero_pedido,
+        email: destino,
+        importe: instrucciones.importe,
+        iban: instrucciones.iban,
+        titular: instrucciones.titular,
+        banco: instrucciones.banco,
+        concepto: instrucciones.concepto,
+        venceEl: instrucciones.vence_el,
+      });
+    } catch (err) {
+      this.logger.error(
+        `No se pudieron enviar las instrucciones de pago del pedido ${instrucciones.numero_pedido}: ${(err as Error).message}`,
+      );
+    }
   }
 
   /** Los datos de pago de un pedido que está esperando su transferencia. */
@@ -311,10 +365,56 @@ export class TransferenciaService {
       );
     }
 
+    // El cliente transfirió y hasta ahora no recibía nada: el pedido pasaba a
+    // PROCESANDO por RPC, que no dispara el aviso de cambio de estado. Se le
+    // manda la confirmación de siempre, la misma que recibe quien paga con
+    // tarjeta, para que sepa que su dinero llegó.
+    if (r.confirmado === true) {
+      void this.avisarPagoRecibido(pedidoId);
+    }
+
     return {
       confirmado: r.confirmado === true,
       estado: r.estado ?? "PENDIENTE_PAGO",
       sin_reserva: r.sin_reserva ?? 0,
     };
+  }
+
+  /** «Hemos recibido tu transferencia». Nunca propaga: el dinero ya está. */
+  private async avisarPagoRecibido(pedidoId: string): Promise<void> {
+    try {
+      const pedido = await this.inventario.getPedidoConItems(pedidoId);
+      if (!pedido?.email_cliente) return;
+
+      await this.email.enviarConfirmacionPedido({
+        pedidoId: pedido.id,
+        numeroPedido: pedido.numero_pedido,
+        email: pedido.email_cliente,
+        items: pedido.items,
+        total: Number(pedido.total),
+        metodoPago: "transferencia",
+        direccionEnvio: pedido.envio_nombre
+          ? {
+              nombre_destinatario: pedido.envio_nombre,
+              linea1: pedido.envio_linea1 ?? "",
+              linea2: pedido.envio_linea2,
+              ciudad: pedido.envio_ciudad ?? "",
+              codigo_postal: pedido.envio_codigo_postal ?? "",
+              provincia: pedido.envio_provincia ?? "",
+              pais: pedido.envio_pais ?? undefined,
+            }
+          : null,
+        estado: "PROCESANDO",
+        fecha: new Date(pedido.created_at).toLocaleDateString("es-ES", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo avisar del pago recibido (pedido ${pedidoId}): ${(err as Error).message}`,
+      );
+    }
   }
 }
