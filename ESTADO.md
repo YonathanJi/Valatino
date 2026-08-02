@@ -12,26 +12,26 @@
 
 ✅ **Los cuatro bugs del 2026-07-28 están probados por Jonathan y funcionan.** (Teléfono del cliente al panel, la ventana de calificación que se cierra al enviar, el mensaje honesto del reembolso y la coma en el importe.) Ya no hay nada pendiente de comprobar de esa sesión.
 
-🔨 **PENDIENTE DE DESPLEGAR (lo último del 2026-08-02): Bizum y el pago por transferencia.** Migración **045 aplicada al remoto** y probada, código listo y en verde, pero **sin desplegar y con dos acciones tuyas por delante**:
+✅ **TODO LO DEL 2026-08-02 ESTÁ DESPLEGADO Y PROBADO POR JONATHAN.** Fue una sesión larga; esto es lo que quedó funcionando en producción:
 
-1. ~~Activar Bizum en Stripe~~ → **hecho el 2026-08-02 por API** y verificado en un PaymentIntent real. También se añadió `refund.updated` al webhook (ver la sesión).
-2. ~~Poner las variables de la cuenta bancaria en Render~~ → **ya no hace falta**: la cuenta de cobro se edita en **TI → Ajustes** (migración 046). Está sembrada con la cuenta de prueba y **la transferencia YA se ofrece** en el checkout (`disponible: true`). Falta poner el IBAN definitivo, que es cambiarlo en esa pantalla — sin Render, sin despliegue.
-   - ⚠️ **El IBAN de prueba que se dio (`ES48 9490…`) NO era válido**: su dígito de control es **33**, no 48. Sembrado ya como `ES33 9490 0934 2392 2994 3748`. Ahora el panel valida el dígito de control al guardar, así que el definitivo no se podrá colar mal tecleado.
+| Qué | Estado |
+|---|---|
+| **Reembolso por artículos** (044) — elegir qué se devuelve, con reposición de stock | Probado de punta a punta |
+| **Vista del cliente** — sus devoluciones, ficha del pedido con seguimiento, color en los estados | Probado |
+| **Bizum** — activado por API de Stripe, verificado en un PaymentIntent real | Probado (pedidos `260802017882` y `260802011696`) |
+| **Transferencia bancaria** (045-047) — el primer pago asíncrono de la tienda | Probado, incluido «Pago recibido» en el panel |
+| **Cuenta de cobro editable en TI → Ajustes** (046) | Funcionando, con validación del IBAN |
+| **Pedidos enlazados y notas en el historial** (049-050) | Funcionando |
+| **Correos de la transferencia** (instrucciones + pago recibido) | Desplegado, **sin probar a mano todavía** |
 
-Luego, probar: comprar por transferencia → ver el IBAN y el concepto → «Pago recibido» en el panel → comprobar que el stock se descuenta y el pedido pasa a Procesando. Ver la sesión de abajo.
+### 🔜 Lo único pendiente al volver
 
-✅ **Lo del reembolso por artículos (2026-08-02) está DESPLEGADO y probado por Jonathan de punta a punta**, en el panel y en la cuenta del cliente: pedido `260802016702` con dos devoluciones (0,50 € Bon Bon Bum y 10,00 € Milo 400G), stock repuesto una sola vez y sin que el webhook duplicara nada.
+1. **Probar el correo de la transferencia**: hacer un pedido por transferencia y comprobar que llega el correo con el IBAN y el concepto, y que aparece en el histórico del pedido. Es lo último que se hizo (`69db126`) y lo único sin verificar en pantalla.
+2. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
+   - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar, así que el definitivo no se podrá colar mal tecleado.
+3. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
 
-El reembolso por artículos se desplegó en **dos pushes**, como manda la tabla de más abajo (la API pasó a aceptar campos nuevos, así que fue primero): `3e0c135` API + tipos + migración y `b77da43` web. Migración **044 aplicada al remoto**. El redespliegue de Render se confirmó por el corte de `/health` (tres fallos de conexión y vuelta a 200); web y API sanas después.
-
-⚠️ **Lo que NO se ha podido verificar por HTTP, y es casi todo**: las tres pantallas que cambian están detrás de login (`/cuenta/pedidos` responde **307**, que es lo correcto), así que del código de la web **solo se sabe que va en el mismo build atómico** que la home, que sirve 200. Es el mismo límite de la sesión del 28. **Hay que probarlo en pantalla**, en este orden:
-
-1. **Panel, con el pedido `260728019405`** (6,30 €, tres artículos distintos — el que más se presta): devolver **un solo artículo**, comprobar el stock de ese producto en Inventario, y volver a abrir el reembolso para ver que esa línea ya sale como devuelta y no se puede volver a elegir.
-2. **La casilla desmarcada** («la mercancía no vuelve»): el stock **no** debe moverse, ni entonces ni al completar después el reembolso del pedido. Es la regla más fácil de romper si alguien toca esto.
-3. **Del lado del cliente**: entrar con la cuenta del comprador → `/cuenta/pedidos` → ese pedido debe mostrar qué artículo se devolvió, cuándo y cuánto, **aunque el pedido siga en ENVIADO** (una devolución parcial no cambia el estado: ese es justo el hueco que esto tapa). Y en `/cuenta/perfil`, el «Total gastado» debe salir ya con lo devuelto descontado.
-4. **Que el dinero llegue de verdad**: contrastar en Stripe que el reembolso figura por el importe de los artículos elegidos.
-
-⚠️ La migración 044 **ya está en el remoto** y es compatible con la API actual: con la tabla vacía, `reembolsar_pedido_total` se comporta exactamente igual que antes (verificado). No hay prisa por desplegar; lo que no se puede es desplegar la web sin la API.
+⚠️ **Sigue en pie**: `NODE_ENV` está en `development` en Render (ver «Pendientes de Jonathan»), y conviene re-guardar la plantilla del correo de acceso en el Dashboard de Supabase.
 
 Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedidos reales calificados** (`260728018953` Fácil · 5 · «nada todo muy bien», `260728011017` Regular · 4, y el de 6,30 €).
 
@@ -48,7 +48,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
    - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
    - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
-2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 282 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 287 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
@@ -68,7 +68,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **044** (reembolso por artículos: tabla `reembolso_lineas`, RPC `registrar_reembolso_lineas` y `reembolsar_pedido_total` reescrita para no reponer dos veces). Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **050**. Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -106,7 +106,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **282 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **287 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
 
 ---
 
@@ -130,6 +130,36 @@ Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Co
 - ⚠️ **No se revierte nada automáticamente**, y es deliberado: deshacer el apunte, volver a descontar el stock y reabrir el pedido a ciegas puede empeorarlo si alguien ya actuó o la mercancía ya volvió. Lo que hacía falta es que no pase inadvertido.
 - ⚠️ **El nombre del evento importa**: la documentación de Stripe habla de `refund.failed`, pero **ese evento no existe en la versión de API de esta cuenta** (2024-06-20, librería 16.12). Aquí el fallo llega como `refund.updated` con el estado ya puesto. Si algún día se sube la versión de API, revisar esto.
 - ⚠️ **El webhook escuchaba solo 4 eventos** (`payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`), así que el aviso no habría llegado nunca. Se añadió `refund.updated` por API al endpoint `we_1Tw2mHL1kwgv5hCuBoKht7CL`. **Si se recrea el webhook al pasar a Stripe `live`, hay que volver a incluirlo.**
+
+### El correo de la transferencia, y el hueco que destapó (fin de la sesión)
+
+Pedido por Jonathan tras probar el circuito: *«cuando se hace el pedido por transferencia también debe llegarle un correo al cliente recordándole cómo hacer la transferencia… y eso debe estar en el histórico»*.
+
+**Es el único correo de la tienda que el cliente necesita PARA ACTUAR** — los demás cuentan algo que ya pasó. Quien cierra la pestaña del checkout se quedaba sin el IBAN y sin el concepto, y no tenía forma de pagar el pedido que acababa de reservar.
+
+- **El concepto va destacado y repetido tres veces.** Es lo único que casa el ingreso con el pedido: sin él, la transferencia llega al banco como un apunte anónimo que alguien tiene que adivinar.
+- Los datos van en **texto plano seleccionable**, no en imagen ni en tabla apretada: se copian y pegan en la app del banco.
+
+⚠️ **Revisando el historial apareció el mismo hueco del otro lado: al confirmar el pago tampoco se enviaba nada.** El pedido pasa a PROCESANDO por RPC, y una RPC **no dispara** `notificarCambioEstado`, así que el cliente transfería su dinero y no recibía ninguna confirmación. Ahora recibe el correo de pedido confirmado, el mismo que quien paga con tarjeta. **Regla para lo que venga: si un estado se cambia por RPC en vez de por `updateEstado`, el aviso al cliente hay que mandarlo a mano.**
+
+Los dos quedan en la línea de tiempo, y **solo si el envío salió bien**: anunciar un correo que nunca llegó es peor que no anotarlo, porque nadie va a comprobarlo.
+
+### El historial cuenta el porqué, no solo el qué (migración 050)
+
+Pedido por Jonathan: *«que cuando se abre el pedido y se consulta el historial diga: fue creado el pedido tal… posterior cliente decidió pagarlo por Bizum y se crea pedido tal»*.
+
+Faltaba **dónde escribirlo**: `pedido_eventos.tipo` solo admitía `estado`, `pago`, `reembolso` y `email`, y esto no es ninguna de las cuatro. Sin el tipo `nota`, quien abría el cancelado veía un «Pendiente de pago → Cancelado» sin ningún motivo.
+
+- Se escribe en **los dos pedidos**, para que la historia se lea completa desde cualquiera.
+- ⚠️ **La nota la escribe la API y no el SQL**, y es a propósito: hasta después de anotar `metodo_detalle` no se sabe con **qué** se pagó al final, y decir «por otra vía» pudiendo decir «con Bizum» es peor.
+
+### Dos pedidos del mismo carrito: enlazados, NO fusionados (migración 049)
+
+Jonathan, al ver los dos en el panel: *«¿no debería ser un solo pedido con el historial?»*.
+
+⚠️ **No se fusionan, y el porqué vale para cualquier caso parecido**: el pedido por transferencia **no es un carrito abandonado**. Tuvo número propio, retuvo stock, y **ese número se le dio al cliente como concepto de la transferencia**. Si hubiera llegado a ingresar el dinero justo antes de pagar por otra vía, habría un apunte en el banco con ese número. Fusionarlos sería reescribir un documento comercial y dejar `transacciones_pago` apuntando a un pedido que ya no es el que fue.
+
+Lo que sí se arregla es la vista: `pedidos.reemplazado_por` los enlaza en las dos direcciones, y **el panel deja de listar por defecto los cancelados que nunca se pagaron** (interruptor «Ver intentos sin pagar»). Un solo pedido a la vista, la traza entera si alguien pregunta por un ingreso.
 
 ### Dos cosas que Jonathan cazó probando con Bizum
 
