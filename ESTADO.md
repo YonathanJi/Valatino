@@ -12,9 +12,16 @@
 
 ✅ **Los cuatro bugs del 2026-07-28 están probados por Jonathan y funcionan.** (Teléfono del cliente al panel, la ventana de calificación que se cierra al enviar, el mensaje honesto del reembolso y la coma en el importe.) Ya no hay nada pendiente de comprobar de esa sesión.
 
-⚠️ **Lo del 2026-08-02 — reembolso por artículos, en el panel y en la cuenta del cliente — está DESPLEGADO pero NO probado a mano todavía.** Al reembolsar se ven los artículos del pedido y se elige cuáles y cuántas unidades; lo devuelto queda registrado, sus unidades pueden volver al inventario, y **el cliente lo ve en «Mis pedidos»**. Ver la sesión de abajo.
+🔨 **PENDIENTE DE DESPLEGAR (lo último del 2026-08-02): Bizum y el pago por transferencia.** Migración **045 aplicada al remoto** y probada, código listo y en verde, pero **sin desplegar y con dos acciones tuyas por delante**:
 
-Desplegado en **dos pushes**, como manda la tabla de más abajo (la API pasó a aceptar campos nuevos, así que fue primero): `3e0c135` API + tipos + migración y `b77da43` web. Migración **044 aplicada al remoto**. El redespliegue de Render se confirmó por el corte de `/health` (tres fallos de conexión y vuelta a 200); web y API sanas después.
+1. **Activar Bizum en el Dashboard de Stripe** (Configuración → Métodos de pago). Hasta entonces no aparece: qué métodos se ofrecen lo decide Stripe, no el código.
+2. **Poner las variables de la cuenta bancaria en Render**: `TRANSFERENCIA_IBAN`, `TRANSFERENCIA_TITULAR`, `TRANSFERENCIA_BANCO` (ver `render.yaml`). **Sin ellas la opción de transferencia no se ofrece**, que es a propósito. El IBAN que hay ahora es de prueba; falta el definitivo.
+
+Luego, probar: comprar por transferencia → ver el IBAN y el concepto → «Pago recibido» en el panel → comprobar que el stock se descuenta y el pedido pasa a Procesando. Ver la sesión de abajo.
+
+✅ **Lo del reembolso por artículos (2026-08-02) está DESPLEGADO y probado por Jonathan de punta a punta**, en el panel y en la cuenta del cliente: pedido `260802016702` con dos devoluciones (0,50 € Bon Bon Bum y 10,00 € Milo 400G), stock repuesto una sola vez y sin que el webhook duplicara nada.
+
+El reembolso por artículos se desplegó en **dos pushes**, como manda la tabla de más abajo (la API pasó a aceptar campos nuevos, así que fue primero): `3e0c135` API + tipos + migración y `b77da43` web. Migración **044 aplicada al remoto**. El redespliegue de Render se confirmó por el corte de `/health` (tres fallos de conexión y vuelta a 200); web y API sanas después.
 
 ⚠️ **Lo que NO se ha podido verificar por HTTP, y es casi todo**: las tres pantallas que cambian están detrás de login (`/cuenta/pedidos` responde **307**, que es lo correcto), así que del código de la web **solo se sabe que va en el mismo build atómico** que la home, que sirve 200. Es el mismo límite de la sesión del 28. **Hay que probarlo en pantalla**, en este orden:
 
@@ -40,7 +47,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
    - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
    - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
-2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 244 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 269 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
@@ -98,7 +105,44 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **244 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **269 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-02 (cont.) — Dos formas más de pagar: Bizum y transferencia
+
+Jonathan: *«en la parte del pago, tener dos nuevas opciones transferencia por IBAN o transferencia por Bizum, para que el cliente tenga más opciones de pagar»*. Son dos cosas de tamaño **muy** distinto.
+
+### Bizum salió casi gratis, y conviene saber por qué
+
+La API ya creaba el PaymentIntent con `automatic_payment_methods: { enabled: true }` y el front monta un `PaymentElement` sin restringir métodos. Eso significa que **qué formas de pago aparecen lo decide el Dashboard de Stripe, no el código**: activar Bizum ahí lo hace aparecer solo, con su redirección ya cubierta por el `return_url` y el `redirect_status` que la página de confirmación valida desde 2026-07-09.
+
+Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Continuar con tarjeta») y habrían dejado fuera de la frase a todo lo demás. Ahora el botón dice «Tarjeta o Bizum» y el interior no nombra ningún método.
+
+⚠️ **Queda una acción manual de Jonathan: activar Bizum en el Dashboard de Stripe.** Hasta que lo haga no aparece nada nuevo, y el código no puede saberlo.
+⚠️ **Sin comprobar todavía**: que Stripe admita reembolsos **parciales** de Bizum. Todo el reembolso por artículos asume que se puede. Si Stripe los rechaza, el error viaja tal cual al panel (se verá el mensaje de Stripe, no un fallo mudo), pero conviene probarlo con una devolución pequeña antes de fiarse.
+
+### La transferencia es otra cosa: el primer pago ASÍNCRONO de la tienda
+
+Hasta ahora un pedido nacía ya pagado —`confirmar_venta` lo creaba desde el webhook, con el dinero cobrado—. Aquí el pedido **nace debiendo dinero** y espera a que alguien del equipo confirme el ingreso. Decisión de Jonathan: transferencia **manual** a la cuenta de Valatino (no Stripe, no domiciliación), y el stock **reservado 3 días laborables** con cancelación automática si no llega.
+
+⚠️ **LA DECISIÓN QUE LO SOSTIENE TODO: el plazo de pago ES el TTL de la reserva de stock.** El checkout ya reservaba las unidades 15 minutos (034) y un cron las devolvía al vencer; ahora esa misma reserva se estira hasta la fecha límite de la transferencia. Así el stock queda bloqueado mientras se espera el dinero, si no llega **el mecanismo que ya existía lo devuelve solo**, y no hay dos relojes que puedan contradecirse. Migración **045**.
+
+- **`stock_reservas.pedido_id`** es la pieza que faltaba: sin ella, al confirmar el pago tres días después no habría forma de saber qué unidades consumir (`confirmar_venta` las localiza por sesión, y para entonces la sesión puede ser otra).
+- **La idempotencia la trae el navegador**: no hay pasarela que devuelva un identificador con el que reconocer el intento, así que el checkout genera un UUID al montarse. Doble clic = mismo pedido; checkout nuevo = pedido nuevo.
+- **`pedidos_metodo_pago_check` era una lista cerrada** (`stripe`, `paypal`). Se amplía, no se quita: es lo que impide que un método mal escrito entre en la tabla y se descubra al facturar.
+- ⚠️ **El plazo salta fines de semana pero NO festivos.** Un pedido antes de Navidad dará un plazo optimista. Asumido a sabiendas: mantener el calendario laboral de cada comunidad cuesta más que ese margen.
+- ⚠️ **Si el dinero llega después de vencer el plazo**, el cron ya devolvió las unidades a la venta. Confirmar entonces **no falla** —el dinero está y el pedido debe salir— pero descuenta del disponible sin reserva detrás y lo avisa: el panel saca un aviso de 10 segundos pidiendo revisar el inventario. Callarlo dejaría el stock descuadrado en silencio.
+- **Reembolsar un pedido por transferencia está bloqueado con mensaje propio**: el dinero nunca pasó por Stripe. Se dice que hay que devolverlo desde el banco y cancelar el pedido para que el stock vuelva. Sin ese caso, caería en el mensaje de PayPal y mandaría a alguien a buscar el cobro a un panel donde no está.
+
+### Cómo se ve
+- **Checkout**: tercer botón «🏦 Transferencia», que **solo aparece si hay cuenta configurada**. Al continuar se reserva el pedido y se muestran IBAN, titular, importe y **concepto = número de pedido** (copiables), con la fecha límite.
+- **Mis pedidos**: la ficha del cliente abre con un bloque ámbar «Falta tu transferencia» y los datos de pago. Va **por delante del seguimiento**: quien entra con un pedido sin pagar viene justo a por el IBAN, y el que cerró la pestaña del checkout no lo tiene en ningún otro sitio.
+- **Panel**: botón verde «Pago recibido» en el pedido que espera ingreso, con confirmación previa. Exige nivel **`total`**, igual que reembolsar: es afirmar que ha entrado dinero, y de eso depende que salga la mercancía.
+
+⚠️ **Los datos bancarios son configuración, no código** (`TRANSFERENCIA_IBAN`, `TRANSFERENCIA_TITULAR`, `TRANSFERENCIA_BANCO`, `TRANSFERENCIA_DIAS_PLAZO`, ver `render.yaml`). Cambiar de cuenta no puede exigir un despliegue, y el IBAN no tiene por qué quedar en el historial de git. **Sin ellas la opción no se ofrece**, que es el comportamiento correcto: enseñar «paga por transferencia» y luego no poder decir a dónde deja al cliente sin salida.
+
+**Verificado en el remoto** en transacción revertida, 21 casos: el ciclo entero (reservar → crear pedido → confirmar → stock consumido), la idempotencia, el cálculo de días laborables saltando el fin de semana, y la caducidad (cancela el pedido, devuelve el stock **entero** y correrla otra vez no toca nada). **269 tests** en la API.
 
 ---
 
