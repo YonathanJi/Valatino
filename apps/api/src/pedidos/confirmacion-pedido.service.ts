@@ -5,6 +5,7 @@ import { InventarioService } from "../inventario/inventario.service";
 import { EmailService } from "../email/email.service";
 import { ReembolsosService } from "./reembolsos.service";
 import { EventosPedidoService } from "../eventos/eventos-pedido.service";
+import { etiquetaMetodoPago } from "../email/templates/confirmacion-pedido";
 
 /**
  * Pago confirmado por un proveedor, ya verificado y normalizado por el
@@ -120,8 +121,69 @@ export class ConfirmacionPedidoService {
       { tipo: "pago", origen: "checkout" },
     );
 
+    // Después de anotar el método: la nota dice con qué se pagó al final, y
+    // hasta aquí no se sabía.
+    await this.anotarPedidoReemplazado(pedidoId, pago.metodoDetalle ?? pago.proveedor);
+
     await this.enviarEmailPedido(pedidoId, false);
     return pedidoId;
+  }
+
+  /**
+   * Deja escrito en la línea de tiempo que esta compra venía de otro pedido.
+   *
+   * Cuando el cliente pide los datos de una transferencia y acaba pagando por
+   * otra vía, aquel pedido se cancela (047) y los dos quedan enlazados (049).
+   * Pero quien abría el cancelado veía un «Pendiente de pago → Cancelado» a
+   * secas, sin motivo. Se anota en los dos lados para que la historia se lea
+   * completa desde cualquiera de ellos.
+   *
+   * Nunca propaga: es una explicación, y un pedido cobrado no puede fallar por
+   * no poder contarse bien.
+   */
+  private async anotarPedidoReemplazado(pedidoId: string, comoPago: string): Promise<void> {
+    try {
+      const { data } = await this.supabase
+        .from("pedidos")
+        .select("id, numero_pedido")
+        .eq("reemplazado_por", pedidoId);
+
+      const anteriores = (data ?? []) as Array<{ id: string; numero_pedido: string | null }>;
+      if (anteriores.length === 0) return;
+
+      const { data: actual } = await this.supabase
+        .from("pedidos")
+        .select("numero_pedido")
+        .eq("id", pedidoId)
+        .maybeSingle();
+
+      const numeroActual = (actual as { numero_pedido: string | null } | null)?.numero_pedido ?? "";
+      const forma = etiquetaMetodoPago("stripe", comoPago);
+
+      for (const anterior of anteriores) {
+        await this.eventos.registrar({
+          pedidoId: anterior.id,
+          tipo: "nota",
+          detalle:
+            `El cliente decidió pagar esta compra con ${forma}, así que este pedido se cancela. ` +
+            `Continúa en el pedido ${numeroActual}.`,
+          origen: "checkout",
+        });
+
+        await this.eventos.registrar({
+          pedidoId,
+          tipo: "nota",
+          detalle:
+            `Esta compra se inició como pedido ${anterior.numero_pedido ?? "anterior"}, para pagar ` +
+            `por transferencia. El cliente cambió a ${forma} y aquel quedó cancelado.`,
+          origen: "checkout",
+        });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo anotar el pedido reemplazado de ${pedidoId}: ${(err as Error).message}`,
+      );
+    }
   }
 
   /**

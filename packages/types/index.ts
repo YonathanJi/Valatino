@@ -462,7 +462,13 @@ export interface Pedido {
 // Historial del pedido
 // ============================================================
 
-export type TipoEventoPedido = "estado" | "pago" | "reembolso" | "email";
+/**
+ * `nota` es para lo que le pasa a un pedido sin ser un cambio de estado, un
+ * cobro ni un correo: por ejemplo, que el cliente cambiara de forma de pago y
+ * la compra continuara en otro pedido. Sin ella, esa explicación no tenía dónde
+ * vivir y la línea de tiempo mostraba un «Procesando → Cancelado» sin motivo.
+ */
+export type TipoEventoPedido = "estado" | "pago" | "reembolso" | "email" | "nota";
 
 /** De dónde salió el evento. `sistema` y `checkout`/`webhook` no tienen persona. */
 export type OrigenEvento = "panel" | "checkout" | "webhook" | "sistema";

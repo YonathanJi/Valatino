@@ -1,4 +1,4 @@
-import { ArrowRight, CreditCard, Mail, Undo2, UserCircle2, Cog } from "lucide-react";
+import { ArrowRight, CreditCard, Info, Mail, Undo2, UserCircle2, Cog } from "lucide-react";
 import { ORIGEN_LABELS, PEDIDO_ESTADO_LABELS } from "@valatino/types";
 import type { PedidoEvento, TipoEventoPedido } from "@valatino/types";
 import { formatEUR } from "@lib/utils";
@@ -8,6 +8,7 @@ const ICONO: Record<TipoEventoPedido, typeof Mail> = {
   pago: CreditCard,
   reembolso: Undo2,
   email: Mail,
+  nota: Info,
 };
 
 const COLOR: Record<TipoEventoPedido, string> = {
@@ -15,6 +16,7 @@ const COLOR: Record<TipoEventoPedido, string> = {
   pago: "bg-green-100 text-green-700",
   reembolso: "bg-amber-100 text-amber-800",
   email: "bg-muted text-muted-foreground",
+  nota: "bg-violet-100 text-violet-700",
 };
 
 function fechaLarga(iso: string): string {
@@ -43,6 +45,10 @@ function titulo(evento: PedidoEvento): string {
       return `Devolución${evento.importe != null ? ` de ${formatEUR(Number(evento.importe))}` : ""}`;
     case "email":
       return "Correo enviado al cliente";
+    // La nota ES la frase: su texto va entero como titular en vez de repetirse
+    // truncado debajo. Ver el render.
+    case "nota":
+      return evento.detalle ?? "Nota del sistema";
   }
 }
 
@@ -70,8 +76,8 @@ export function HistorialPedido({ eventos }: { eventos: PedidoEvento[] }) {
             </span>
 
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{titulo(e)}</p>
-              {e.detalle && (
+              <p className={`text-sm ${e.tipo === "nota" ? "" : "font-medium"}`}>{titulo(e)}</p>
+              {e.detalle && e.tipo !== "nota" && (
                 <p className="truncate text-xs text-muted-foreground" title={e.detalle}>
                   {e.detalle}
                 </p>
