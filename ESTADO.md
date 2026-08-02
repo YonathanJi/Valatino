@@ -15,7 +15,8 @@
 🔨 **PENDIENTE DE DESPLEGAR (lo último del 2026-08-02): Bizum y el pago por transferencia.** Migración **045 aplicada al remoto** y probada, código listo y en verde, pero **sin desplegar y con dos acciones tuyas por delante**:
 
 1. ~~Activar Bizum en Stripe~~ → **hecho el 2026-08-02 por API** y verificado en un PaymentIntent real. También se añadió `refund.updated` al webhook (ver la sesión).
-2. **Poner las variables de la cuenta bancaria en Render**: `TRANSFERENCIA_IBAN`, `TRANSFERENCIA_TITULAR`, `TRANSFERENCIA_BANCO` (ver `render.yaml`). **Sin ellas la opción de transferencia no se ofrece**, que es a propósito. El IBAN que hay ahora es de prueba; falta el definitivo.
+2. ~~Poner las variables de la cuenta bancaria en Render~~ → **ya no hace falta**: la cuenta de cobro se edita en **TI → Ajustes** (migración 046). Está sembrada con la cuenta de prueba y **la transferencia YA se ofrece** en el checkout (`disponible: true`). Falta poner el IBAN definitivo, que es cambiarlo en esa pantalla — sin Render, sin despliegue.
+   - ⚠️ **El IBAN de prueba que se dio (`ES48 9490…`) NO era válido**: su dígito de control es **33**, no 48. Sembrado ya como `ES33 9490 0934 2392 2994 3748`. Ahora el panel valida el dígito de control al guardar, así que el definitivo no se podrá colar mal tecleado.
 
 Luego, probar: comprar por transferencia → ver el IBAN y el concepto → «Pago recibido» en el panel → comprobar que el stock se descuenta y el pedido pasa a Procesando. Ver la sesión de abajo.
 
@@ -47,7 +48,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 1. **Calificación de la compra — fases 2 y 3** (la fase 1 está hecha y en producción, ver sesión de abajo). Aplazadas por decisión de Jonathan, no olvidadas:
    - **Fase 2 — enlace en el correo del pedido.** Segunda oportunidad para quien cerró la pestaña sin calificar. **No hace falta nada nuevo por debajo**: el token ya existe (`pedidos.token_calificacion`) y la ruta pública ya lo acepta; es solo añadir el enlace a la plantilla de `email/templates` y una página que reciba el token. Mucha menos respuesta que preguntar en la confirmación, pero alcanza a todos.
    - **Fase 3 — preguntar también al entregar.** Requiere una tabla o una columna aparte: **es una métrica distinta y no se puede promediar con la de la compra.** Lo de hoy se pregunta a los cinco segundos de pagar, así que mide el checkout y no dice nada del envío.
-2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 269 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
+2. **Tests de la web — sigue a 0.** Es el hueco más grande que queda: la API va por 277 y la web no tiene ni uno. Hoy la única red ahí es `pnpm turbo type-check`. Los sitios que más lo piden: el formulario de dirección (CP → provincia → municipio, y el vaciado de la localidad al cambiar de provincia), `direccionCompleta()`, el widget de calificación (el descarte recordado y el guardado al segundo toque) y el selector de permisos.
 3. **CI.** Nada corre automáticamente: los tests y el `type-check` se lanzan a mano. Un push que rompa la API no se entera nadie hasta que Render falla.
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
@@ -105,7 +106,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **269 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **277 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
 
 ---
 
@@ -129,6 +130,19 @@ Lo único que hubo que tocar fueron los textos, que prometían «tarjeta» («Co
 - ⚠️ **No se revierte nada automáticamente**, y es deliberado: deshacer el apunte, volver a descontar el stock y reabrir el pedido a ciegas puede empeorarlo si alguien ya actuó o la mercancía ya volvió. Lo que hacía falta es que no pase inadvertido.
 - ⚠️ **El nombre del evento importa**: la documentación de Stripe habla de `refund.failed`, pero **ese evento no existe en la versión de API de esta cuenta** (2024-06-20, librería 16.12). Aquí el fallo llega como `refund.updated` con el estado ya puesto. Si algún día se sube la versión de API, revisar esto.
 - ⚠️ **El webhook escuchaba solo 4 eventos** (`payment_intent.succeeded`, `payment_intent.payment_failed`, `payment_intent.canceled`, `charge.refunded`), así que el aviso no habría llegado nunca. Se añadió `refund.updated` por API al endpoint `we_1Tw2mHL1kwgv5hCuBoKht7CL`. **Si se recrea el webhook al pasar a Stripe `live`, hay que volver a incluirlo.**
+
+### ⚠️ Los datos bancarios NO son variables de entorno (migración 046)
+
+Nacieron como tales en la 045 y Jonathan preguntó si hacía falta. La respuesta honesta es que no, y el criterio vale para lo que venga:
+
+> **Las variables de entorno son para SECRETOS** —la clave de Stripe, la contraseña del SMTP—, cosas que nadie debe poder leer ni cambiar desde la aplicación. **Un IBAN de cobro no es un secreto: se le enseña a cada cliente que compra.** Es un dato del negocio, como las plantillas de permisos de los cargos, y quien lleva la tienda tiene que poder cambiarlo.
+
+Y tenía un coste real: cambiar de cuenta obligaba a entrar en Render y esperar un redespliegue, **con los tokens revocados desde el 2026-07-25**. Ahora vive en `ajustes_tienda` (tabla de una sola fila, garantizado por el tipo de la clave) y se edita en **TI → Ajustes**, con nivel `total` por lo mismo que reembolsar: cambiar el IBAN cambia a dónde va el dinero de todas las ventas que se paguen así.
+
+- **El entorno se conserva como respaldo** si la tabla está vacía, así que la 045 sigue funcionando. La pantalla avisa cuando la cuenta en uso viene de allí, porque entonces lo que se guarde en el panel no manda — y eso hay que saberlo antes de guardar, no después.
+- **Se lee en cada uso, sin caché**: cambiar la cuenta tiene que surtir efecto en el pedido siguiente, no cuando se reinicie la API.
+- ⚠️ **El IBAN se valida por su dígito de control** (mod-97, ISO 13616), con la regla en `@valatino/types` para que API y web usen la misma. No es cosmético: **un IBAN mal tecleado manda a los clientes a transferir a ninguna parte**, y no se descubre hasta que alguien reclama un pedido que nunca se preparó. Un IBAN que no valida cuenta como no configurado y apaga el método.
+- ⚠️ **El IBAN de prueba que se dio no validaba**: `ES48 9490 0934 2392 2994 3748` da 16 en el mod-97 (debe dar 1). Con el mismo número de cuenta, el dígito correcto es **33**. Sembrado ya corregido.
 
 ### La transferencia es otra cosa: el primer pago ASÍNCRONO de la tienda
 
