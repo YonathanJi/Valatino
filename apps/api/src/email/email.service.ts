@@ -13,6 +13,19 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly transporter: Transporter | null = null;
   private readonly fromEmail: string;
+  /**
+   * Buzón al que van las RESPUESTAS del cliente, si es distinto del remitente.
+   *
+   * El remitente tiene que ser del dominio propio para que SendGrid pueda
+   * firmarlo con DKIM y el correo pase la alineación DMARC. Pero un dominio
+   * recién configurado **no tiene MX**, así que ese buzón no recibe nada: quien
+   * responda a la confirmación de su pedido se lleva un rebote. Con `Reply-To`
+   * el correo sale autenticado y la respuesta llega a un buzón que alguien lee.
+   *
+   * Se quita cuando `valatino.es` tenga buzón propio: entonces From y Reply-To
+   * coinciden y esta variable deja de hacer falta.
+   */
+  private readonly replyTo: string | undefined;
 
   constructor(private readonly eventos: EventosPedidoService) {
     const host = process.env.SMTP_HOST;
@@ -22,6 +35,9 @@ export class EmailService {
     // que un puerto "estándar" deja los correos colgados hasta el timeout.
     const port = Number(process.env.SMTP_PORT ?? 2525);
     this.fromEmail = process.env.EMAIL_FROM ?? "Valatino <noreply@valatino.es>";
+    // Vacía no se manda: nodemailer con `replyTo: ""` escribe una cabecera
+    // inválida en vez de omitirla.
+    this.replyTo = process.env.EMAIL_REPLY_TO?.trim() || undefined;
 
     if (host && user && pass) {
       this.transporter = createTransport({
@@ -128,6 +144,7 @@ export class EmailService {
     try {
       await this.transporter.sendMail({
         from: this.fromEmail,
+        ...(this.replyTo ? { replyTo: this.replyTo } : {}),
         to: params.to,
         subject: params.subject,
         html: params.html,

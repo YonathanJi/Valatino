@@ -50,6 +50,12 @@ services:
         sync: false
       - key: EMAIL_FROM
         sync: false
+      # Buzón al que van las RESPUESTAS del cliente. Hace falta mientras
+      # EMAIL_FROM sea del dominio propio y el dominio NO tenga registros MX:
+      # sin esto, quien responde a la confirmación de su pedido recibe un
+      # rebote. Se quita cuando valatino.es tenga buzón propio.
+      - key: EMAIL_REPLY_TO
+        sync: false
       # --- Transferencia bancaria ---
       # Sin IBAN y titular la opción NO se ofrece en el checkout: el método se
       # apaga solo en vez de enseñarse para luego no poder decir a dónde pagar.
