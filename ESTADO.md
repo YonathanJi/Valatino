@@ -1,12 +1,40 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-02
+**Última actualización**: 2026-08-05
 
 ---
 
 ## ▶️ Para reanudar (leer primero)
 
 **El proyecto está DESPLEGADO y funcionando en local y en línea** (con claves de test).
+
+### ⭐ LA TIENDA YA VIVE EN SU DOMINIO: `valatino.es` (2026-08-05)
+
+**El dominio propio está en pie y verificado de punta a punta.** Ver «Sesión 2026-08-05» más abajo para el porqué del diseño y las ocho trampas que salieron.
+
+| Host | Verificado |
+|---|---|
+| **https://valatino.es** | 200 · home con los 13 productos · ficha de producto, checkout y login a 200 |
+| **https://www.valatino.es** | 308 al apex |
+| **https://api.valatino.es** | `/health` 200 con certificado válido · dominio `verified` en Render |
+| CORS | `valatino.es` y `www.valatino.es` permitidos; el `.vercel.app` viejo **también**, a propósito; origen ajeno denegado |
+| `NEXT_PUBLIC_API_URL` | `https://api.valatino.es`, **comprobado dentro del bundle** (2 chunks con el dominio nuevo, 0 con `onrender.com`) |
+| Cookie de sesión | emitida con `secure` + `httpOnly`, y ahora **same-site** |
+
+✅ **Supabase hecho y probado en pantalla** (`site_url` = `https://valatino.es`; `uri_allow_list` con `https://valatino.es/**` y la variante sin comodín, conservando localhost y el `.vercel.app`). **Login por código verificado en los logs de Auth**: `POST /otp` 200 → `POST /verify` 200 con `login_method: otp` → `/user` 200 y `jwks.json` 200 (la API aceptó el JWT). Sin rechazo del `redirect_to`, sin 429, sin el 502 de plantillas. ⚠️ **El MCP de Supabase NO expone la config de Auth** — se hizo por Dashboard; la Management API necesita un token `sbp_`, y **`sb_publishable_…` / `sb_secret_…` NO sirven** para eso (401): son claves del proyecto, no de la plataforma.
+
+✅ **Stripe hecho**: el webhook ya apunta a `https://api.valatino.es/pagos/stripe/webhook`, `enabled`, con sus **5 eventos** intactos.
+
+⚠️⚠️ **Y la lección de cómo se hizo, que es lo que hay que recordar: se EDITÓ la URL del endpoint que ya existía (`we_1Tw2mHL1kwgv5hCuBoKht7CL`), NO se creó uno nuevo.** El signing secret pertenece al endpoint y **no cambia al cambiarle la URL**, así que no hubo que tocar `STRIPE_WEBHOOK_SECRET` ni redesplegar, y no hubo ninguna ventana ciega. Crear uno nuevo trae **su propio secret**, y como `stripe.service.ts` valida con **uno solo** (`config.getOrThrow("STRIPE_WEBHOOK_SECRET")`), habría que haber hecho el cambio en Render + redeploy, con los eventos del endpoint viejo fallando la firma mientras tanto — y un `payment_intent.succeeded` que falla es un pedido que no se crea hasta el reintento.
+
+**Lo que falta para cerrar el paso a producción:**
+1. **Probar una compra de prueba** con `4242 4242 4242 4242` para ver el webhook entregando en el dominio nuevo de punta a punta. La ruta ya se comprobó viva: un POST sin firma devuelve `400 Firma de webhook inválida`, que es la respuesta correcta.
+2. **SendGrid** — autenticar el dominio (3 CNAME) y solo entonces `EMAIL_FROM=pedidos@valatino.es`. Ver la trampa del DMARC.
+3. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado.
+4. **Revocar los tokens y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`**: el de Render, el de Vercel y las claves de Supabase que se pegaron ahí. ⚠️ La `sb_secret_…` salta el RLS — no debe quedarse en un `.txt` en el disco.
+5. Cuando se pase a **Stripe `live`**: los webhooks son **por modo**, así que hay que crear el de producción desde cero con los 5 eventos y su secret nuevo en Render. Y si algún día se activa Apple Pay, Stripe exige **registrar el dominio**.
+
+⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
 ### 🔜 Al volver, empezar por aquí
 
@@ -72,7 +100,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **052**. Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **053** (el teléfono que la 047 se llevó de `confirmar_venta`; ver sesión 2026-08-05). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -107,10 +135,79 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **BD limpiada a «arranque real» el 2026-07-27** (ver «Limpieza de la BD» más abajo) y con **las primeras ventas de verdad encima**, comprobado al cerrar: **2 pedidos** (`260728018953` 1,50 € PROCESANDO y `260728011017` 0,50 € ENVIADO), **2 calificaciones** (media 4,5 sobre 5 con 100 % de tasa de respuesta), **8 eventos**, **1 dirección**, **3 carritos** y **2 usuarios** (el súper admin y el cliente). Se conservan a propósito: son la prueba de que el circuito completo funciona.
   - Lo demás: **13 productos** (stock **162** de las 164 unidades de la factura: dos vendidas), la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**. A cero: **empleados** y **`staff_modulos`**.
   - Si hace falta volver a vaciarla, el procedimiento está documentado más abajo — y ahora hay que contar también con `pedido_calificaciones`, que cae en cascada con el pedido.
+  - ⚠️ **CIFRAS AL DÍA (medidas en el remoto el 2026-08-05)** — las de arriba son del 28 de julio y **la sesión del 2 de agosto dejó mucha más huella**: **13 pedidos** (10 vivos + 3 cancelados), **7 calificaciones**, **91 eventos**, **stock disponible 143** de las 164 de la factura, y **3 usuarios**. El tercero es **`jonathanduqee@gmail.com`** (creado el 2 de agosto, **11 pedidos**), de las pruebas de Bizum y transferencia; el cliente de las dos primeras ventas reales es `jonathanduqee@hotmail.com`, que existe desde el 27 de julio. ✅ **Y `stock_reservado = 0` con 0 filas en `stock_reservas`**: ninguna reserva huérfana después de todo aquel trasiego, que es justo el invariante que buscaba la **052**.
 - **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **292 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-05 — Dominio propio: `valatino.es`
+
+Jonathan compró `valatino.es` en GoDaddy (con código promocional de un profesor) y pidió configurarlo. Se hizo con tokens nuevos de Render y Vercel, en `C:\YJIMENEZ\tokens-despliegue.env.txt` — **fuera del repo a propósito**, y ⚠️ **hay que revocarlos al cerrar la sesión**.
+
+### La decisión que sostiene el diseño: la API también va en el dominio
+
+No se apunta solo la tienda. La API se lleva a **`api.valatino.es`**, y el motivo no es estético:
+
+> `vercel.app` y `onrender.com` están en la **Public Suffix List**, así que hoy la web y la API son **sitios distintos** para el navegador. Por eso la cookie de sesión del carrito tiene que viajar como `SameSite=None` (ver el comentario en `session.middleware.ts`), es decir, **como cookie de tercera parte** — justo el patrón contra el que van el ITP de Safari y el bloqueo de terceros de Chrome. El día que caiga, **el carrito del invitado se vacía en cada petición**. Con `valatino.es` + `api.valatino.es` pasan a ser el mismo sitio y el problema desaparece sin tocar código.
+
+Y hay un segundo beneficio: cuando se recree el servicio en **Frankfurt** (Render no cambia la región), si la web habla con `api.valatino.es` solo cambia un CNAME. Sin dominio propio habría que cambiar `NEXT_PUBLIC_API_URL`, **rebuild de Vercel** y recrear el webhook de Stripe. **El dominio de la API es lo que hace indolora esa mudanza.**
+
+### Reparto final
+
+| Host | Dónde apunta |
+|---|---|
+| `valatino.es` (canónico) | Vercel — A `216.198.79.1` + `64.29.17.1` |
+| `www.valatino.es` | Vercel — CNAME `eb08cb078d8987b0.vercel-dns-017.com`, con **308** al apex |
+| `api.valatino.es` | Render — CNAME `valatino.onrender.com` |
+
+IDs: servicio Render `srv-d9ft2q7avr4c73dvqu90`, dominio `cdm-d9pot5pt0dsc73d14b50`. Proyecto Vercel `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6`.
+
+### ⚠️ Ocho trampas que salieron, y que valen para la próxima vez
+
+1. **Cambiar variables de entorno en Render POR API no dispara redeploy** (guardar en el panel sí). El proceso sigue con los valores viejos en memoria hasta que se fuerza un deploy con `POST /v1/services/{id}/deploys`. Se verificó después: `CORS_ORIGIN` nuevo activo, origen ajeno denegado con cabecera vacía, `/productos` con sus 13 productos.
+2. **El `A` del apex venía tomado por el Website Builder de GoDaddy** (`@ A "WebsiteBuilder Site"`, que resolvía a dos IPs suyas de AWS Global Accelerator). No es un registro de aparcamiento editable: está **atado a su producto**, y hay que **desconectar el sitio del dominio** antes de poder apuntarlo a Vercel, o GoDaddy puede reescribirlo. Dejar los dos = el apex reparte visitas entre Vercel y su constructor, y la tienda «funciona a ratos».
+3. **El CNAME de Vercel es específico del proyecto**: `eb08cb078d8987b0.vercel-dns-017.com`, no el genérico `cname.vercel-dns.com` de los tutoriales (ese sigue valiendo, pero es el de segunda preferencia). Se saca de `GET /v6/domains/<dominio>/config` → `recommendedIPv4` / `recommendedCNAME`, **rango 1**. No adivinar IPs de memoria: Vercel las ha cambiado.
+4. ⚠️ **GoDaddy publica de fábrica un `_dmarc` con `p=quarantine`.** Eso **invierte el orden del correo**: si se pone `EMAIL_FROM=pedidos@valatino.es` antes de autenticar el dominio en SendGrid, la propia política manda a spam **el único correo que el cliente necesita para actuar** (las instrucciones de la transferencia con el IBAN y el concepto). Primero los 3 CNAME de SendGrid y verificar, **después** cambiar `EMAIL_FROM`.
+5. **`NEXT_PUBLIC_API_URL` va al final** — ver la regla de orden en la cabecera de este archivo.
+6. **El token de Vercel hay que emitirlo con `Scope` = el equipo, no «Personal Account».** El proyecto vive en el equipo **`yonathanjis-projects`** y se llama **`valatino-api`** (el `-steel` era solo el dominio de despliegue). Un token de la cuenta personal `yonathanji` ve **0 proyectos**, y da 403 en `/v2/teams` y 404 en el proyecto **incluso pasándole el ID**. Esto es lo que ya había fallado el 2026-07-21 y costó la misma confusión otra vez.
+7. **El MCP de Supabase NO expone la configuración de Auth.** Tiene BD, storage, edge functions, logs y advisors, pero `site_url` y `uri_allow_list` van por el **Dashboard** o por la **Management API con un token `sbp_`**. (Y sigue en pie el aviso de **NO lanzar `supabase config push`**.)
+8. **Para distinguir «falta propagación» de «el dominio no existe», preguntar al autoritativo del TLD**: `Resolve-DnsName valatino.es -Type SOA -Server a.nic.es`. Si el TLD dice que no existe, no es caché de ningún resolutor ni paciencia — es que el registro no ha creado la delegación. Ahorra horas de esperar algo que no va a llegar solo.
+
+### ⚠️⚠️ Y el fallo que destapó la compra de prueba: la 047 se llevó el teléfono (migración 053)
+
+Verificando la compra de prueba del dominio salió un fallo que **no tiene nada que ver con el dominio**. El pedido `260805010148` se hizo con una dirección guardada que **tiene** teléfono y salió con `pedidos.envio_telefono = NULL`.
+
+**Qué pasó**: la **040** añadió el teléfono a `confirmar_venta`. La **047** volvió a redefinir esa función para lo del carrito **partiendo de la versión 033**, anterior a la 040, y se lo llevó por delante — desapareció de la lista de columnas, de los `values` y del `select` de la dirección. **Nada falló**: un pedido sin teléfono no da error, solo pierde el dato, así que no saltó ningún test.
+
+⚠️ **El alcance real no era «las direcciones guardadas»** —esa fue la primera hipótesis y era falsa—. `confirmar_venta` dejó de copiarlo **siempre**, así que desde el 2026-08-02 **todo pedido con tarjeta o Bizum** perdió el teléfono. La misma 047 **sí** lo conservó en `crear_pedido_transferencia`, que está en el mismo fichero 280 líneas más abajo, y por eso los de transferencia lo tienen. Eso es lo que hacía que el patrón pareciera ser el tipo de dirección y no la vía de pago.
+
+⚠️⚠️ **LA LECCIÓN, la más importante de esta sesión: un `create or replace` de una función grande reescribe el cuerpo ENTERO.** Reconstruirla copiando de una migración anterior revierte en silencio todo lo que se añadió en medio. No falla, no avisa, y no lo cazan los tests. **Antes de redefinir una función que ya se ha tocado varias veces, partir de `pg_get_functiondef()` de la función VIVA en el remoto, no del último fichero que la escribió.** La 053 se hizo así a propósito: partir del fichero de la 047 habría repetido el error al revés, esta vez tirando la **052** (las reservas de checkout y `cancelar_transferencia_reemplazada`). Verificado después de aplicarla: el teléfono vuelve (3 menciones) **y la 052 sigue entera**.
+
+**Por qué importaba aunque el panel no lo delatara**: `listar_clientes` (043) coge el teléfono más reciente entre `profiles` y `direcciones_envio` y deja el snapshot como último recurso, así que en pantalla no se veía roto. Pero el snapshot existe para que el pedido conserve **su** copia: si el cliente edita o borra esa dirección, el pedido se queda sin el teléfono con el que se hizo, y el teléfono es cómo se localiza a alguien por una entrega.
+
+La 053 incluye un **backfill conservador**: solo rellena donde se puede afirmar que el dato es el de entonces —hay dirección guardada, tiene teléfono, y **no se ha tocado después** del pedido (`updated_at <= created_at`)—. Recuperó `260805010148`. Los dos pedidos con tarjeta sin dirección guardada quedan en NULL para siempre: ese teléfono no se registró en ningún sitio y copiarlo de otra parte sería inventarse el histórico.
+
+**Cabo suelto**: esto no lo cubre ningún test porque las RPC no están cubiertas (los 292 tests son de la API). Una función que se ha redefinido en la 033, la 040, la 047, la 052 y la 053 es exactamente donde más falta hace.
+
+### Cómo acabó, y lo que queda
+
+La delegación del registro `.es` tardó **una hora larga** desde que se compró el dominio. En cuanto apareció, el resto salió seguido: Render verificó `api.valatino.es` y emitió certificado, se cambió `NEXT_PUBLIC_API_URL` y el build de Vercel dejó la tienda sirviéndose de su dominio. Verificado: home con los 13 productos, ficha de producto, checkout y login a 200; `www` con 308 al apex; CORS bien en los tres orígenes y denegando el ajeno; y el dominio nuevo **dentro de los chunks de JS**.
+
+⚠️ **Caché negativa, por si desconcierta**: cuando el dominio empezó a resolver en Google, **`1.1.1.1` seguía dando NXDOMAIN** hasta una hora más. Es el TTL mínimo del SOA (3600 s) con el que los resolutores guardan el «no existe». No es un error de configuración y no se arregla tocando nada.
+
+~~1. Verificar el dominio en Render y esperar el certificado.~~ ✅ hecho
+~~2. `NEXT_PUBLIC_API_URL` + redeploy.~~ ✅ hecho y comprobado en el bundle
+
+3. Supabase: `site_url` → `https://valatino.es` y añadir `https://valatino.es/**` y `https://www.valatino.es/**` al `uri_allow_list` (conservar localhost). Probar el login por código de 6 dígitos en el momento.
+4. Stripe: webhook nuevo a `https://api.valatino.es/pagos/stripe/webhook` con **los 5 eventos** (los 4 de siempre **+ `refund.updated`**, el del reembolso de Bizum fallido), meter su signing secret, verificar un pago y **luego** borrar el viejo.
+5. SendGrid: autenticar el dominio (3 CNAME) y solo entonces `EMAIL_FROM=pedidos@valatino.es`.
+6. Quitar de `CORS_ORIGIN` el origen `https://valatino-api-steel.vercel.app` cuando todo esté verificado (ahora se conserva a propósito para no romper la tienda viva durante la transición).
+7. Legal antes de vender de verdad en España: aviso legal, política de privacidad y de cookies.
+
+⚠️ Todo esto está con **claves de test de Stripe**, y así debe quedarse hasta que el dominio funcione de punta a punta. El paso a `live` es un paso aparte.
 
 ---
 
