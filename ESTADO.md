@@ -144,14 +144,52 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ### Estado del negocio
 - Catálogo real creado por Jonathan (productos con foto en la nube). Stock inicial cargado con la 1ª **compra de mercancía** (factura 202521188, IVA 10% salvo Pony Malta 21%, total c/IVA 93,64 €).
-- **BD limpiada a «arranque real» el 2026-07-27** (ver «Limpieza de la BD» más abajo) y con **las primeras ventas de verdad encima**, comprobado al cerrar: **2 pedidos** (`260728018953` 1,50 € PROCESANDO y `260728011017` 0,50 € ENVIADO), **2 calificaciones** (media 4,5 sobre 5 con 100 % de tasa de respuesta), **8 eventos**, **1 dirección**, **3 carritos** y **2 usuarios** (el súper admin y el cliente). Se conservan a propósito: son la prueba de que el circuito completo funciona.
-  - Lo demás: **13 productos** (stock **162** de las 164 unidades de la factura: dos vendidas), la **primera factura** 202521188 con sus **11 líneas** (93,64 € c/IVA, con su autor intacto), **1 proveedor**, **6 cargos** con sus **27 filas de plantilla**. A cero: **empleados** y **`staff_modulos`**.
-  - Si hace falta volver a vaciarla, el procedimiento está documentado más abajo — y ahora hay que contar también con `pedido_calificaciones`, que cae en cascada con el pedido.
-  - ⚠️ **CIFRAS AL DÍA (medidas en el remoto el 2026-08-05)** — las de arriba son del 28 de julio y **la sesión del 2 de agosto dejó mucha más huella**: **13 pedidos** (10 vivos + 3 cancelados), **7 calificaciones**, **91 eventos**, **stock disponible 143** de las 164 de la factura, y **3 usuarios**. El tercero es **`jonathanduqee@gmail.com`** (creado el 2 de agosto, **11 pedidos**), de las pruebas de Bizum y transferencia; el cliente de las dos primeras ventas reales es `jonathanduqee@hotmail.com`, que existe desde el 27 de julio. ✅ **Y `stock_reservado = 0` con 0 filas en `stock_reservas`**: ninguna reserva huérfana después de todo aquel trasiego, que es justo el invariante que buscaba la **052**.
-- **Dos cuentas**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino») y el cliente de la primera compra. Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta).
+- ⭐ **BD LIMPIADA A «ARRANQUE REAL» EL 2026-08-06** (ver la sesión de ese día). **Este es el estado actual**, verificado en el remoto tras la limpieza:
+
+| A cero | Conservado |
+|---|---|
+| `pedidos` · `pedido_items` · `pedido_eventos` · `pedido_calificaciones` · `transacciones_pago` · `reembolso_lineas` | **13 productos** con sus fotos, **stock 164 = la factura, descuadre 0** |
+| `carritos` · `carrito_items` · `checkout_datos` · `stock_reservas` | **factura 202521188** con sus **11 líneas** (93,64 € c/IVA) **a nombre del admin** |
+| `direcciones_envio` · `empleados` · `staff_modulos` | **1 proveedor** · **6 cargos** con sus **27 filas de plantilla** · **`ajustes_tienda`** (el IBAN de cobro) |
+| **3 cuentas de cliente** borradas | **1 cuenta**: el súper admin `jonathanduqee+admin@gmail.com` con su perfil |
+
+  - Las ventas del 27–28 de julio y las pruebas de Bizum/transferencia del 2 de agosto **ya no están**: sirvieron para validar el circuito y se documentaron, que es lo que quedaba de ellas.
+  - Si hace falta repetirlo, **el procedimiento y sus trampas están en la sesión 2026-08-06** — más completo que el del 27 de julio, porque ahora hay que contar con `pedido_calificaciones`, `reembolso_lineas` y `ajustes_tienda`.
+- **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **292 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-06 (cont.) — Limpieza a «arranque real», la tercera
+
+A petición de Jonathan tras cerrar el dominio: fuera pedidos, eventos, carritos y clientes; dentro el admin, la primera factura, los productos y el inventario **tal como lo dejó la factura**.
+
+**Antes → después**, medido en el remoto:
+
+| | Antes | Después |
+|---|---|---|
+| pedidos · items · eventos · calificaciones · transacciones · reembolso_lineas | 16 · 40 · 107 · 9 · 35 · 5 | **0** en todo |
+| carritos · carrito_items · checkout_datos · reservas | 59 · 1 · 2 · 0 | **0** |
+| cuentas · perfiles · direcciones | 4 · 4 · 2 | **1 · 1 · 0** |
+| stock disponible | 137 | **164 = la factura**, descuadre **0** en los 13 |
+
+**Conservado y verificado**: 13 productos con sus fotos · factura 202521188 con sus 11 líneas y **a nombre del admin** · 1 proveedor · 6 cargos con sus 27 filas de plantilla · `ajustes_tienda` con el IBAN · el súper admin con su perfil. Comprobado desde fuera: la tienda sirve **13 productos, stock 164**, 2 agotados (Fresa y Vainilla, como dice la factura), **14 imágenes y ninguna rota**, y `valatino.es` y `api.valatino.es` a 200.
+
+### Cómo repetirlo sin destrozar nada
+
+Lo de siempre, más lo que se aprendió esta vez:
+
+1. **El admin se localiza por ROL, nunca por lista de correos** (`delete from auth.users where id <> v_admin`, con `v_admin` sacado de `user_roles`). Así no hay forma de llevárselo por descuido.
+2. **Un solo bloque `do $$` con sus propias comprobaciones y `raise exception` al final**: si quedara una cuenta de más, el stock no cuadrara con la factura o la factura perdiera a su autor, **se revierte todo**. Una limpieza que se valida después del `commit` ya no se puede deshacer.
+3. ⚠️⚠️ **`pedidos` se borra ANTES que las cuentas.** `pedidos.user_id` es **SET NULL**, no CASCADE: al revés los pedidos sobreviven **huérfanos y sin dueño**, y quedan invisibles para cualquier consulta por cliente. Esto no estaba escrito y es el error fácil de cometer.
+4. **Antes de empezar, comprobar las FK que pueden bloquear o mutilar** — se hizo, y por eso salió limpio:
+   - `user_roles.asignado_por` es **NO ACTION**: si una cuenta que se va hubiera asignado el rol de otra, el borrado falla. Se verificó que hay **0 filas** con ese campo puesto.
+   - `facturas_compra.creado_por` es **SET NULL**: borrar al admin dejaría la factura sin autor. Se verificó que la factura **es del admin**, que es justo la cuenta que se conserva.
+   - `pedido_eventos.actor_user_id`, `reembolso_lineas.actor_user_id`, `ajustes_tienda.actualizado_por` y `cargo_modulos.actualizado_por` son **SET NULL**: los cargos y el IBAN sobreviven, solo pierden el autor.
+5. **El inventario se fija desde `factura_compra_items`, no a mano.** Es idempotente y es **la única definición de «como lo dejó la factura»**. Y un producto que no esté en la factura se pone a **0**, no se le deja lo que tuviera.
+6. **Decidir explícitamente qué es configuración y qué son datos de prueba.** Los **cargos con sus plantillas** y **`ajustes_tienda`** no estaban en la petición, y borrarlos habría obligado a reconfigurar los permisos de 6 cargos y a reteclear el IBAN —apagando el pago por transferencia hasta entonces—. Se preguntó y se conservaron.
 
 ---
 
@@ -190,7 +228,7 @@ De 25 ficheros del bucket, solo **14 estaban referenciados**: 11 huérfanos, ~1 
 
 Purgados los **9 huérfanos del 2026-07-18** (bucket 25 → 17 ficheros, 2,2 → 1,7 MB). Verificado después: **las 14 imágenes del catálogo responden 200**, ninguna rota.
 
-⚠️ **Quedan 3 huérfanos a propósito**, todos de la sesión de edición de ese momento: `7c598576…` (la foto vieja de Bon Bon Bum, que quedó huérfana **en directo** al reemplazarla — la fuga ocurriendo delante), `4bd7f2f8…` y `9f45a7f3…`. **No se borraron por si había un formulario abierto sin guardar**: borrar un fichero que un formulario en curso va a referenciar rompe ese guardado. Se limpian cuando se confirme que nadie está editando el catálogo.
+✅ **Y los 3 que quedaban se purgaron después**, al confirmar Jonathan que había terminado de actualizar imágenes — recomprobando primero que ninguno se hubiera empezado a usar al guardar. **Bucket final: 14 ficheros, todos referenciados, 0 huérfanos, 0 URLs rotas.** Uno de ellos era `7c598576…`, la foto vieja de Bon Bon Bum, que quedó huérfana **en directo** al reemplazarla: la fuga ocurriendo delante mientras se diagnosticaba.
 
 **Criterio para la próxima purga**: nunca borrar ficheros recientes sin preguntar. Un huérfano de 19 días es basura; uno de 30 minutos puede ser una subida en vuelo.
 
