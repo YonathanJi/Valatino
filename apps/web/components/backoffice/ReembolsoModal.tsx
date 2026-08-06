@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Minus, Plus } from "lucide-react";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
-import { formatEUR } from "@lib/utils";
+import { formatEUR, sanearImporte } from "@lib/utils";
 import type {
   LineaReembolso,
   Pedido,
@@ -36,33 +36,6 @@ interface LineaDisponible {
   precio: number;
   yaDevueltas: number;
   disponibles: number;
-}
-
-/**
- * Deja escribir el importe como se escribe en España: **la coma vale igual que
- * el punto**.
- *
- * Antes el campo era `type="number"` y no había forma de teclear «0,5»: ante una
- * coma el navegador devuelve `value = ""`, así que el campo se vaciaba solo y el
- * botón de devolver se quedaba apagado sin explicar por qué. El `replace(",")`
- * de abajo ya estaba puesto —la intención era aceptarla— pero el input se la
- * comía antes de llegar.
- *
- * Se filtra al escribir en vez de al enviar: un separador, dígitos a los lados y
- * como mucho dos decimales, que es lo que hay en un euro.
- */
-function sanearImporte(valor: string): string {
-  const limpio = valor.replace(/[^\d.,]/g, "");
-  const sep = limpio.search(/[.,]/);
-  if (sep === -1) return limpio.slice(0, 9);
-
-  const entero = limpio.slice(0, sep).slice(0, 9);
-  const decimales = limpio
-    .slice(sep + 1)
-    .replace(/[.,]/g, "")
-    .slice(0, 2);
-  // Se conserva el separador tal como lo escribió: quien teclea coma espera ver coma.
-  return `${entero}${limpio[sep]}${decimales}`;
 }
 
 /** Céntimos: sumar euros en coma flotante descuadra el total por un céntimo. */

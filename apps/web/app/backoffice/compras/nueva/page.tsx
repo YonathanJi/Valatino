@@ -9,6 +9,8 @@ import { Button } from "@components/ui/button";
 import { formatEUR } from "@lib/utils";
 import { ShoppingBag } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { usePuede } from "@components/backoffice/PermisosProvider";
+import { ProductoBorradorModal } from "@components/backoffice/ProductoBorradorModal";
 import type { FacturaCompra, PaginatedResponse, Producto, Proveedor } from "@valatino/types";
 
 interface Linea {
@@ -30,6 +32,17 @@ export default function NuevaCompraPage() {
   const [notas, setNotas] = useState("");
   const [lineas, setLineas] = useState<Linea[]>([{ ...LINEA_NUEVA }]);
   const [isSaving, setIsSaving] = useState(false);
+
+  /**
+   * Índice de la línea que abrió el modal de producto nuevo, para poder dejar el
+   * producto creado ya seleccionado en ELLA y no en otra.
+   */
+  const [lineaCreandoProducto, setLineaCreandoProducto] = useState<number | null>(null);
+
+  // Crear un producto es `catalogo:edicion` en la API. Quien registre compras sin
+  // ese permiso no debe ver el botón: la regla del panel es que lo que no se
+  // puede hacer, no se pinta.
+  const puedeCrearProducto = usePuede("catalogo", "edicion");
 
   // Proveedor: autocompletado sobre la lista completa (se filtra al teclear)
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
@@ -292,21 +305,33 @@ export default function NuevaCompraPage() {
                   key={idx}
                   className="grid grid-cols-2 sm:grid-cols-[1fr_5rem_8rem_5rem_6.5rem_2rem] gap-2 items-center"
                 >
-                  <select
-                    value={linea.productoId}
-                    onChange={(e) => setLinea(idx, { productoId: e.target.value })}
-                    required
-                    className="col-span-2 sm:col-span-1 rounded-lg border px-3 py-2 text-sm bg-background"
-                  >
-                    <option value="" disabled>
-                      Selecciona un producto…
-                    </option>
-                    {productos.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nombre}
+                  <div className="col-span-2 sm:col-span-1 space-y-1">
+                    <select
+                      value={linea.productoId}
+                      onChange={(e) => setLinea(idx, { productoId: e.target.value })}
+                      required
+                      className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+                    >
+                      <option value="" disabled>
+                        Selecciona un producto…
                       </option>
-                    ))}
-                  </select>
+                      {productos.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre}
+                          {p.activo ? "" : " · borrador"}
+                        </option>
+                      ))}
+                    </select>
+                    {puedeCrearProducto && (
+                      <button
+                        type="button"
+                        onClick={() => setLineaCreandoProducto(idx)}
+                        className="text-xs font-medium text-primary hover:underline"
+                      >
+                        ＋ No está en el catálogo
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="number"
                     min={1}
@@ -374,6 +399,19 @@ export default function NuevaCompraPage() {
           </p>
         </div>
       </form>
+
+      {lineaCreandoProducto !== null && (
+        <ProductoBorradorModal
+          onClose={() => setLineaCreandoProducto(null)}
+          onCreado={(producto) => {
+            // Se añade a la lista local en vez de recargar del servidor: recargar
+            // aquí perdería lo que ya hay escrito en el formulario.
+            setProductos((prev) => [...prev, producto]);
+            setLinea(lineaCreandoProducto, { productoId: producto.id });
+            setLineaCreandoProducto(null);
+          }}
+        />
+      )}
     </div>
   );
 }
