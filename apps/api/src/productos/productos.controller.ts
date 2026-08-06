@@ -28,7 +28,12 @@ import { Roles } from "../auth/decorators/roles.decorator";
 import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { nivelEfectivo } from "../auth/nivel-efectivo";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
-import { CreateProductoDto, UpdateProductoDto, AjustarStockDto } from "./dto/producto.dto";
+import {
+  CreateProductoDto,
+  UpdateProductoDto,
+  AjustarStockDto,
+  DesempaquetarDto,
+} from "./dto/producto.dto";
 import { nivelAlcanza } from "@valatino/types";
 import type { JwtPayload } from "@valatino/types";
 
@@ -152,5 +157,22 @@ export class ProductosController {
   @HttpCode(HttpStatus.OK)
   ajustarStock(@Param("id", ParseUUIDPipe) id: string, @Body() dto: AjustarStockDto) {
     return this.productosService.ajustarStock(id, dto.cantidad);
+  }
+
+  /**
+   * Abrir bultos para vender unidades sueltas. Mismo permiso que la entrada
+   * manual de mercancía: mueve inventario, no toca el catálogo.
+   *
+   * La ruta va sin `:id` porque la operación tiene DOS productos y ninguno es
+   * más protagonista que el otro.
+   */
+  @Post("desempaquetar")
+  @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
+  @Roles("admin", "asesor")
+  @Modulo("inventario")
+  @Nivel("edicion")
+  @HttpCode(HttpStatus.OK)
+  desempaquetar(@Body() dto: DesempaquetarDto, @CurrentUser() user: JwtPayload) {
+    return this.productosService.desempaquetar(dto, user.sub);
   }
 }

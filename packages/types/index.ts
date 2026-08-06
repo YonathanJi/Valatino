@@ -365,6 +365,23 @@ export interface Producto {
   updated_at: string;
 }
 
+/**
+ * Resultado de abrir bultos para vender unidades sueltas
+ * (RPC `desempaquetar_producto`, migración 056).
+ *
+ * Caja y unidad son productos independientes con stock propio; esto registra la
+ * conversión que ocurre físicamente al abrir la caja. Devuelve el stock de los
+ * dos lados para poder confirmarlo en pantalla sin volver a preguntar.
+ */
+export interface ResultadoDesempaquetado {
+  origen_nombre: string;
+  destino_nombre: string;
+  bultos: number;
+  unidades_generadas: number;
+  origen_stock: number;
+  destino_stock: number;
+}
+
 export interface Profile {
   id: string;
   email: string | null;

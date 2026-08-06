@@ -10,7 +10,8 @@ import {
 import { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import type { Producto, PaginatedResponse } from "@valatino/types";
+import type { Producto, PaginatedResponse, ResultadoDesempaquetado } from "@valatino/types";
+import type { DesempaquetarDto } from "./dto/producto.dto";
 
 const BUCKET_PRODUCTOS = "productos";
 
@@ -250,6 +251,33 @@ export class ProductosService {
     }
 
     await this.borrarDelBucket((prod as { imagenes: string[] | null }).imagenes ?? []);
+  }
+
+  /**
+   * Abre bultos de un producto y suma sus unidades a otro, en una transacción.
+   *
+   * La RPC hace las dos mitades o ninguna, bloquea las dos filas en orden de id
+   * (para que dos desempaquetados cruzados no se enreden) y comprueba que haya
+   * bultos **sin reservar**. Aquí no se replica ninguna de esas reglas: si se
+   * copian, se acaban desincronizando.
+   */
+  async desempaquetar(dto: DesempaquetarDto, actor: string): Promise<ResultadoDesempaquetado> {
+    const { data, error } = await this.supabase.rpc("desempaquetar_producto", {
+      p_origen_id: dto.origen_id,
+      p_destino_id: dto.destino_id,
+      p_bultos: dto.bultos,
+      p_unidades_por_bulto: dto.unidades_por_bulto,
+      p_actor: actor,
+    });
+
+    if (error) {
+      this.logger.error(`Error al desempaquetar: ${error.message}`);
+      // Los mensajes de la RPC son accionables ("solo hay 3 de «X» sin
+      // reservar"), así que se devuelven tal cual en vez de uno genérico.
+      throw new BadRequestException(error.message);
+    }
+
+    return data as ResultadoDesempaquetado;
   }
 
   async ajustarStock(id: string, cantidad: number): Promise<{ stock_disponible: number }> {

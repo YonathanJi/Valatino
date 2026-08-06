@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@lib/api/client";
 import { StockAjusteModal } from "@components/backoffice/StockAjusteModal";
+import { DesempaquetarModal } from "@components/backoffice/DesempaquetarModal";
 import { Boxes } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { usePuede } from "@components/backoffice/PermisosProvider";
@@ -16,6 +17,8 @@ export default function BackofficeInventarioPage() {
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  /** Bulto que se está desempaquetando, si hay alguno */
+  const [desempaquetando, setDesempaquetando] = useState<Producto | null>(null);
 
   const loadProductos = async () => {
     try {
@@ -98,11 +101,23 @@ export default function BackofficeInventarioPage() {
                     </td>
                     {puedeAjustar && (
                       <td className="px-4 py-3">
-                        <StockAjusteModal
-                          productoId={p.id}
-                          nombreProducto={p.nombre}
-                          onAjustado={loadProductos}
-                        />
+                        <div className="flex items-center gap-3">
+                          <StockAjusteModal
+                            productoId={p.id}
+                            nombreProducto={p.nombre}
+                            onAjustado={loadProductos}
+                          />
+                          {/* Sin unidades libres no hay nada que abrir: no se pinta */}
+                          {p.stock_disponible > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setDesempaquetando(p)}
+                              className="text-xs text-muted-foreground hover:text-foreground underline"
+                            >
+                              Desempaquetar
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -112,6 +127,18 @@ export default function BackofficeInventarioPage() {
           </div>
         )}
       </div>
+
+      {desempaquetando && (
+        <DesempaquetarModal
+          origen={desempaquetando}
+          productos={productos}
+          onCerrar={() => setDesempaquetando(null)}
+          onHecho={() => {
+            setDesempaquetando(null);
+            void loadProductos();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
@@ -101,4 +102,31 @@ export class AjustarStockDto {
   @IsInt({ message: "cantidad debe ser un número entero" })
   @NotEquals(0, { message: "El ajuste no puede ser cero" })
   cantidad!: number;
+}
+
+/**
+ * Abrir bultos de un producto para vender sus unidades sueltas.
+ *
+ * Caja y unidad son productos independientes con stock propio, y esta operación
+ * es la que ocurre de verdad en la tienda: se abre una caja y aparecen N
+ * unidades. Va en una sola transacción (RPC `desempaquetar_producto`) porque
+ * hacerlo con dos ajustes de stock a mano permite olvidar el segundo, y entonces
+ * o sobran o faltan unidades sin que nadie sepa por qué.
+ */
+export class DesempaquetarDto {
+  /** El bulto que se abre (la caja, el paquete) */
+  @IsUUID("4")
+  origen_id!: string;
+
+  /** El producto que se obtiene (la unidad suelta) */
+  @IsUUID("4")
+  destino_id!: string;
+
+  @IsInt({ message: "bultos debe ser un número entero" })
+  @Min(1, { message: "Hay que desempaquetar al menos un bulto" })
+  bultos!: number;
+
+  @IsInt({ message: "unidades_por_bulto debe ser un número entero" })
+  @Min(1, { message: "Cada bulto tiene que traer al menos una unidad" })
+  unidades_por_bulto!: number;
 }
