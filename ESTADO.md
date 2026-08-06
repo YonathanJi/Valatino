@@ -155,6 +155,47 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ---
 
+## Sesión 2026-08-06 — Las fotos y las facturas: dónde viven de verdad
+
+Jonathan preguntó si las imágenes de los productos y las facturas subidas se están guardando en la nube. **Sí**, en Supabase Storage, y comprobado contra el proyecto real, no leído de la documentación:
+
+| | Bucket `productos` | Bucket `facturas` |
+|---|---|---|
+| Visibilidad | **público** | **privado** |
+| Cómo se sirve | URL pública directa (200, `image/webp`, caché 1 h) | **URL firmada de 1 h** vía `GET /admin/facturas/:id/pdf` |
+| Prueba de acceso | la imagen sirve 200 | **el PDF por URL pública → 400, bloqueado** |
+| Integridad | **0 URLs rotas**: cada imagen del catálogo tiene su fichero | el `pdf_path` de la factura apunta a un objeto que existe |
+
+✅ **El bucket privado está de verdad protegido**: intentar descargar el PDF por URL pública devuelve 400. Solo se llega por la ruta de la API, que firma una URL temporal y exige el módulo `facturas`.
+
+### ⚠️ La fuga: al reemplazar una foto, la anterior se quedaba para siempre
+
+De 25 ficheros del bucket, solo **14 estaban referenciados**: 11 huérfanos, ~1 MB. El reparto de culpas:
+
+- `remove()` (borrar producto) **sí** limpiaba sus imágenes. Correcto desde siempre.
+- `compras.service.ts` **sí** borra el PDF si la RPC falla. Compensación correcta, cero PDFs sueltos.
+- **`update()` era un `update` pelado**: al reemplazar o quitar una foto, el fichero viejo **no se borraba nunca**. Ahí estaba la fuga.
+- `subirImagen()` sube el fichero **y devuelve la URL antes de guardar el producto**, así que cancelar el formulario deja un fichero suelto. Inevitable con ese diseño y **no merece la pena** cambiarlo.
+
+⚠️ **Lo relevante NO es el espacio** —1 MB en un plan de 1 GB no es nada—: **el bucket es público**, así que un huérfano sigue siendo **descargable por su URL** aunque ya no esté en ningún producto. Con fotos de caramelos da igual, pero si algún día se sube una imagen equivocada (una foto con datos, una lista de precios del proveedor), quitarla del catálogo **no la retira de internet**. El nombre es un UUID, hay que conocer la URL: el riesgo es bajo, no nulo.
+
+**Arreglado** en `productos.service.ts`, con tres cuidados que son lo que evita que la solución sea peor que el problema:
+1. Las imágenes anteriores **solo se leen si el dto trae `imagenes`**: editar el precio o el stock no puede llevarse las fotos por delante.
+2. El borrado va **después** de que la escritura haya ido bien. Si el `update` falla, las imágenes de las que se venía siguen siendo las buenas.
+3. `borrarDelBucket()` **no lanza**: el producto ya se guardó, y no poder limpiar un fichero no es motivo para devolver error de algo que funcionó. Queda en el log, porque en un bucket público conviene saber que hay un huérfano.
+
+**Primer `productos.service.spec.ts`, 7 tests → 299 en la API.** Los dos que de verdad importan no se ven leyendo el código: que editar el precio **no** borre fotos, y que un guardado fallido **no** borre nada.
+
+### Limpieza hecha, y lo que queda
+
+Purgados los **9 huérfanos del 2026-07-18** (bucket 25 → 17 ficheros, 2,2 → 1,7 MB). Verificado después: **las 14 imágenes del catálogo responden 200**, ninguna rota.
+
+⚠️ **Quedan 3 huérfanos a propósito**, todos de la sesión de edición de ese momento: `7c598576…` (la foto vieja de Bon Bon Bum, que quedó huérfana **en directo** al reemplazarla — la fuga ocurriendo delante), `4bd7f2f8…` y `9f45a7f3…`. **No se borraron por si había un formulario abierto sin guardar**: borrar un fichero que un formulario en curso va a referenciar rompe ese guardado. Se limpian cuando se confirme que nadie está editando el catálogo.
+
+**Criterio para la próxima purga**: nunca borrar ficheros recientes sin preguntar. Un huérfano de 19 días es basura; uno de 30 minutos puede ser una subida en vuelo.
+
+---
+
 ## Sesión 2026-08-05 — Dominio propio: `valatino.es`
 
 Jonathan compró `valatino.es` en GoDaddy (con código promocional de un profesor) y pidió configurarlo. Se hizo con tokens nuevos de Render y Vercel, en `C:\YJIMENEZ\tokens-despliegue.env.txt` — **fuera del repo a propósito**, y ⚠️ **hay que revocarlos al cerrar la sesión**.
