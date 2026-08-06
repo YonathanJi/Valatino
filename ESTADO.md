@@ -38,9 +38,10 @@
 ⚠️ **Dato que corrige un susto**: `_dmarc.gmail.com` es `p=none; sp=quarantine`, así que el remitente anterior (`jonathanduqee@gmail.com`) **no estaba siendo cuarentenado** por política — fallaba la alineación y puntuaba mal, pero no era la sangría que parecía. La urgencia era menor de lo que se dijo al principio.
 
 **Lo que falta para cerrar el paso a producción:**
-1. ⚠️ **El correo sale autenticado pero cae en SPAM** (Hotmail). Faltan dos registros en GoDaddy y una decisión — ver «El correo llega, pero a spam» en la sesión de abajo:
-   - **TXT `@`** = `v=spf1 include:sendgrid.net ~all` (el dominio del remitente no declara SPF; el subdominio de envío sí)
-   - **MX** — `valatino.es` **no puede recibir correo**, y eso es a la vez el motivo del `Reply-To` postizo y una señal de spam por sí misma
+1. **Correo: ✅ resuelto y comprobado por Jonathan** — llega a la **bandeja de entrada**, con `From: Valatino <pedidos@valatino.es>` y `Reply-To: jonathanduqee@gmail.com`. Quedan dos mejoras **opcionales**, no bloqueantes (ver la sesión de abajo):
+   - **TXT `@`** = `v=spf1 include:sendgrid.net ~all` — el dominio del remitente no declara SPF; el subdominio de envío sí. El DMARC ya pasa por DKIM, pero varios filtros miran esto.
+   - **MX** — `valatino.es` sigue sin poder **recibir** correo. Resolverlo (reenvío de GoDaddy, Zoho o Workspace) permite **quitar `EMAIL_REPLY_TO`** y deja de ser una señal de spam.
+   - **Remitente del correo de acceso**: sigue saliendo por **Supabase Auth** con su propio remitente, que no es del dominio → por eso el cliente marca ese correo como «no comprobado». Se cambia en Supabase → Project Settings → Auth → SMTP Settings.
 2. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado.
 2. **Revocar los CINCO secretos y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`**: Vercel (`vcp_`), Render (`rnd_`), SendGrid (`SG.`, que es de **acceso total**, 210 permisos) y las dos de Supabase. ⚠️ La `sb_secret_…` es la que más prisa tiene: **salta el RLS** y puede leer y escribir toda la base de datos.
 3. Cuando se pase a **Stripe `live`**: los webhooks son **por modo**, así que hay que crear el de producción desde cero con los 5 eventos y su secret nuevo en Render. Y si algún día se activa Apple Pay, Stripe exige **registrar el dominio**.
@@ -203,9 +204,13 @@ La 053 incluye un **backfill conservador**: solo rellena donde se puede afirmar 
 
 **Cabo suelto**: esto no lo cubre ningún test porque las RPC no están cubiertas (los 292 tests son de la API). Una función que se ha redefinido en la 033, la 040, la 047, la 052 y la 053 es exactamente donde más falta hace.
 
-### ⚠️ El correo llega, pero a spam (abierto al cerrar la sesión)
+### El correo: primero a spam, luego bien (✅ resuelto)
 
-Reportado por Jonathan tras el cambio de remitente: el correo del pedido **llegó desde `pedidos@valatino.es`** pero **a la carpeta de no deseados** de Hotmail. Lo que dicen los datos, para no confundir síntomas:
+Reportado por Jonathan tras el cambio de remitente: el correo del pedido **llegó desde `pedidos@valatino.es`** pero **a la carpeta de no deseados** de Hotmail.
+
+✅ **Resuelto y comprobado por él poco después**: llega a la **bandeja de entrada**, con el remitente del dominio y `Reply-To` a su Gmail. **No hubo que reconfigurar nada** — marcar el mensaje como legítimo y que el dominio dejara de ser recién nacido bastó. Eso confirma que era **reputación**, no un fallo de autenticación, y confirma también que **la cabecera `Reply-To` sí estaba**: lo de «no deja responder, solo reenviar» era **Outlook bloqueando las acciones en los mensajes de junk**, no algo nuestro. Si vuelve a pasar con otro proveedor, ese es el orden de sospecha: primero reputación, después configuración.
+
+Lo que dicen los datos, para no confundir síntomas:
 
 ```
 SendGrid 2026-08-05:  4 peticiones · 4 entregados · 0 rebotes · 0 bloqueos · 0 quejas · 4 aperturas
