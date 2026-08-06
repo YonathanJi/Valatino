@@ -2,6 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
@@ -28,8 +29,13 @@ export interface QueryProductosDto {
   soloActivos?: boolean;
 }
 
+/** Prefijo de las URLs públicas de nuestro bucket; lo demás no es nuestro. */
+const PREFIJO_PUBLICO = `/storage/v1/object/public/${BUCKET_PRODUCTOS}/`;
+
 @Injectable()
 export class ProductosService {
+  private readonly logger = new Logger(ProductosService.name);
+
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async findAll(query: QueryProductosDto): Promise<PaginatedResponse<Producto>> {
@@ -152,7 +158,20 @@ export class ProductosService {
     throw new InternalServerErrorException("No se pudo generar un slug único");
   }
 
+  /**
+   * Al cambiar `imagenes`, las que se quiten se borran también del bucket.
+   *
+   * Sin esto, reemplazar la foto de un producto dejaba la anterior en el bucket
+   * para siempre. Y el bucket es **público**: un fichero suelto sigue siendo
+   * descargable por su URL aunque ya no esté en ningún producto, así que quitar
+   * del catálogo una imagen equivocada no la retiraba de internet. El espacio
+   * es lo de menos.
+   */
   async update(id: string, dto: Partial<Producto>): Promise<Producto> {
+    // Las anteriores solo se leen si el dto trae `imagenes`: una edición que no
+    // toca las fotos —precio, stock, nombre— no debe borrar ninguna.
+    const anteriores = dto.imagenes !== undefined ? await this.imagenesActuales(id) : [];
+
     const { data, error } = await this.supabase
       .from("productos")
       .update({ ...dto, updated_at: new Date().toISOString() })
@@ -161,7 +180,48 @@ export class ProductosService {
       .single();
 
     if (error || !data) throw new NotFoundException(`Producto ${id} no encontrado`);
+
+    // Después de que la escritura haya ido bien, nunca antes: si el update
+    // falla, las imágenes de las que se venía siguen siendo las buenas.
+    const vigentes = (data as Producto).imagenes ?? [];
+    await this.borrarDelBucket(anteriores.filter((url) => !vigentes.includes(url)));
+
     return data as Producto;
+  }
+
+  private async imagenesActuales(id: string): Promise<string[]> {
+    const { data } = await this.supabase
+      .from("productos")
+      .select("imagenes")
+      .eq("id", id)
+      .maybeSingle();
+
+    return (data as { imagenes: string[] | null } | null)?.imagenes ?? [];
+  }
+
+  /**
+   * Borra del bucket las URLs que sean nuestras; las de otros orígenes se
+   * ignoran.
+   *
+   * No lanza: el producto ya se guardó, y no poder limpiar un fichero no es
+   * motivo para devolver error en una operación que sí funcionó. Queda en el
+   * log para poder recogerlo a mano, porque un huérfano en un bucket público
+   * sigue siendo descargable y conviene saber que está ahí.
+   */
+  private async borrarDelBucket(urls: string[]): Promise<void> {
+    const paths = urls
+      .filter((url) => url.includes(PREFIJO_PUBLICO))
+      .map((url) => url.slice(url.indexOf(PREFIJO_PUBLICO) + PREFIJO_PUBLICO.length));
+
+    if (paths.length === 0) return;
+
+    const { error } = await this.supabase.storage.from(BUCKET_PRODUCTOS).remove(paths);
+
+    if (error) {
+      this.logger.error(
+        `No se pudieron borrar del bucket ${paths.length} fichero(s) [${paths.join(", ")}]: ${error.message}`,
+      );
+    }
   }
 
   /**
@@ -189,15 +249,7 @@ export class ProductosService {
       throw new InternalServerErrorException("No se pudo eliminar el producto");
     }
 
-    // Limpiar del bucket las imágenes propias (las URLs de otros orígenes se ignoran)
-    const prefijo = "/storage/v1/object/public/productos/";
-    const paths = ((prod as { imagenes: string[] }).imagenes ?? [])
-      .filter((url) => url.includes(prefijo))
-      .map((url) => url.slice(url.indexOf(prefijo) + prefijo.length));
-
-    if (paths.length > 0) {
-      await this.supabase.storage.from(BUCKET_PRODUCTOS).remove(paths);
-    }
+    await this.borrarDelBucket((prod as { imagenes: string[] | null }).imagenes ?? []);
   }
 
   async ajustarStock(id: string, cantidad: number): Promise<{ stock_disponible: number }> {
