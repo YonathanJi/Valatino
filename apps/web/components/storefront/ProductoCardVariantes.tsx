@@ -4,24 +4,33 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import type { Producto } from "@valatino/types";
-import { partirNombrePorSabor } from "@lib/productos/sabores";
+import {
+  etiquetaVariantes,
+  partirNombrePorVariante,
+  type TipoVariante,
+} from "@lib/productos/variantes";
 import { formatEUR } from "@lib/utils";
 
-interface ProductoCardSaboresProps {
+interface ProductoCardVariantesProps {
   base: string;
+  tipo: TipoVariante;
   productos: Producto[];
 }
 
 /**
- * Tarjeta de catálogo para un grupo de sabores: una sola tarjeta con el
- * nombre base y acceso a la ficha (donde se elige el sabor).
+ * Tarjeta de catálogo para un grupo de variantes —sabores o formatos—: una sola
+ * tarjeta con el nombre base y acceso a la ficha, donde se elige la variante.
+ *
+ * Antes era `ProductoCardSabores` y solo servía para sabores. Se generalizó al
+ * añadir los formatos (caja / unidad), que necesitan exactamente lo mismo:
+ * el cliente ve un producto y elige antes de indicar la cantidad.
  */
-export function ProductoCardSabores({ base, productos }: ProductoCardSaboresProps) {
+export function ProductoCardVariantes({ base, tipo, productos }: ProductoCardVariantesProps) {
   const disponible = productos.find((p) => p.stock_disponible > 0);
   const representante = disponible ?? productos[0]!;
   const agotado = !disponible;
-  // Imagen de familia (imagenes[1] de cualquier sabor) si existe; si no,
-  // la foto del sabor representante (primero con stock)
+  // Imagen de familia (imagenes[1] de cualquier variante) si existe; si no,
+  // la foto de la variante representante (la primera con stock)
   const imagenFamilia = productos.map((p) => p.imagenes[1]).find(Boolean);
   const imagenPrincipal = imagenFamilia ?? representante.imagenes[0] ?? "/placeholder.png";
   const href = `/productos/${representante.slug ?? representante.id}`;
@@ -30,8 +39,8 @@ export function ProductoCardSabores({ base, productos }: ProductoCardSaboresProp
   const precioMin = Math.min(...precios);
   const preciosVarian = Math.max(...precios) !== precioMin;
 
-  const sabores = productos
-    .map((p) => partirNombrePorSabor(p.nombre)?.sabor)
+  const valores = productos
+    .map((p) => partirNombrePorVariante(p.nombre)?.valor)
     .filter(Boolean) as string[];
 
   return (
@@ -53,7 +62,7 @@ export function ProductoCardSabores({ base, productos }: ProductoCardSaboresProp
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
           />
           <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2.5 py-0.5 text-xs font-medium border">
-            {sabores.length} sabores
+            {etiquetaVariantes(tipo, valores.length)}
           </span>
           {agotado && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -72,7 +81,7 @@ export function ProductoCardSabores({ base, productos }: ProductoCardSaboresProp
             {base}
           </h3>
         </Link>
-        <p className="text-xs text-muted-foreground line-clamp-1">{sabores.join(" · ")}</p>
+        <p className="text-xs text-muted-foreground line-clamp-1">{valores.join(" · ")}</p>
         <div className="flex items-center justify-between gap-2">
           <span className="font-bold text-primary">
             {preciosVarian ? `Desde ${formatEUR(precioMin)}` : formatEUR(precioMin)}
@@ -81,7 +90,7 @@ export function ProductoCardSabores({ base, productos }: ProductoCardSaboresProp
             href={href}
             className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
           >
-            Elegir sabor
+            Elegir {tipo}
           </Link>
         </div>
       </div>
