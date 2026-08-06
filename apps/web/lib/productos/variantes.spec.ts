@@ -1,8 +1,10 @@
 import type { Producto, TipoVariante } from "@valatino/types";
 import {
   agruparPorVariante,
+  etiquetaFormato,
   etiquetaVariantes,
   hermanosDeVariante,
+  partirEtiquetaFormato,
   tieneVariante,
 } from "./variantes";
 
@@ -74,6 +76,59 @@ describe("etiquetaVariantes", () => {
     expect(etiquetaVariantes("sabor", 3)).toBe("3 sabores");
     expect(etiquetaVariantes("formato", 2)).toBe("2 formatos");
     expect(etiquetaVariantes("formato", 1)).toBe("1 formato");
+  });
+});
+
+describe("etiquetaFormato", () => {
+  it("arma la etiqueta con la cantidad", () => {
+    // El caso de Jonathan, tal cual lo escribiría él.
+    expect(etiquetaFormato("Caja", 24)).toBe("Caja 24 unidades");
+    expect(etiquetaFormato("Paquete", 6)).toBe("Paquete 6 unidades");
+  });
+
+  it("la unidad no lleva cantidad", () => {
+    expect(etiquetaFormato("C/U")).toBe("C/U");
+    // Aunque se cuele un 1: «C/U 1 unidades» no lo diría nadie.
+    expect(etiquetaFormato("C/U", 1)).toBe("C/U");
+  });
+
+  it("sin cantidad deja el envase solo", () => {
+    expect(etiquetaFormato("Caja")).toBe("Caja");
+    expect(etiquetaFormato("Caja", null)).toBe("Caja");
+    expect(etiquetaFormato("Caja", 1)).toBe("Caja");
+  });
+});
+
+describe("partirEtiquetaFormato", () => {
+  it("reconoce lo que arma etiquetaFormato (ida y vuelta)", () => {
+    expect(partirEtiquetaFormato(etiquetaFormato("Caja", 24))).toEqual({
+      envase: "Caja",
+      unidades: 24,
+    });
+    expect(partirEtiquetaFormato(etiquetaFormato("C/U"))).toEqual({
+      envase: "C/U",
+      unidades: null,
+    });
+  });
+
+  it("acepta el singular y devuelve el envase en su forma canónica", () => {
+    // Canónica porque el <select> del formulario compara por valor: «caja» no
+    // seleccionaría la opción «Caja».
+    expect(partirEtiquetaFormato("caja 1 unidad")).toEqual({ envase: "Caja", unidades: 1 });
+    expect(partirEtiquetaFormato("c/u")).toEqual({ envase: "C/U", unidades: null });
+    expect(partirEtiquetaFormato("  CAJA 24 UNIDADES  ")).toEqual({
+      envase: "Caja",
+      unidades: 24,
+    });
+  });
+
+  it("devuelve null si el envase no es de los conocidos", () => {
+    // Así el formulario la trata como texto libre en vez de inventarse un envase
+    // y perder lo que el usuario habia escrito.
+    expect(partirEtiquetaFormato("Fresa")).toBeNull();
+    expect(partirEtiquetaFormato("Botellín 33 cl")).toBeNull();
+    expect(partirEtiquetaFormato("Display 12 unidades")).toBeNull();
+    expect(partirEtiquetaFormato("")).toBeNull();
   });
 });
 

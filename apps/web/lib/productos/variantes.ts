@@ -57,6 +57,64 @@ export function etiquetaVariantes(tipo: TipoVariante, cuantas: number): string {
   return `${cuantas} ${cuantas === 1 ? tipo : PLURAL_VARIANTE[tipo]}`;
 }
 
+/**
+ * Envases habituales, para no tener que teclear la etiqueta a mano.
+ *
+ * No es una lista cerrada de verdad: el formulario ofrece «Otro…» y guarda lo
+ * que se escriba. Está aquí para que lo normal sea rápido, no para limitar.
+ */
+export const ENVASES_FORMATO = ["C/U", "Caja", "Paquete", "Bolsa"] as const;
+
+/** El envase suelto, sin cantidad: una unidad no lleva «de cuántas». */
+const ENVASE_UNIDAD = "C/U";
+
+/**
+ * Construye la etiqueta que verá el cliente juntando envase y cantidad.
+ *
+ * Existe porque la etiqueta real es «Caja 24 unidades» y un desplegable cerrado
+ * no puede enumerar todas las cantidades. Se pregunta el envase (lista corta) y
+ * cuántas trae (número), y la etiqueta se arma aquí.
+ */
+export function etiquetaFormato(envase: string, unidades?: number | null): string {
+  const limpio = envase.trim();
+  if (!limpio || limpio === ENVASE_UNIDAD) return ENVASE_UNIDAD;
+  if (!unidades || unidades < 2) return limpio;
+  return `${limpio} ${unidades} unidades`;
+}
+
+/**
+ * Lo contrario, para rellenar el formulario al editar un producto que ya tiene
+ * su etiqueta guardada. Devuelve `null` si no reconoce el patrón, y entonces el
+ * formulario la trata como texto libre en vez de inventarse un envase.
+ */
+export function partirEtiquetaFormato(
+  variante: string,
+): { envase: string; unidades: number | null } | null {
+  const limpio = variante.trim();
+  if (!limpio) return null;
+
+  // «unidad» y «unidades»: `unidades?` solo haría opcional la `s` y dejaría
+  // fuera el singular. Lo cazó el test.
+  const conCantidad = /^(.+?)\s+(\d+)\s+unidad(?:es)?$/i.exec(limpio);
+  if (conCantidad) {
+    const envase = envaseCanonico(conCantidad[1]!);
+    return envase ? { envase, unidades: Number(conCantidad[2]) } : null;
+  }
+
+  const envase = envaseCanonico(limpio);
+  return envase ? { envase, unidades: null } : null;
+}
+
+/**
+ * Devuelve el envase con su forma de la lista, o `null` si no es de los
+ * conocidos. La forma canónica importa: el `<select>` del formulario compara por
+ * valor, así que «caja» no seleccionaría la opción «Caja».
+ */
+function envaseCanonico(envase: string): string | null {
+  const buscado = envase.trim().toLowerCase();
+  return ENVASES_FORMATO.find((e) => e.toLowerCase() === buscado) ?? null;
+}
+
 export interface GrupoVariantes {
   /** El nombre de la familia, tal como se escribió en la primera del grupo */
   familia: string;

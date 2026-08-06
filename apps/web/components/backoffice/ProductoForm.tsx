@@ -7,7 +7,12 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { CATEGORIAS_PRODUCTO, TIPOS_VARIANTE, type Producto } from "@valatino/types";
+import { CATEGORIAS_PRODUCTO, type Producto, type TipoVariante } from "@valatino/types";
+import {
+  ENVASES_FORMATO,
+  etiquetaFormato,
+  partirEtiquetaFormato,
+} from "@lib/productos/variantes";
 
 interface ProductoFormProps {
   producto: Producto | null;
@@ -22,6 +27,9 @@ interface ProductoFormProps {
 }
 
 const FORMATOS_IMAGEN = "image/jpeg,image/png,image/webp";
+
+/** Opción del desplegable de envases que abre el campo de texto libre. */
+const ENVASE_OTRO = "__otro__";
 
 /**
  * Redimensiona (máx. 1200px de lado) y comprime a WebP en el navegador antes
@@ -59,6 +67,41 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
     producto?.imagenes[1] ?? null,
   );
   const [quitarFamilia, setQuitarFamilia] = useState(false);
+
+  // ── Presentación: sí/no → familia → qué cambia → el valor ────────────────
+  // El orden importa. La primera versión preguntaba «en qué se diferencian»
+  // DESPUÉS de escribir «C/U», y Jonathan lo leyó como que se le preguntaba dos
+  // veces lo mismo. Preguntar qué cambia ANTES hace que el último campo se
+  // adapte y la pregunta tenga sentido.
+  const [esVariante, setEsVariante] = useState(Boolean(producto?.familia));
+  const [tipo, setTipo] = useState<TipoVariante>(producto?.variante_tipo ?? "formato");
+  const [familiaNombre, setFamiliaNombre] = useState(producto?.familia ?? "");
+
+  // Al editar: si la etiqueta guardada es «Caja 24 unidades» se reparte en
+  // desplegable + número; si no la reconoce, va a texto libre en vez de
+  // inventarse un envase y perder lo que había escrito.
+  const guardada =
+    producto?.variante_tipo === "formato" && producto.variante
+      ? partirEtiquetaFormato(producto.variante)
+      : null;
+
+  const [envase, setEnvase] = useState<string>(
+    producto?.variante_tipo === "formato" ? (guardada?.envase ?? ENVASE_OTRO) : ENVASES_FORMATO[0],
+  );
+  const [unidades, setUnidades] = useState(guardada?.unidades ? String(guardada.unidades) : "");
+  /** El sabor, o el formato cuando el envase no es de la lista */
+  const [textoLibre, setTextoLibre] = useState(
+    producto?.variante && !guardada ? producto.variante : "",
+  );
+
+  /** La etiqueta que verá el cliente, armada de lo de arriba. */
+  const varianteFinal = !esVariante
+    ? ""
+    : tipo === "sabor" || envase === ENVASE_OTRO
+      ? textoLibre.trim()
+      : etiquetaFormato(envase, unidades ? parseInt(unidades, 10) : null);
+
+  const agrupado = esVariante && familiaNombre.trim() !== "" && varianteFinal !== "";
 
   // Preview local del archivo elegido (se revoca el object URL al cambiar)
   useEffect(() => {
@@ -104,13 +147,9 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
 
       // 2. Crear/actualizar el producto con las URLs en la nube. Sin stock:
       //    los productos nacen a 0 y las unidades entran por Inventario/Facturas.
-      // Familia y variante van LOS DOS o NINGUNO (CHECK de la 057): una familia
-      // sin variante pintaría una pastilla vacía. Se resuelve aquí para que no
-      // haya que entender la restricción al rellenar el formulario.
-      const familiaNombre = (formData.get("familia") as string).trim();
-      const variante = (formData.get("variante") as string).trim();
-      const agrupado = familiaNombre !== "" && variante !== "";
-
+      // Familia, variante y tipo van LOS TRES o NINGUNO (CHECK de la 057): una
+      // familia sin variante pintaría una pastilla vacía. Se resuelve aquí para
+      // no tener que entender la restricción al rellenar el formulario.
       const payload = {
         nombre: formData.get("nombre") as string,
         descripcion: formData.get("descripcion") as string,
@@ -118,9 +157,9 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
         categoria: formData.get("categoria") as string,
         imagenes: familiaUrl ? [imagenUrl, familiaUrl] : [imagenUrl],
         activo: formData.get("activo") === "on",
-        familia: agrupado ? familiaNombre : null,
-        variante: agrupado ? variante : null,
-        variante_tipo: agrupado ? (formData.get("variante_tipo") as string) : null,
+        familia: agrupado ? familiaNombre.trim() : null,
+        variante: agrupado ? varianteFinal : null,
+        variante_tipo: agrupado ? tipo : null,
       };
 
       await apiFetch(producto ? `/productos/${producto.id}` : "/productos", {
@@ -157,63 +196,166 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
           ninguna convención.
         */}
         <div className="col-span-2 rounded-lg border bg-muted/30 p-3 space-y-3">
-          <div className="space-y-0.5">
-            <p className="text-sm font-medium">¿Es una presentación de otro producto?</p>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">
+              ¿Es otra presentación de un producto que ya vendes?
+            </legend>
             <p className="text-xs text-muted-foreground">
-              Para vender lo mismo en caja y en unidad, o en varios sabores. Rellena los dos campos
-              y la tienda mostrará <strong className="font-medium">una sola tarjeta</strong> con un
-              selector. Déjalos vacíos si es un producto suelto.
+              Lo mismo en caja y en unidad, o el mismo producto en varios sabores. La tienda los
+              muestra en <strong className="font-medium">una sola tarjeta</strong> con un selector.
             </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label htmlFor="familia">Familia</Label>
-              <Input
-                id="familia"
-                name="familia"
-                list="familias-existentes"
-                placeholder="Quipitos Pops"
-                maxLength={200}
-                defaultValue={producto?.familia ?? ""}
-              />
-              <datalist id="familias-existentes">
-                {familias.map((f) => (
-                  <option key={f} value={f} />
-                ))}
-              </datalist>
-              <p className="text-xs text-muted-foreground">
-                El nombre común. Es el título que verá el cliente.
-              </p>
+            <div className="flex gap-4 pt-0.5">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="es-variante"
+                  checked={!esVariante}
+                  onChange={() => setEsVariante(false)}
+                />
+                No, es un producto suelto
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="es-variante"
+                  checked={esVariante}
+                  onChange={() => setEsVariante(true)}
+                />
+                Sí
+              </label>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="variante">Esta presentación</Label>
-              <Input
-                id="variante"
-                name="variante"
-                placeholder="C/U"
-                maxLength={100}
-                defaultValue={producto?.variante ?? ""}
-              />
-              <p className="text-xs text-muted-foreground">
-                Lo que el cliente elige: «C/U», «Caja 24 unidades», «Fresa»…
-              </p>
+          </fieldset>
+
+          {esVariante && (
+            <div className="space-y-3 border-t pt-3">
+              <div className="space-y-1">
+                <Label htmlFor="familia">Nombre común de la familia</Label>
+                <Input
+                  id="familia"
+                  list="familias-existentes"
+                  placeholder="Quipitos Pops"
+                  maxLength={200}
+                  value={familiaNombre}
+                  onChange={(e) => setFamiliaNombre(e.target.value)}
+                  className="sm:max-w-sm"
+                />
+                <datalist id="familias-existentes">
+                  {familias.map((f) => (
+                    <option key={f} value={f} />
+                  ))}
+                </datalist>
+                <p className="text-xs text-muted-foreground">
+                  El título que verá el cliente. Si ya existe, elígela de la lista para que
+                  agrupen.
+                </p>
+              </div>
+
+              <fieldset className="space-y-1.5">
+                <legend className="text-sm font-medium">¿Qué cambia respecto a las otras?</legend>
+                <div className="flex flex-wrap gap-4 pt-0.5">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="tipo-variante"
+                      checked={tipo === "formato"}
+                      onChange={() => setTipo("formato")}
+                    />
+                    La cantidad o el envase
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="tipo-variante"
+                      checked={tipo === "sabor"}
+                      onChange={() => setTipo("sabor")}
+                    />
+                    El sabor
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  ¿Es lo mismo pero más cantidad? → la cantidad. ¿Es lo mismo pero sabe distinto? →
+                  el sabor.
+                </p>
+              </fieldset>
+
+              {tipo === "formato" ? (
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="envase">Este producto se vende en</Label>
+                    <select
+                      id="envase"
+                      value={envase}
+                      onChange={(e) => setEnvase(e.target.value)}
+                      className="flex h-9 w-40 rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {ENVASES_FORMATO.map((e) => (
+                        <option key={e} value={e}>
+                          {e === "C/U" ? "Unidad (C/U)" : e}
+                        </option>
+                      ))}
+                      <option value={ENVASE_OTRO}>Otro…</option>
+                    </select>
+                  </div>
+
+                  {envase === ENVASE_OTRO ? (
+                    <div className="space-y-1">
+                      <Label htmlFor="envase-otro">¿Cómo se llama?</Label>
+                      <Input
+                        id="envase-otro"
+                        placeholder="Botellín 33 cl"
+                        maxLength={100}
+                        value={textoLibre}
+                        onChange={(e) => setTextoLibre(e.target.value)}
+                        className="w-56"
+                      />
+                    </div>
+                  ) : (
+                    envase !== "C/U" && (
+                      <div className="space-y-1">
+                        <Label htmlFor="unidades">¿De cuántas unidades?</Label>
+                        <Input
+                          id="unidades"
+                          type="number"
+                          min={2}
+                          placeholder="24"
+                          value={unidades}
+                          onChange={(e) => setUnidades(e.target.value)}
+                          className="w-32 font-mono"
+                        />
+                      </div>
+                    )
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Label htmlFor="sabor">¿Qué sabor es este?</Label>
+                  <Input
+                    id="sabor"
+                    placeholder="Fresa"
+                    maxLength={100}
+                    value={textoLibre}
+                    onChange={(e) => setTextoLibre(e.target.value)}
+                    className="w-56"
+                  />
+                </div>
+              )}
+
+              {/* Lo que verá el cliente, en sus palabras. Es lo que hace que el
+                  formulario se explique solo sin leer las ayudas. */}
+              {agrupado ? (
+                <p className="rounded-lg border bg-background px-3 py-2 text-xs">
+                  En la tienda:{" "}
+                  <strong className="font-medium">«{familiaNombre.trim()}»</strong>, y este se
+                  elegirá como <strong className="font-medium">«{varianteFinal}»</strong>.
+                </p>
+              ) : (
+                <p className="text-xs text-amber-700">
+                  Faltan datos: sin la familia y esta presentación, el producto se guardará como
+                  suelto.
+                </p>
+              )}
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="variante_tipo">En qué se diferencian</Label>
-            <select
-              id="variante_tipo"
-              name="variante_tipo"
-              defaultValue={producto?.variante_tipo ?? "formato"}
-              className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-48"
-            >
-              {TIPOS_VARIANTE.map((t) => (
-                <option key={t} value={t}>
-                  {t === "formato" ? "Formato (caja, unidad…)" : "Sabor"}
-                </option>
-              ))}
-            </select>
-          </div>
+          )}
         </div>
         <div className="space-y-1">
           <Label htmlFor="precio">Precio (EUR)</Label>
