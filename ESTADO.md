@@ -27,12 +27,23 @@
 
 ⚠️⚠️ **Y la lección de cómo se hizo, que es lo que hay que recordar: se EDITÓ la URL del endpoint que ya existía (`we_1Tw2mHL1kwgv5hCuBoKht7CL`), NO se creó uno nuevo.** El signing secret pertenece al endpoint y **no cambia al cambiarle la URL**, así que no hubo que tocar `STRIPE_WEBHOOK_SECRET` ni redesplegar, y no hubo ninguna ventana ciega. Crear uno nuevo trae **su propio secret**, y como `stripe.service.ts` valida con **uno solo** (`config.getOrThrow("STRIPE_WEBHOOK_SECRET")`), habría que haber hecho el cambio en Render + redeploy, con los eventos del endpoint viejo fallando la firma mientras tanto — y un `payment_intent.succeeded` que falla es un pedido que no se crea hasta el reintento.
 
+✅ **Compra de prueba verificada en el dominio nuevo**: pedido `260805010148` (1,00 €, `card`), y su línea de tiempo entera en 2,5 s — `estado → PROCESANDO`, `pago · payment_intent.succeeded`, `email · Confirmación de tu pedido`. El webhook entrega en `api.valatino.es`.
+
+✅ **SendGrid hecho**: dominio `valatino.es` autenticado (id **32239900**, subdominio `em6156`), los 3 CNAME **`valid=True`** —`mail_cname`, `dkim1`, `dkim2`— y `EMAIL_FROM` = `Valatino <pedidos@valatino.es>`.
+
+⚠️ **El From del dominio necesitó un `Reply-To`, y el motivo hay que recordarlo**: `valatino.es` **no tiene registros MX**, así que `pedidos@valatino.es` **no recibe nada** — quien respondiera a la confirmación de su pedido se llevaba un rebote, y antes esa respuesta llegaba a un buzón real. Se añadió `EMAIL_REPLY_TO` (ver `email.service.ts`): el correo sale autenticado y la respuesta llega a alguien. **Se quita cuando el dominio tenga buzón propio.** Autenticar el dominio sin resolver esto habría mejorado la entrega empeorando la atención al cliente.
+
+⚠️ **Lo que este cambio NO cubre: el correo del código de acceso.** Ese lo manda **Supabase Auth** con su propia configuración SMTP y su propio remitente (Dashboard → Project Settings → Auth → SMTP Settings). Ahora mismo hay **dos remitentes distintos**: los de pedidos desde `pedidos@valatino.es` y el del login desde lo que haya ahí. Ya se puede poner una dirección de `valatino.es` sin riesgo, porque el dominio firma DKIM.
+
+⚠️ **Dato que corrige un susto**: `_dmarc.gmail.com` es `p=none; sp=quarantine`, así que el remitente anterior (`jonathanduqee@gmail.com`) **no estaba siendo cuarentenado** por política — fallaba la alineación y puntuaba mal, pero no era la sangría que parecía. La urgencia era menor de lo que se dijo al principio.
+
 **Lo que falta para cerrar el paso a producción:**
-1. **Probar una compra de prueba** con `4242 4242 4242 4242` para ver el webhook entregando en el dominio nuevo de punta a punta. La ruta ya se comprobó viva: un POST sin firma devuelve `400 Firma de webhook inválida`, que es la respuesta correcta.
-2. **SendGrid** — autenticar el dominio (3 CNAME) y solo entonces `EMAIL_FROM=pedidos@valatino.es`. Ver la trampa del DMARC.
-3. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado.
-4. **Revocar los tokens y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`**: el de Render, el de Vercel y las claves de Supabase que se pegaron ahí. ⚠️ La `sb_secret_…` salta el RLS — no debe quedarse en un `.txt` en el disco.
-5. Cuando se pase a **Stripe `live`**: los webhooks son **por modo**, así que hay que crear el de producción desde cero con los 5 eventos y su secret nuevo en Render. Y si algún día se activa Apple Pay, Stripe exige **registrar el dominio**.
+1. ⚠️ **El correo sale autenticado pero cae en SPAM** (Hotmail). Faltan dos registros en GoDaddy y una decisión — ver «El correo llega, pero a spam» en la sesión de abajo:
+   - **TXT `@`** = `v=spf1 include:sendgrid.net ~all` (el dominio del remitente no declara SPF; el subdominio de envío sí)
+   - **MX** — `valatino.es` **no puede recibir correo**, y eso es a la vez el motivo del `Reply-To` postizo y una señal de spam por sí misma
+2. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado.
+2. **Revocar los CINCO secretos y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`**: Vercel (`vcp_`), Render (`rnd_`), SendGrid (`SG.`, que es de **acceso total**, 210 permisos) y las dos de Supabase. ⚠️ La `sb_secret_…` es la que más prisa tiene: **salta el RLS** y puede leer y escribir toda la base de datos.
+3. Cuando se pase a **Stripe `live`**: los webhooks son **por modo**, así que hay que crear el de producción desde cero con los 5 eventos y su secret nuevo en Render. Y si algún día se activa Apple Pay, Stripe exige **registrar el dominio**.
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
@@ -191,6 +202,32 @@ Verificando la compra de prueba del dominio salió un fallo que **no tiene nada 
 La 053 incluye un **backfill conservador**: solo rellena donde se puede afirmar que el dato es el de entonces —hay dirección guardada, tiene teléfono, y **no se ha tocado después** del pedido (`updated_at <= created_at`)—. Recuperó `260805010148`. Los dos pedidos con tarjeta sin dirección guardada quedan en NULL para siempre: ese teléfono no se registró en ningún sitio y copiarlo de otra parte sería inventarse el histórico.
 
 **Cabo suelto**: esto no lo cubre ningún test porque las RPC no están cubiertas (los 292 tests son de la API). Una función que se ha redefinido en la 033, la 040, la 047, la 052 y la 053 es exactamente donde más falta hace.
+
+### ⚠️ El correo llega, pero a spam (abierto al cerrar la sesión)
+
+Reportado por Jonathan tras el cambio de remitente: el correo del pedido **llegó desde `pedidos@valatino.es`** pero **a la carpeta de no deseados** de Hotmail. Lo que dicen los datos, para no confundir síntomas:
+
+```
+SendGrid 2026-08-05:  4 peticiones · 4 entregados · 0 rebotes · 0 bloqueos · 0 quejas · 4 aperturas
+SendGrid 2026-08-06:  4 peticiones · 4 entregados · 0 rebotes · 0 bloqueos · 0 quejas · 4 aperturas
+Supresiones:          limpias · Dominio autenticado: valid=True, los 3 CNAME en verde
+```
+
+**Nada se pierde ni se bloquea.** «Entregado» en SendGrid significa que el servidor del destinatario lo aceptó con un 250, así que un correo «que no llegó» está filtrado en una carpeta, no perdido — conviene mirar la de spam antes de buscar culpables en el envío.
+
+**Las tres causas, por peso:**
+
+1. **El dominio se registró el mismo día.** La antigüedad es una de las señales de spam con más peso y **no la arregla ninguna configuración**: mejora en días o semanas con envío constante y destinatarios que abren y marcan como legítimo. Hotmail/Outlook es especialmente duro con dominios nuevos.
+2. ⚠️ **`valatino.es` no tiene MX**, así que **envía correo pero no puede recibirlo** — patrón clásico de dominio desechable, y penaliza. Es el mismo problema que obligó al `Reply-To`, visto desde el otro lado: resolverlo mata dos pájaros.
+3. **El dominio del remitente no declara SPF.** `em6156.valatino.es` (el de envío) sí tiene `v=spf1 include:sendgrid.net ~all`, pero el apex no tiene TXT ninguno. No es lo que hace pasar el DMARC —eso lo hace el DKIM, que ya alinea— pero varios filtros lo miran.
+
+⚠️ **«No deja responder, solo reenviar» casi seguro NO es nuestro**: Outlook **bloquea la respuesta y los enlaces en los mensajes de junk** hasta que se marca «Es correo legítimo». Pendiente de confirmar leyendo la cabecera `Reply-To` en el origen del mensaje.
+
+⚠️ **Y el «no comprobado» del correo de acceso es OTRA cosa**: ese correo **no lo manda la API**, lo manda **Supabase Auth con su propio remitente**, que no es del dominio. DKIM firma un dominio y el `From` dice otro → no se alinean → «no comprobado». Se arregla en **Supabase → Project Settings → Auth → SMTP Settings → Sender email** poniendo una dirección de `valatino.es`. **Cambiar `EMAIL_FROM` en Render no toca ese correo**, y es fácil creer que sí.
+
+**Lo que falta decidir**: cómo dar buzón al dominio — reenvío de GoDaddy (lo más simple: `pedidos@` → Gmail), Zoho Mail (buzón real gratis, 1 usuario) o Google Workspace (de pago). Con cualquiera desaparece el `EMAIL_REPLY_TO` postizo y se quita la señal de spam.
+
+**Diagnóstico que queda por hacer y decide el camino**: leer `Authentication-Results` en el origen del correo que fue a spam. `dkim=pass dmarc=pass` → es reputación de dominio nuevo, y la cura es tiempo + MX. `dkim=fail` o `dmarc=fail` → hay algo mal configurado.
 
 ### Cómo acabó, y lo que queda
 
