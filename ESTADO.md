@@ -149,8 +149,8 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 | A cero | Conservado |
 |---|---|
 | `pedidos` · `pedido_items` · `pedido_eventos` · `pedido_calificaciones` · `transacciones_pago` · `reembolso_lineas` | **13 productos** con sus fotos, **stock 164 = la factura, descuadre 0** |
-| `carritos` · `carrito_items` · `checkout_datos` · `stock_reservas` | **factura 202521188** con sus **11 líneas** (93,64 € c/IVA) **a nombre del admin** |
-| `direcciones_envio` · `empleados` · `staff_modulos` | **1 proveedor** · **6 cargos** con sus **27 filas de plantilla** · **`ajustes_tienda`** (el IBAN de cobro) |
+| `carritos` · `carrito_items` · `checkout_datos` · `stock_reservas` | ⭐ **TODAS las facturas de compra** y sus líneas — hoy la 202521188 con sus **11 líneas** (93,64 € c/IVA) **a nombre del admin**. Las facturas **nunca** se borran en una limpieza |
+| `direcciones_envio` · `empleados` · `staff_modulos` | **1 proveedor** · **6 cargos** con sus **27 filas de plantilla** · **`ajustes_tienda`** (el IBAN de cobro) · **los PDF del bucket privado `facturas`** |
 | **3 cuentas de cliente** borradas | **1 cuenta**: el súper admin `jonathanduqee+admin@gmail.com` con su perfil |
 
   - Las ventas del 27–28 de julio y las pruebas de Bizum/transferencia del 2 de agosto **ya no están**: sirvieron para validar el circuito y se documentaron, que es lo que quedaba de ellas.
@@ -188,7 +188,10 @@ Lo de siempre, más lo que se aprendió esta vez:
    - `user_roles.asignado_por` es **NO ACTION**: si una cuenta que se va hubiera asignado el rol de otra, el borrado falla. Se verificó que hay **0 filas** con ese campo puesto.
    - `facturas_compra.creado_por` es **SET NULL**: borrar al admin dejaría la factura sin autor. Se verificó que la factura **es del admin**, que es justo la cuenta que se conserva.
    - `pedido_eventos.actor_user_id`, `reembolso_lineas.actor_user_id`, `ajustes_tienda.actualizado_por` y `cargo_modulos.actualizado_por` son **SET NULL**: los cargos y el IBAN sobreviven, solo pierden el autor.
-5. **El inventario se fija desde `factura_compra_items`, no a mano.** Es idempotente y es **la única definición de «como lo dejó la factura»**. Y un producto que no esté en la factura se pone a **0**, no se le deja lo que tuviera.
+5. ⭐ **LAS FACTURAS DE COMPRA NO SE BORRAN NUNCA, ninguna.** No es que la 202521188 esté en una lista blanca: `facturas_compra`, `factura_compra_items` y los PDF del bucket privado `facturas` **no aparecen en el borrado**, y no deben aparecer. Son el documento contable de lo que se compró y el origen del inventario. Cualquier factura que se suba en el futuro sobrevive a la limpieza sin hacer nada.
+   - ⚠️ Lo único que puede perder una factura es **su autor**: `creado_por` es **SET NULL**, así que si la subió una cuenta que luego se borra en una limpieza, la factura queda sin quién la registró. Con las facturas del admin no pasa, porque el admin se conserva siempre.
+6. **El inventario se fija desde `factura_compra_items`, no a mano.** Es idempotente y es **la única definición de «como lo dejaron las facturas»**. Y un producto que no esté en ninguna factura se pone a **0**, no se le deja lo que tuviera.
+   - ⭐ **Con varias facturas encaja solo, y conviene entender por qué**: `registrar_factura_compra` hace `stock_disponible = stock_disponible + cantidad` al subirla, y la limpieza lo reinicia a la **suma de TODAS las líneas de TODAS las facturas**. Es coherente: la limpieza borra todas las ventas, así que si no se ha vendido nada, en la estantería está todo lo comprado. **No hay que ajustar nada al añadir facturas nuevas.**
 6. **Decidir explícitamente qué es configuración y qué son datos de prueba.** Los **cargos con sus plantillas** y **`ajustes_tienda`** no estaban en la petición, y borrarlos habría obligado a reconfigurar los permisos de 6 cargos y a reteclear el IBAN —apagando el pago por transferencia hasta entonces—. Se preguntó y se conservaron.
 
 ---
