@@ -112,7 +112,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **053** (el teléfono que la 047 se llevó de `confirmar_venta`; ver sesión 2026-08-05). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **056** (desempaquetar bultos en unidades). Del 2026-08-06 salieron tres: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, y **056** `desempaquetados` + la RPC. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -158,7 +158,75 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **292 tests en la API** (`pnpm --filter @valatino/api test`); **la web sigue sin tests** y eso es hoy el hueco más grande. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **316 tests: 299 en la API y 17 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), de momento solo sobre lógica pura de `lib/`; los componentes siguen sin cubrir. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-06 (cont. 2) — Catálogo: borradores, factura única, desempaquetar y formatos
+
+Cuatro cosas encadenadas, todas nacidas de subir **la segunda factura de compra** (`202521893`, 12 líneas, 172 uds, 115,78 € c/IVA).
+
+### 1. Crear un producto que falta sin salir de la factura
+
+Al registrar la factura aparece mercancía que no está en el catálogo, y había que abandonar el formulario a medias, ir a Catálogo, crear el producto —sin tener la foto a mano— y volver a empezar.
+
+**`activo: false` era la pieza que ya existía** y significa exactamente lo que hacía falta: está en el almacén pero no en la tienda. Por eso da igual que no haya foto ni precio definitivo. La última opción del desplegable de cada línea abre un modal de tres campos y deja el producto seleccionado en **esa** línea.
+
+- **No hizo falta nada nuevo por debajo**: `CreateProductoDto` ya aceptaba `activo` e `imagenes` vacío (la columna tiene `default '{}'`), y el desplegable de compras y el catálogo del panel ya cargaban con `soloActivos=false`.
+- ⚠️ **El precio se pide aunque sea provisional** (`CHECK (precio > 0)`), y **a propósito no se rellena con el costo de la factura**: un precio que parece puesto es un precio que nadie revisa, y así se acaba vendiendo al costo.
+- **Funcionó**: 6 productos creados sin salir del formulario, con su stock dentro y **ninguno visible para los clientes**.
+- ⚠️ El primer intento se puso como enlace debajo del `select` y quedaba pegado a «Añadir línea». Jonathan lo rechazó y pasó a ser **la última opción del propio desplegable**, con un centinela que **nunca se guarda en el estado**: así cancelar no deja la línea apuntando a un valor que no existe.
+
+### 2. ⚠️ El número de factura, obligatorio y único (migraciones 054 y 055)
+
+**Lo que protege no es el orden del dato: registrar dos veces la misma factura DUPLICA EL STOCK**, porque `registrar_factura_compra` suma las unidades de cada línea. Un doble clic o no acordarse de si ya se subió metía unidades que no existen en el almacén, y eso no se descubre hasta que falta mercancía para servir un pedido.
+
+⚠️⚠️ **Y la lección de cómo se descubrió que la 054 no bastaba**: al **probarla** en el remoto, `'202521188'` se rechazaba pero **`'202521188 '` con un espacio final entraba** como factura distinta. El índice iba sobre `upper(numero_factura)` sin recortar. La API sí recortaba, así que por el formulario no podía pasar — pero **una restricción que depende de que la aplicación limpie el dato no es una restricción**: cualquier script, el editor SQL o un endpoint futuro se la salta. La **055** lo pasa a `upper(trim(...))` y añade un CHECK contra el número en blanco, porque `NOT NULL` acepta `''` y `'   '`.
+
+- El `23505` se traduce a un **409** que dice que esa compra ya está registrada, no a un «duplicate key».
+- ⚠️ **La unicidad es GLOBAL a sabiendas.** En contabilidad el número es único **por emisor**, así que dos proveedores podrían colisionar legítimamente. Hoy hay uno y la protección vale más. La alternativa —`(proveedor_id, upper(trim(...)))`— **exigiría hacer el proveedor obligatorio primero**: en un índice único los NULL son distintos entre sí, así que las facturas sin proveedor se quedarían sin protección.
+
+### 3. Caja vs unidad: desempaquetar (migración 056)
+
+Jonathan compra la **caja** de Quipitos pero quiere vender también la **unidad**.
+
+⚠️ **El problema de fondo**: caja y unidad comparten la misma mercancía física. Con dos productos y stock independiente, vender una unidad no descuenta nada de la caja, así que se venden unidades que están dentro de una caja ya vendida.
+
+**Lo que se descartó**: un solo stock con factores de conversión, que es el modelo correcto en abstracto. Mete la conversión dentro de `reservar_carrito`, `confirmar_venta`, `stock_reservas` y los reembolsos con reposición — **la ruta por la que pasa el dinero**, y justo los invariantes que costó arreglar en la 052. Misma razón por la que los sabores tampoco son variantes en BD.
+
+**Lo que se hizo**: la operación que ocurre de verdad en la tienda — **abrir una caja**. `−1 caja → +N unidades` en una transacción, con tabla `desempaquetados` que registra qué, cuánto y quién (con los nombres en snapshot, como `pedido_items`).
+
+⚠️⚠️ **CLAVE DEL MODELO DE STOCK, y me lo dijo el código y no la intuición: `stock_disponible` YA es el stock libre.** `reservar_carrito` hace `stock_disponible − cantidad` **y** `stock_reservado + cantidad`: reservar **MUEVE** unidades de un cubo al otro, no marca un subconjunto. Por eso `stock_disponible >= bultos` basta para no desempaquetar cajas reservadas en un checkout. Iba a restar lo reservado y habría permitido desempaquetar mercancía comprometida. **Si esto cambia, revisar la comprobación.**
+
+- Las dos filas se bloquean **en orden de id**: dos desempaquetados cruzados que las tomaran al revés se bloquearían entre sí.
+- **Probado en transacción revertida**: 2 bultos de 12 mueven la caja 24→22 y la unidad 36→60 con su apunte, y se rechazan sin stock, mismo producto, bultos 0 y factor negativo. Verificado después que no quedó rastro.
+
+### 4. ⚠️ Lo que Jonathan quería de verdad no era eso
+
+Yo entendí «poder vender los dos formatos»; él quería que **el CLIENTE eligiera** entre 4 unidades o 1 caja **en la misma ficha**. No es lo mismo: desempaquetar es una operación de almacén que el cliente no ve.
+
+Se resolvió con el truco que la tienda **ya usaba para los sabores**: productos independientes + **agrupado visual** con selector. Es trabajo de escaparate, no de checkout — el carrito guarda «2 × Quipitos Caja 24» como cualquier producto.
+
+`lib/productos/sabores.ts` se generalizó a **`variantes.ts`** con la palabra clave como parámetro (`Sabor` / `Formato`). Cambios de fondo: el **tipo entra en la clave del grupo** (un sabor no agrupa con un formato), el discriminante de `ItemCatalogo` pasa de `tipo` a **`clase`** (tener dos `tipo` a un nivel de distancia es de donde salen los bugs que se leen bien), y plural explícito.
+
+⚠️ **La limitación que esto NO arregla**: los stocks van por separado. Con 2 cajas y 0 unidades sueltas el cliente **no puede comprar unidades** aunque haya 48 dentro. **El selector es el escaparate; desempaquetar es el almacén.** Se complementan, no se sustituyen.
+
+### ⭐ PRIMEROS TESTS DE LA WEB (17) — y por qué aquí
+
+Era el hueco más grande del proyecto. Se montaron **porque hacían falta**: se estaba refactorizando lógica que ya corría en producción y que ven los clientes, sin ninguna red. La mitad existen solo para **demostrar que el comportamiento de los sabores no cambió**.
+
+**Y se pagaron en la primera ejecución**: cazaron que `"sabor" + "s"` daba **«3 sabors»** en la tarjeta del catálogo. En español las palabras acabadas en consonante hacen el plural en `-es`. Eso habría llegado a los clientes.
+
+- `apps/web/jest.config.js`, `pnpm --filter @valatino/web test`, y `pnpm turbo test` ya cubre los dos paquetes. **316 tests** (299 API + 17 web).
+- De momento solo **lógica pura** (`lib/`). Para componentes haría falta `jsdom` + `@testing-library/react`; no se añade hasta que se necesite.
+
+### ⚠️ ABIERTO: la convención de nombres no le sirve a Jonathan
+
+Al ir a usarlo lo rechazó, y con razón: sus productos se llaman **«Quipitos Pops Caja 24 Unidades»** y **«Quipitos Pops C/U»**, no «Quipitos Formato Caja 24».
+
+> **Forzar el nombre del producto para que el código pueda parsearlo es hacerlo al revés.** El nombre es del negocio; el agrupado es un dato del sistema y tiene que ser explícito.
+
+La convención fue un atajo razonable cuando solo había sabores y encajaba en el nombre. Con formatos deja de encajar. **Lo siguiente es campos propios en `productos`** (familia + variante), con la lógica leyendo columnas en vez de partir cadenas, y backfill de los que hoy siguen la convención.
 
 ---
 
