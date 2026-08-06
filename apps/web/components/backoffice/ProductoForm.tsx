@@ -7,10 +7,16 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { CATEGORIAS_PRODUCTO, type Producto } from "@valatino/types";
+import { CATEGORIAS_PRODUCTO, TIPOS_VARIANTE, type Producto } from "@valatino/types";
 
 interface ProductoFormProps {
   producto: Producto | null;
+  /**
+   * Familias que ya existen, para sugerirlas al escribir. Sin esto se acaba con
+   * «Quipitos Pops» y «Quipitos pops» como dos familias distintas, y el grupo
+   * partido en dos sin que se vea por qué.
+   */
+  familias?: string[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -42,7 +48,7 @@ async function procesarImagen(file: File): Promise<Blob> {
   });
 }
 
-export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) {
+export function ProductoForm({ producto, familias = [], onClose, onSaved }: ProductoFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [imagenFile, setImagenFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(producto?.imagenes[0] ?? null);
@@ -98,6 +104,13 @@ export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) 
 
       // 2. Crear/actualizar el producto con las URLs en la nube. Sin stock:
       //    los productos nacen a 0 y las unidades entran por Inventario/Facturas.
+      // Familia y variante van LOS DOS o NINGUNO (CHECK de la 057): una familia
+      // sin variante pintaría una pastilla vacía. Se resuelve aquí para que no
+      // haya que entender la restricción al rellenar el formulario.
+      const familiaNombre = (formData.get("familia") as string).trim();
+      const variante = (formData.get("variante") as string).trim();
+      const agrupado = familiaNombre !== "" && variante !== "";
+
       const payload = {
         nombre: formData.get("nombre") as string,
         descripcion: formData.get("descripcion") as string,
@@ -105,6 +118,9 @@ export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) 
         categoria: formData.get("categoria") as string,
         imagenes: familiaUrl ? [imagenUrl, familiaUrl] : [imagenUrl],
         activo: formData.get("activo") === "on",
+        familia: agrupado ? familiaNombre : null,
+        variante: agrupado ? variante : null,
+        variante_tipo: agrupado ? (formData.get("variante_tipo") as string) : null,
       };
 
       await apiFetch(producto ? `/productos/${producto.id}` : "/productos", {
@@ -133,6 +149,71 @@ export function ProductoForm({ producto, onClose, onSaved }: ProductoFormProps) 
         <div className="col-span-2 space-y-1">
           <Label htmlFor="descripcion">Descripción</Label>
           <Input id="descripcion" name="descripcion" defaultValue={producto?.descripcion ?? ""} />
+        </div>
+
+        {/*
+          Presentaciones del mismo artículo. El NOMBRE es libre —«Quipitos Pops
+          C/U»—: lo que los hace hermanos es la familia, no que el nombre siga
+          ninguna convención.
+        */}
+        <div className="col-span-2 rounded-lg border bg-muted/30 p-3 space-y-3">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium">¿Es una presentación de otro producto?</p>
+            <p className="text-xs text-muted-foreground">
+              Para vender lo mismo en caja y en unidad, o en varios sabores. Rellena los dos campos
+              y la tienda mostrará <strong className="font-medium">una sola tarjeta</strong> con un
+              selector. Déjalos vacíos si es un producto suelto.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="familia">Familia</Label>
+              <Input
+                id="familia"
+                name="familia"
+                list="familias-existentes"
+                placeholder="Quipitos Pops"
+                maxLength={200}
+                defaultValue={producto?.familia ?? ""}
+              />
+              <datalist id="familias-existentes">
+                {familias.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
+              <p className="text-xs text-muted-foreground">
+                El nombre común. Es el título que verá el cliente.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="variante">Esta presentación</Label>
+              <Input
+                id="variante"
+                name="variante"
+                placeholder="C/U"
+                maxLength={100}
+                defaultValue={producto?.variante ?? ""}
+              />
+              <p className="text-xs text-muted-foreground">
+                Lo que el cliente elige: «C/U», «Caja 24 unidades», «Fresa»…
+              </p>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="variante_tipo">En qué se diferencian</Label>
+            <select
+              id="variante_tipo"
+              name="variante_tipo"
+              defaultValue={producto?.variante_tipo ?? "formato"}
+              className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring sm:w-48"
+            >
+              {TIPOS_VARIANTE.map((t) => (
+                <option key={t} value={t}>
+                  {t === "formato" ? "Formato (caja, unidad…)" : "Sabor"}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="space-y-1">
           <Label htmlFor="precio">Precio (EUR)</Label>

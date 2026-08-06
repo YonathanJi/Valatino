@@ -14,7 +14,7 @@ import {
   Min,
   NotEquals,
 } from "class-validator";
-import { CATEGORIAS_PRODUCTO } from "@valatino/types";
+import { CATEGORIAS_PRODUCTO, TIPOS_VARIANTE, type TipoVariante } from "@valatino/types";
 
 const MENSAJE_CATEGORIA = `La categoría debe ser una de: ${CATEGORIAS_PRODUCTO.join(", ")}`;
 
@@ -57,6 +57,28 @@ export class CreateProductoDto {
     message: "slug debe ser kebab-case (minúsculas, números y guiones)",
   })
   slug?: string;
+
+  /**
+   * Familia, variante y tipo: **los tres o ninguno** (CHECK de la 057). Es lo que
+   * declara que dos productos son el mismo artículo en dos presentaciones, y
+   * sustituye a la vieja convención de meterlo en el nombre.
+   *
+   * Se validan por separado porque el DTO no puede expresar «los tres juntos»;
+   * la base de datos es la que lo garantiza de verdad.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  familia?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  variante?: string | null;
+
+  @IsOptional()
+  @IsIn(TIPOS_VARIANTE, { message: "variante_tipo debe ser 'sabor' o 'formato'" })
+  variante_tipo?: TipoVariante | null;
 }
 
 export class UpdateProductoDto {
@@ -96,6 +118,21 @@ export class UpdateProductoDto {
     message: "slug debe ser kebab-case (minúsculas, números y guiones)",
   })
   slug?: string;
+
+  /** Ver `CreateProductoDto`. `null` en los tres saca al producto de su familia. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  familia?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  variante?: string | null;
+
+  @IsOptional()
+  @IsIn(TIPOS_VARIANTE, { message: "variante_tipo debe ser 'sabor' o 'formato'" })
+  variante_tipo?: TipoVariante | null;
 }
 
 export class AjustarStockDto {

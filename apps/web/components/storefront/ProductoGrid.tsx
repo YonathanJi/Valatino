@@ -41,12 +41,7 @@ export async function ProductoGrid() {
         item.clase === "producto" ? (
           <ProductoCard key={item.producto.id} producto={item.producto} />
         ) : (
-          <ProductoCardVariantes
-            key={`grupo-${item.grupo.productos[0]!.id}`}
-            base={item.grupo.base}
-            tipo={item.grupo.tipo}
-            productos={item.grupo.productos}
-          />
+          <ProductoCardVariantes key={`grupo-${item.grupo.productos[0]!.id}`} grupo={item.grupo} />
         ),
       )}
     </div>

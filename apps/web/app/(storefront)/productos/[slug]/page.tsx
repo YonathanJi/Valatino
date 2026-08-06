@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
-import { hermanosDeVariante, partirNombrePorVariante } from "@lib/productos/variantes";
+import { hermanosDeVariante, tieneVariante } from "@lib/productos/variantes";
 import { formatEUR } from "@lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -20,9 +20,9 @@ async function getProducto(slug: string): Promise<Producto | null> {
   }
 }
 
-/** Variantes del producto —sabores o formatos— para el selector de la ficha */
+/** Presentaciones de la misma familia, para el selector de la ficha */
 async function getHermanos(producto: Producto): Promise<Producto[]> {
-  if (!partirNombrePorVariante(producto.nombre)) return [];
+  if (!tieneVariante(producto)) return [];
   try {
     const res = await fetch(`${API_URL}/productos?limit=100`, {
       next: { revalidate: 60 },
@@ -54,7 +54,7 @@ export default async function ProductoPage({ params }: Props) {
 
   const agotado = producto.stock_disponible <= 0;
   const hermanos = await getHermanos(producto);
-  const variante = partirNombrePorVariante(producto.nombre);
+  const esVariante = tieneVariante(producto);
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-12">
@@ -83,21 +83,22 @@ export default async function ProductoPage({ params }: Props) {
             {producto.categoria}
           </p>
           <h1 className="text-3xl font-bold">
-            {hermanos.length > 0 && variante ? variante.base : producto.nombre}
+            {hermanos.length > 0 && esVariante ? producto.familia : producto.nombre}
           </h1>
           {producto.descripcion && (
             <p className="text-muted-foreground leading-relaxed">{producto.descripcion}</p>
           )}
 
-          {/* Selector de variante: "Producto Sabor X" o "Producto Formato Y" */}
-          {hermanos.length > 0 && variante && (
+          {/* Selector de presentación: se declara en `familia`/`variante` (057) */}
+          {hermanos.length > 0 && esVariante && (
             <div className="space-y-2">
-              <p className="text-sm font-medium capitalize">
-                {variante.tipo}: <span className="text-muted-foreground">{variante.valor}</span>
+              <p className="text-sm font-medium">
+                <span className="capitalize">{producto.variante_tipo}</span>:{" "}
+                <span className="text-muted-foreground">{producto.variante}</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {hermanos.map((h) => {
-                  const valor = partirNombrePorVariante(h.nombre)?.valor ?? h.nombre;
+                  const valor = h.variante ?? h.nombre;
                   const esActual = h.id === producto.id;
                   return esActual ? (
                     <span

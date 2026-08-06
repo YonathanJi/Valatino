@@ -3,29 +3,23 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import type { Producto } from "@valatino/types";
-import {
-  etiquetaVariantes,
-  partirNombrePorVariante,
-  type TipoVariante,
-} from "@lib/productos/variantes";
+import { etiquetaVariantes, type GrupoVariantes } from "@lib/productos/variantes";
 import { formatEUR } from "@lib/utils";
 
 interface ProductoCardVariantesProps {
-  base: string;
-  tipo: TipoVariante;
-  productos: Producto[];
+  grupo: GrupoVariantes;
 }
 
 /**
- * Tarjeta de catálogo para un grupo de variantes —sabores o formatos—: una sola
- * tarjeta con el nombre base y acceso a la ficha, donde se elige la variante.
+ * Tarjeta de catálogo para una familia con varias presentaciones: una sola
+ * tarjeta con el nombre de la familia y acceso a la ficha, donde se elige.
  *
- * Antes era `ProductoCardSabores` y solo servía para sabores. Se generalizó al
- * añadir los formatos (caja / unidad), que necesitan exactamente lo mismo:
- * el cliente ve un producto y elige antes de indicar la cantidad.
+ * El título es la **familia declarada** (`Quipitos Pops`), no un trozo del
+ * nombre: los nombres reales son los del negocio («Quipitos Pops Caja 24
+ * Unidades») y no tienen por qué compartir prefijo.
  */
-export function ProductoCardVariantes({ base, tipo, productos }: ProductoCardVariantesProps) {
+export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
+  const { familia: base, tipo, productos } = grupo;
   const disponible = productos.find((p) => p.stock_disponible > 0);
   const representante = disponible ?? productos[0]!;
   const agotado = !disponible;
@@ -39,9 +33,7 @@ export function ProductoCardVariantes({ base, tipo, productos }: ProductoCardVar
   const precioMin = Math.min(...precios);
   const preciosVarian = Math.max(...precios) !== precioMin;
 
-  const valores = productos
-    .map((p) => partirNombrePorVariante(p.nombre)?.valor)
-    .filter(Boolean) as string[];
+  const valores = productos.map((p) => p.variante);
 
   return (
     <motion.article

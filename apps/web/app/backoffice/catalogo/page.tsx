@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@lib/api/client";
 import { ProductoTabla } from "@components/backoffice/ProductoTabla";
 import { ProductoForm } from "@components/backoffice/ProductoForm";
@@ -19,6 +19,20 @@ export default function BackofficeCatalogoPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Producto | null>(null);
+
+  // Familias ya usadas, para sugerirlas en el formulario: escribirla a mano cada
+  // vez acaba con «Quipitos Pops» y «Quipitos pops» partiendo el grupo en dos.
+  const familias = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          productos
+            .filter((p) => p.familia?.trim())
+            .map((p) => [p.familia!.trim().toLowerCase(), p.familia!.trim()]),
+        ).values(),
+      ).sort((a, b) => a.localeCompare(b, "es")),
+    [productos],
+  );
 
   const loadProductos = async () => {
     try {
@@ -49,6 +63,7 @@ export default function BackofficeCatalogoPage() {
       {showForm && puedeEditar && (
         <ProductoForm
           producto={editing}
+          familias={familias}
           onClose={() => setShowForm(false)}
           onSaved={() => { setShowForm(false); void loadProductos(); }}
         />

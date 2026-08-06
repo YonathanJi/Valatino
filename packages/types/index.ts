@@ -350,6 +350,13 @@ export function formatearTelefono(valor: string | null | undefined): string {
   return `${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7)}`;
 }
 
+/**
+ * Cómo se llama la diferencia entre dos presentaciones del mismo artículo. Solo
+ * afecta al texto del selector: «Formato: C/U» o «Sabor: Fresa».
+ */
+export const TIPOS_VARIANTE = ["sabor", "formato"] as const;
+export type TipoVariante = (typeof TIPOS_VARIANTE)[number];
+
 export interface Producto {
   id: string;
   nombre: string;
@@ -361,6 +368,18 @@ export interface Producto {
   stock_reservado: number;
   activo: boolean;
   slug: string | null;
+  /**
+   * Agrupa presentaciones del mismo artículo —«Quipitos Pops» para la caja y la
+   * unidad—, y es el título que ve el cliente. `null` = producto suelto.
+   *
+   * Vive en su propia columna y **no se deduce del nombre** (migración 057): el
+   * nombre es del negocio, y obligar a llamar «Quipitos Formato C/U» a algo que
+   * se llama «Quipitos Pops C/U» era hacerlo al revés.
+   */
+  familia: string | null;
+  /** Etiqueta de esta presentación en el selector: «C/U», «Caja 24 unidades» */
+  variante: string | null;
+  variante_tipo: TipoVariante | null;
   created_at: string;
   updated_at: string;
 }
