@@ -112,7 +112,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **056** (desempaquetar bultos en unidades). Del 2026-08-06 salieron tres: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, y **056** `desempaquetados` + la RPC. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -220,13 +220,42 @@ Era el hueco más grande del proyecto. Se montaron **porque hacían falta**: se 
 - `apps/web/jest.config.js`, `pnpm --filter @valatino/web test`, y `pnpm turbo test` ya cubre los dos paquetes. **316 tests** (299 API + 17 web).
 - De momento solo **lógica pura** (`lib/`). Para componentes haría falta `jsdom` + `@testing-library/react`; no se añade hasta que se necesite.
 
-### ⚠️ ABIERTO: la convención de nombres no le sirve a Jonathan
+### ⭐ 5. La convención de nombres fuera: campos propios (migración 057)
 
-Al ir a usarlo lo rechazó, y con razón: sus productos se llaman **«Quipitos Pops Caja 24 Unidades»** y **«Quipitos Pops C/U»**, no «Quipitos Formato Caja 24».
+Al ir a usarlo Jonathan lo rechazó, y con razón: sus productos se llaman **«Quipitos Pops Caja 24 Unidades»** y **«Quipitos Pops C/U»**, no «Quipitos Formato Caja 24».
 
-> **Forzar el nombre del producto para que el código pueda parsearlo es hacerlo al revés.** El nombre es del negocio; el agrupado es un dato del sistema y tiene que ser explícito.
+> ⚠️ **Forzar el nombre del producto para que el código pueda parsearlo es hacerlo al revés.** El nombre es del negocio; que dos productos sean el mismo artículo en dos presentaciones es un dato del sistema y tiene que ser explícito.
 
-La convención fue un atajo razonable cuando solo había sabores y encajaba en el nombre. Con formatos deja de encajar. **Lo siguiente es campos propios en `productos`** (familia + variante), con la lógica leyendo columnas en vez de partir cadenas, y backfill de los que hoy siguen la convención.
+La convención fue un atajo razonable cuando solo había sabores y encajaba en el nombre («Galleta Festival Sabor Fresa» se lee bien). Con los formatos dejó de encajar, y **eso era la señal**.
+
+| Columna | Para qué |
+|---|---|
+| `familia` | Qué los hace hermanos, y **el título que ve el cliente** («Quipitos Pops») |
+| `variante` | La etiqueta de la pastilla que elige («C/U», «Caja 24 unidades») |
+| `variante_tipo` | Solo decide si la ficha dice «Formato:» o «Sabor:» |
+
+- **CHECK: los tres o ninguno.** Una familia sin variante pintaría una pastilla vacía; una variante sin familia no tiene con quién agruparse. El formulario lo resuelve solo, para no tener que entender la restricción al rellenarlo.
+- **Se agrupa SOLO por familia, sin exigir la misma categoría**: si alguien la escribió, lo dijo a propósito, y exigir la categoría solo daría grupos partidos en dos sin explicación visible.
+- Índice sobre `lower(trim(familia))` + agrupado que ignora mayúsculas y espacios + **datalist de familias ya usadas**: sin eso se acaba con «Quipitos Pops» y «Quipitos pops» como dos familias.
+- ⚠️ **Se ELIMINÓ el parseo del nombre** en vez de dejarlo como respaldo: dos mecanismos para lo mismo acaban divergiendo, y el que se olvida es el que falla. Backfill verificado: las 4 Galleta Festival y el Jugo Hit quedaron con su familia, el resto como productos sueltos.
+
+### ⚠️ Y el formulario, rediseñado a la segunda: el orden de las preguntas ERA el problema
+
+Jonathan: *«este menú es confuso […] lo que dices en qué se diferencia no lo entiendo si ya dije si era caja o unidad»*.
+
+**Tenía razón y era culpa del diseño**: el formulario le preguntaba algo que solo le hace falta al código (`variante_tipo`) y **se lo preguntaba DESPUÉS de que hubiera escrito «C/U»**, cuando ya lo había dicho. **Preguntar al final lo que condiciona lo de antes es lo que lo hacía confuso.**
+
+Ahora va de general a concreto, como se piensa: **1)** ¿es otra presentación? No/Sí · **2)** familia · **3)** ¿qué cambia, la cantidad o el sabor? · **4)** el valor, **que se adapta** — desplegable de envases si cambia la cantidad, texto libre si cambia el sabor.
+
+- El desplegable no podía enumerar todas las cantidades («Caja 24 unidades»), así que se parte en **envase + cuántas** y la etiqueta se arma sola (`etiquetaFormato`). Al editar se reparte al revés, y **si no reconoce el patrón va a texto libre** en vez de inventarse un envase y perder lo escrito.
+- Se muestra **lo que verá el cliente, en sus palabras** («En la tienda: «Quipitos Pops», y este se elegirá como «Caja 24 unidades»»). Es lo que hace que el formulario se explique solo sin leer las ayudas.
+- ⚠️ **La regla que sale de aquí**: si un campo existe solo porque el código lo necesita, o se pregunta **antes** de lo que condiciona, o no se pregunta.
+
+### ⚠️ Dos cosas de operar con esto, que parecen bugs y no lo son
+
+1. **La tienda tarda hasta un minuto en reflejar un cambio del catálogo.** La ficha pide los datos con `revalidate: 60` y Next sirve la copia guardada mientras refresca por detrás. Jonathan creó el segundo formato, entró, y vio la ficha **generada cuando el hermano todavía no existía** — sin selector. Su primera visita fue la que disparó la actualización; la segunda ya salió bien. **No se toca**: ese minuto es lo que evita consultar la BD en cada visita. Solo hay que saberlo antes de dar algo por roto.
+2. ⚠️ **`update` NO regenera el slug al renombrar.** Los dos Quipitos acabaron cruzados: la caja vivía en `/productos/quipito-pops-unidad`. Se corrigieron a mano (`quipitos-pops-caja-24-unidades` y `quipitos-pops-unidad`) junto con una errata del nombre, y se auditó el catálogo entero: **20 productos, 0 sin slug, 0 con el slug descuadrado del nombre**.
+   - **Y se deja así a propósito**: regenerar el slug al renombrar **rompe cualquier enlace que alguien haya guardado o compartido**. Si algún día se hace, hará falta conservar el slug viejo y redirigir, no sustituirlo.
 
 ---
 
