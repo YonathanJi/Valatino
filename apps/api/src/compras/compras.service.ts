@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -29,12 +30,20 @@ export class ComprasService {
    */
   async crear(params: {
     pdf: Buffer;
-    numeroFactura?: string;
+    numeroFactura: string;
     proveedorId?: string;
     notas?: string;
     items: CompraItemInput[];
     creadoPor: string;
   }): Promise<FacturaCompra> {
+    // Se recorta aquí y no solo en el formulario: un espacio de sobra convertiría
+    // dos veces el mismo número en dos números distintos, y el único de la 054 va
+    // sobre el valor guardado.
+    const numeroFactura = params.numeroFactura.trim();
+    if (!numeroFactura) {
+      throw new BadRequestException("El número de la factura es obligatorio");
+    }
+
     const pdfPath = `${new Date().getFullYear()}/${randomUUID()}.pdf`;
 
     const { error: uploadError } = await this.supabase.storage
@@ -56,7 +65,7 @@ export class ComprasService {
           costo_unitario: i.costoUnitario,
           iva_pct: i.ivaPct,
         })),
-        p_numero_factura: params.numeroFactura ?? null,
+        p_numero_factura: numeroFactura,
         p_proveedor_id: params.proveedorId ?? null,
         p_notas: params.notas ?? null,
         p_creado_por: params.creadoPor,
@@ -66,6 +75,17 @@ export class ComprasService {
     if (rpcError) {
       await this.supabase.storage.from(BUCKET_FACTURAS).remove([pdfPath]);
       this.logger.error(`Error al registrar compra de mercancía: ${rpcError.message}`);
+
+      // El número repetido es el caso que va a pasar de verdad —un doble clic, un
+      // reintento, o no acordarse de si ya se subió— y merece un mensaje que diga
+      // qué ocurrió, no un `23505 duplicate key`. Y va como 409: no es que la
+      // petición esté mal formada, es que esa compra ya existe.
+      if (rpcError.code === "23505") {
+        throw new ConflictException(
+          `Ya hay una compra registrada con el número «${numeroFactura}». Si es otra factura, revisa el número; si es la misma, ya está en el inventario.`,
+        );
+      }
+
       // Mensajes de la RPC (producto no encontrado, cantidad inválida) son accionables
       throw new BadRequestException(rpcError.message);
     }

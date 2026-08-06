@@ -69,7 +69,9 @@ export class ComprasController {
 
     return this.comprasService.crear({
       pdf: pdf.buffer,
-      numeroFactura: dto.numeroFactura?.trim() || undefined,
+      // Obligatorio desde la 054; el recorte definitivo lo hace el servicio,
+      // que es quien tiene que garantizarlo aunque se le llame desde otro sitio.
+      numeroFactura: dto.numeroFactura,
       proveedorId: dto.proveedorId || undefined,
       notas: dto.notas?.trim() || undefined,
       items: parsed.data,

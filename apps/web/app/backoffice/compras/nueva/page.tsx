@@ -23,6 +23,13 @@ interface Linea {
 const IVA_OPCIONES = [4, 10, 21] as const;
 const LINEA_NUEVA: Linea = { productoId: "", cantidad: 1, costoUnitario: NaN, ivaPct: 10 };
 
+/**
+ * Valor centinela de la última opción del desplegable de productos: no es un
+ * producto, es «crear uno nuevo». No puede colisionar con un id porque los ids
+ * son UUID.
+ */
+const OPCION_PRODUCTO_NUEVO = "__nuevo__";
+
 export default function NuevaCompraPage() {
   const router = useRouter();
 
@@ -98,17 +105,21 @@ export default function NuevaCompraPage() {
   const lineasValidas = lineas.filter(
     (l) => l.productoId && l.cantidad > 0 && !Number.isNaN(l.costoUnitario) && l.costoUnitario >= 0,
   );
-  const puedeEnviar = Boolean(pdf) && lineasValidas.length === lineas.length && !isSaving;
+  const puedeEnviar =
+    Boolean(pdf) &&
+    numeroFactura.trim() !== "" &&
+    lineasValidas.length === lineas.length &&
+    !isSaving;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pdf || lineasValidas.length === 0) return;
+    if (!pdf || !numeroFactura.trim() || lineasValidas.length === 0) return;
 
     setIsSaving(true);
     try {
       const form = new FormData();
       form.append("pdf", pdf);
-      if (numeroFactura.trim()) form.append("numeroFactura", numeroFactura.trim());
+      form.append("numeroFactura", numeroFactura.trim());
       if (proveedor) form.append("proveedorId", proveedor.id);
       if (notas.trim()) form.append("notas", notas.trim());
       form.append(
@@ -245,22 +256,39 @@ export default function NuevaCompraPage() {
             <p className="text-xs text-muted-foreground">Máximo 10 MB</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <input
-              type="text"
-              placeholder="Nº de factura (opcional)"
-              value={numeroFactura}
-              onChange={(e) => setNumeroFactura(e.target.value)}
-              maxLength={100}
-              className="rounded-lg border px-3 py-2 text-sm bg-background"
-            />
-            <input
-              type="text"
-              placeholder="Notas (opcional)"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-              maxLength={2000}
-              className="rounded-lg border px-3 py-2 text-sm bg-background"
-            />
+            <div className="space-y-1.5">
+              <label htmlFor="numero-factura" className="text-sm font-medium">
+                Nº de factura <span className="text-destructive">*</span>
+              </label>
+              <input
+                id="numero-factura"
+                type="text"
+                placeholder="Ej. 202521188"
+                value={numeroFactura}
+                onChange={(e) => setNumeroFactura(e.target.value)}
+                maxLength={100}
+                required
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+              />
+              <p className="text-xs text-muted-foreground">
+                No puede repetirse: es lo que evita registrar la misma compra dos veces y duplicar
+                el stock.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="notas-compra" className="text-sm font-medium">
+                Notas
+              </label>
+              <input
+                id="notas-compra"
+                type="text"
+                placeholder="Opcional"
+                value={notas}
+                onChange={(e) => setNotas(e.target.value)}
+                maxLength={2000}
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+              />
+            </div>
           </div>
         </div>
 
@@ -305,33 +333,35 @@ export default function NuevaCompraPage() {
                   key={idx}
                   className="grid grid-cols-2 sm:grid-cols-[1fr_5rem_8rem_5rem_6.5rem_2rem] gap-2 items-center"
                 >
-                  <div className="col-span-2 sm:col-span-1 space-y-1">
-                    <select
-                      value={linea.productoId}
-                      onChange={(e) => setLinea(idx, { productoId: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
-                    >
-                      <option value="" disabled>
-                        Selecciona un producto…
+                  <select
+                    value={linea.productoId}
+                    onChange={(e) => {
+                      // La última opción no es un producto, es una acción: abre el
+                      // modal y deja el desplegable como estaba. Al no guardar
+                      // nunca el centinela en el estado, cancelar no deja la
+                      // línea en un valor que no existe.
+                      if (e.target.value === OPCION_PRODUCTO_NUEVO) {
+                        setLineaCreandoProducto(idx);
+                        return;
+                      }
+                      setLinea(idx, { productoId: e.target.value });
+                    }}
+                    required
+                    className="col-span-2 sm:col-span-1 rounded-lg border px-3 py-2 text-sm bg-background"
+                  >
+                    <option value="" disabled>
+                      Selecciona un producto…
+                    </option>
+                    {productos.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                        {p.activo ? "" : " · borrador"}
                       </option>
-                      {productos.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nombre}
-                          {p.activo ? "" : " · borrador"}
-                        </option>
-                      ))}
-                    </select>
+                    ))}
                     {puedeCrearProducto && (
-                      <button
-                        type="button"
-                        onClick={() => setLineaCreandoProducto(idx)}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        ＋ No está en el catálogo
-                      </button>
+                      <option value={OPCION_PRODUCTO_NUEVO}>＋ Producto nuevo…</option>
                     )}
-                  </div>
+                  </select>
                   <input
                     type="number"
                     min={1}

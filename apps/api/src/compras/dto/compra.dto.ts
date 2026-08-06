@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
 import { z } from "zod";
 import { IVA_PORCENTAJES, type IvaPorcentaje } from "@valatino/types";
 
@@ -9,10 +9,18 @@ import { IVA_PORCENTAJES, type IvaPorcentaje } from "@valatino/types";
  * de un string).
  */
 export class CrearCompraDto {
-  @IsOptional()
+  /**
+   * Obligatorio y único (migración 054).
+   *
+   * No es un dato administrativo: **es lo que impide registrar dos veces la
+   * misma compra**, y un doble registro duplica el stock porque la RPC suma las
+   * unidades de cada línea. Sin él, la única forma de detectar el duplicado era
+   * que alguien se acordara.
+   */
   @IsString()
+  @IsNotEmpty({ message: "El número de la factura es obligatorio" })
   @MaxLength(100)
-  numeroFactura?: string;
+  numeroFactura!: string;
 
   /** UUID del proveedor (resuelto por CIF en el formulario) */
   @IsOptional()
