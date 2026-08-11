@@ -26,6 +26,30 @@ import type { JwtPayload } from "@valatino/types";
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024; // 10 MB
 
+/**
+ * Límites del multipart de la factura.
+ *
+ * ⚠️ Limitar solo `fileSize` NO limita el resto: en Multer `fields`, `parts` y
+ * `files` valen **Infinity** por defecto. Un envío con cien mil campos de texto
+ * diminutos pasa el límite de 10 MB del PDF sin despeinarse y tiene al proceso
+ * ocupado parseando; con el plan free de Render, que ya arranca en frío, eso se
+ * nota. Los cuatro avisos altos de Multer eran justo de esto.
+ *
+ * El formulario manda 1 fichero (`pdf`) y 4 campos (`numeroFactura`,
+ * `proveedorId`, `notas`, `items`). Se deja holgura a propósito: apretar a la
+ * cifra exacta convierte «añadir un campo al formulario» en un fallo raro de
+ * diagnosticar. `items` es el JSON de las líneas, y por eso su campo admite más
+ * que los demás — una factura larga son unas decenas de KB.
+ */
+const LIMITES_FACTURA = {
+  fileSize: MAX_PDF_BYTES,
+  files: 1,
+  fields: 8,
+  parts: 10,
+  fieldNameSize: 100,
+  fieldSize: 512 * 1024, // 512 KB: ~2.000 líneas de factura
+} as const;
+
 /** Compras de mercancía — admin siempre; asesores según su nivel en el módulo. */
 @Controller("admin/compras")
 @UseGuards(JwtGuard, RolesGuard, ModulosGuard)
@@ -40,7 +64,7 @@ export class ComprasController {
   // habilitar nada. (Que no exista anular una compra es deuda anterior a esto.)
   @Post()
   @Nivel("edicion")
-  @UseInterceptors(FileInterceptor("pdf", { limits: { fileSize: MAX_PDF_BYTES } }))
+  @UseInterceptors(FileInterceptor("pdf", { limits: LIMITES_FACTURA }))
   async crear(
     @UploadedFile() pdf: Express.Multer.File | undefined,
     @Body() dto: CrearCompraDto,

@@ -39,6 +39,23 @@ import type { JwtPayload } from "@valatino/types";
 
 const MAX_IMAGEN_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/**
+ * Límites del multipart de la imagen. Ver el comentario largo en
+ * `compras.controller.ts`: `fileSize` a solas deja `fields`, `parts` y `files`
+ * en **Infinity**, que es lo que aprovechan los avisos de Multer.
+ *
+ * Aquí el envío es exactamente un fichero y ningún campo de texto, así que los
+ * números son los exactos y no de holgura: si alguien añade un campo, el fallo
+ * sale en el primer intento y en desarrollo, no meses después en producción.
+ */
+const LIMITES_IMAGEN = {
+  fileSize: MAX_IMAGEN_BYTES,
+  files: 1,
+  fields: 0,
+  parts: 1,
+  fieldNameSize: 100,
+} as const;
+
 /** Firmas mágicas de los formatos de imagen admitidos */
 function esImagenValida(buffer: Buffer, mimetype: string): boolean {
   switch (mimetype) {
@@ -119,7 +136,7 @@ export class ProductosController {
   @Roles("admin", "asesor")
   @Modulo("catalogo")
   @Nivel("edicion")
-  @UseInterceptors(FileInterceptor("imagen", { limits: { fileSize: MAX_IMAGEN_BYTES } }))
+  @UseInterceptors(FileInterceptor("imagen", { limits: LIMITES_IMAGEN }))
   subirImagen(@UploadedFile() imagen: Express.Multer.File | undefined) {
     if (!imagen) {
       throw new BadRequestException("Adjunta una imagen (JPG, PNG o WebP)");

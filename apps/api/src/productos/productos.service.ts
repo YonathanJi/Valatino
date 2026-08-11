@@ -10,6 +10,7 @@ import {
 import { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { esMensajeParaElUsuario } from "../common/errores/rpc";
 import type { Producto, PaginatedResponse, ResultadoDesempaquetado } from "@valatino/types";
 import type { DesempaquetarDto } from "./dto/producto.dto";
 
@@ -273,7 +274,11 @@ export class ProductosService {
     if (error) {
       this.logger.error(`Error al desempaquetar: ${error.message}`);
       // Los mensajes de la RPC son accionables ("solo hay 3 de «X» sin
-      // reservar"), así que se devuelven tal cual en vez de uno genérico.
+      // reservar"), así que se devuelven tal cual. Los de Postgres NO: ahí
+      // dentro van nombres de tablas y restricciones.
+      if (!esMensajeParaElUsuario(error)) {
+        throw new BadRequestException("No se ha podido desempaquetar el producto");
+      }
       throw new BadRequestException(error.message);
     }
 
@@ -288,7 +293,12 @@ export class ProductosService {
 
     if (error) {
       // La RPC lanza excepciones con mensajes claros (producto no existe,
-      // stock quedaría negativo, etc.)
+      // stock quedaría negativo, etc.). Lo que no venga de ahí es del motor y
+      // no sale de aquí.
+      this.logger.error(`Error al ajustar el stock de ${id}: ${error.message}`);
+      if (!esMensajeParaElUsuario(error)) {
+        throw new BadRequestException("No se ha podido ajustar el stock");
+      }
       throw new BadRequestException(error.message);
     }
     return { stock_disponible: data as number };

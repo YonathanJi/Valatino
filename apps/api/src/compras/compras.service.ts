@@ -10,6 +10,7 @@ import {
 import { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
+import { esMensajeParaElUsuario } from "../common/errores/rpc";
 import type { FacturaCompra, PaginatedResponse } from "@valatino/types";
 import type { CompraItemInput } from "./dto/compra.dto";
 
@@ -86,7 +87,12 @@ export class ComprasService {
         );
       }
 
-      // Mensajes de la RPC (producto no encontrado, cantidad inválida) son accionables
+      // Mensajes de la RPC (producto no encontrado, cantidad inválida) son
+      // accionables. Los del motor no, y hasta ahora salían igual: cualquier
+      // fallo distinto del 23505 publicaba el mensaje crudo de Postgres.
+      if (!esMensajeParaElUsuario(rpcError)) {
+        throw new BadRequestException("No se ha podido registrar la factura de compra");
+      }
       throw new BadRequestException(rpcError.message);
     }
 
