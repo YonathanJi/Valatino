@@ -72,9 +72,9 @@
 3. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
    - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar.
 4. ⭐ **Aplicar la CSP** (del 2026-08-11): está en `Report-Only`. Recorrer la tienda con la consola abierta —login, carrito y los cuatro medios de pago— y, si no salta ningún aviso, pasarla a obligatoria. Instrucciones en `next.config.mjs`.
-5. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
+5. La cola de siempre: ~~tests de la web~~ → **283** (falta cubrir componentes), ~~CI~~ → **montado**, accesibilidad, paso a producción real.
 
-⚠️ **Sigue en pie**: `NODE_ENV` está en `development` en Render (ver «Pendientes de Jonathan»), y conviene re-guardar la plantilla del correo de acceso en el Dashboard de Supabase.
+⚠️ **Sigue en pie**: conviene re-guardar la plantilla del correo de acceso en el Dashboard de Supabase. (~~`NODE_ENV` en `development`~~ → **ya está en `production`**, comprobado por API el 2026-08-11.)
 
 ⚠️ **Lección de la madrugada, que vale para lo que venga**: los dos fallos peores de la sesión (las reservas barridas, el `update … from` que aplica una sola fila) **no se vieron razonando el código, salieron al ejecutar el escenario contra datos reales en transacción revertida**. Con el stock de por medio, esa prueba en seco no es opcional.
 
@@ -174,7 +174,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **350 tests: 331 en la API y 19 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), de momento solo sobre lógica pura de `lib/`; los componentes siguen sin cubrir. ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **614 tests: 331 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
 
 ---
 
@@ -288,6 +288,14 @@ La **060** revoca a `PUBLIC` y ahí sí: `42501 permission denied` en las tres.
 - ⚠️ **`get_user_role` no se puede arreglar revocando**: la usan **once políticas RLS de ocho tablas**, se evalúan con el rol de quien consulta, y quitarle el `EXECUTE` reventaría esas lecturas — **peor aún de forma intermitente**, porque Postgres no garantiza el orden de evaluación de las políticas permisivas. **Se cerró de otra manera en la 061** (ver abajo).
 - Comprobado después que no se rompió nada: el trigger del historial del pedido **sigue disparando** (1 evento al alta, 2 tras cambiar estado, en transacción revertida y sin dejar rastro).
 
+### 4-bis. Dependencias: Multer por override, y por qué hacía falta
+
+`pnpm audit --prod` daba **43 avisos (18 altos)**, igual que decía el informe. De los altos, **los 4 de Multer eran los únicos en código alcanzable por una petición**: las subidas de imágenes y de PDF de facturas. Todos de denegación de servicio.
+
+⚠️ **`@nestjs/platform-express@10` fija Multer en 2.0.2 EXACTO**, no en un rango, así que no se arregla actualizando el lockfile. Nest 11 ya trae 2.2.0, o sea que el override **adelanta lo que vendrá solo** al subir de mayor. Se quita al llegar a Nest 11.
+
+`uuid` pasó de 10 a 11 (aviso moderado de comprobación de límites del buffer en v3/v5/v6; aquí solo se usa `v4` y sin `buf`, así que no era alcanzable, pero es dependencia directa y el salto es barato). Se quitó `@types/uuid`: v11 trae sus propios tipos.
+
 ### 5. Subidas: `fileSize` no limitaba lo que parecía
 
 Los dos `FileInterceptor` solo acotaban el tamaño del fichero, y en Multer **`fields`, `parts` y `files` valen `Infinity` por defecto**. Un envío con cien mil campos de texto diminutos pasa el límite de 10 MB del PDF sin despeinarse y tiene al proceso parseando. Los cuatro avisos altos de Multer eran de eso.
@@ -310,7 +318,7 @@ Detrás de Render la conexión la abre **su** proxy, así que `req.ip` era la IP
 
 ⚠️⚠️ **Y el arreglo fácil es peor**: `trust proxy: true` hace que Express se crea el `X-Forwarded-For` entero, y esa cabecera **la escribe quien quiera** — cualquiera se inventaría una IP nueva por petición y no habría límite ninguno. Por eso se confía en un **número concreto de saltos**, que llega en `TRUST_PROXY_HOPS`.
 
-- **Por defecto 0** (no confiar en nadie), que es lo correcto en local. **No se deduce de `NODE_ENV`** a propósito: en Render está en `development`, así que decidirlo con esa variable dejaría producción con la configuración de local.
+- **Por defecto 0** (no confiar en nadie), que es lo correcto en local. **No se deduce de `NODE_ENV`** a propósito: durante meses estuvo en `development` en Render pese a que `render.yaml` decía `production`, así que decidirlo con esa variable habría dejado producción con la configuración de local. (Se corrigió después —hoy está en `production`—, pero eso es justo lo que la descalifica como señal: una variable que puede quedarse mal sin que nadie se entere no puede decidir en qué IP se confía.)
 - **Quedarse corto es seguro y pasarse no**: con menos saltos de los reales se agrupa gente bajo una IP intermedia (impreciso, pero nadie la falsifica); con más de los reales se lee un valor que pone el atacante.
 - Techos por operación: **crear pago 15/min** (15 y no 5 porque a quien le rechazan la tarjeta reintenta, y quedarse corto es no dejar comprar a alguien que quiere pagar), **carrito 40/min** solo en las escrituras —el `GET` lo pide la barra de navegación en cada carga— y **subidas 20/min**.
 - **Webhooks exentos, y solo ellos**: un 429 ahí es un pago cobrado cuyo pedido **no** se crea.
@@ -366,6 +374,20 @@ Quedaba llamable por REST con la clave anon: le pasabas un UUID y te decía el r
 - El `GRANT USAGE` sobre `interno` no la abre: lo que decide qué publica PostgREST es el esquema, no los permisos.
 
 **Cómo quedó el Security Advisor**: la categoría «ejecutable por `anon`» pasó de **5 a 0**. De `authenticated` queda solo **`mi_cargo`**, y debe seguir ahí: la llama el navegador con sesión y solo devuelve el cargo de quien pregunta. Los 13 avisos INFO de «RLS sin políticas» tampoco son fallo — significan denegar a todos, y la API entra con `service_role`.
+
+### ⭐ 12. Y lo que lo valida todo: una compra real, después de los cambios
+
+Jonathan compró **después** de desplegarlo todo, y eso vale más que cualquier prueba que yo pueda montar. Pedido **`260811010611`**, 1 × Pony Malta Cristal, 1,50 €, **Bizum**. La secuencia entera en **1,6 segundos**:
+
+| | |
+|---|---|
+| 21:15:48.920 | estado → PROCESANDO |
+| 21:15:49.488 | pago · `payment_intent.succeeded` · 1,50 € |
+| 21:15:50.534 | correo · Confirmación de tu pedido |
+
+Y lo que no se ve en la ficha: transacción registrada como exitosa, **0 reservas vivas**, `stock_reservado` a 0, ningún stock negativo y el carrito vaciado.
+
+**Por qué importa el CUÁNDO**: demuestra de una sentada que el webhook de Stripe sigue entrando —no lo frenan ni el CSRF ni el límite de peticiones, que era el riesgo real de esos dos cambios—, que la sesión del carrito funciona con `SameSite=Lax`, y que el checkout de Next 15 cobra.
 
 ### Cómo queda la auditoría
 
@@ -1416,7 +1438,7 @@ Merge de `fix/auditoria-2026-07-25` a `main` y push (Render y Vercel auto-despli
 | `CORS_ORIGIN` | `https://valatino-api-steel.vercel.app,http://localhost:3000` |
 | `CORS_VERCEL_PREVIEW_PREFIX` | `valatino-api-steel` |
 | `SUPABASE_JWT_SECRET` | **eliminada** (no se usaba) |
-| `NODE_ENV` | `development` ← pendiente de cambiar a `production` |
+| `NODE_ENV` | `development` ← ~~pendiente~~ **resuelto**: el 2026-08-11 se comprobó por API que ya está en `production` |
 
 ⚠️ **Orden que importa**: `SUPABASE_JWT_SECRET` se borró **después** de desplegar. El código viejo la exigía con `getOrThrow`, así que borrarla antes habría dejado la API sin arrancar.
 
