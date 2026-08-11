@@ -241,7 +241,15 @@ export class UsuariosController {
       if (!rolAsesor) throw new InternalServerErrorException("Rol 'asesor' no encontrado");
 
       // El trigger asigna 'cliente' por defecto: se reemplaza por 'asesor'.
-      await this.supabase.from("user_roles").delete().eq("user_id", userId);
+      // El error del borrado SÍ se comprueba: si falla y se inserta igual, el
+      // usuario acaba con dos roles. Desde la 058 eso lo rechaza la BD, pero el
+      // mensaje sería un 23505 incomprensible en vez de decir qué pasó.
+      const { error: borradoError } = await this.supabase
+        .from("user_roles")
+        .delete()
+        .eq("user_id", userId);
+      if (borradoError) throw new InternalServerErrorException("No se pudo asignar el rol asesor");
+
       const { error: rolError } = await this.supabase.from("user_roles").insert({
         user_id: userId,
         role_id: (rolAsesor as { id: string }).id,

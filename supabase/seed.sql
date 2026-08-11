@@ -11,8 +11,13 @@
 --   2. Crea un usuario con email y contraseÃ±a
 --   3. Ejecuta en SQL Editor:
 --      SELECT id FROM roles WHERE nombre = 'admin';
+--      -- El trigger ya le puso 'cliente': se reemplaza, no se aÃ±ade.
+--      DELETE FROM user_roles WHERE user_id = '<UUID-del-usuario>';
 --      INSERT INTO user_roles (user_id, role_id) VALUES ('<UUID-del-usuario>', '<UUID-del-rol-admin>');
---   4. Actualiza el user_metadata del usuario para incluir: {"role": "admin"}
+--
+-- NO escribas el rol en user_metadata: el propio usuario puede modificarlo, asÃ­
+-- que no decide nada. user_roles es la Ãºnica fuente del rol, y desde la 058 la
+-- tabla solo admite una fila por usuario.
 
 -- ============================================================
 -- PRODUCTOS LATINOAMERICANOS DE PRUEBA
