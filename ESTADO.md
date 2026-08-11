@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-05
+**Última actualización**: 2026-08-11
 
 ---
 
@@ -71,7 +71,8 @@
 2. **Probar de nuevo el escenario que falló** (`052`): pedido por transferencia → cerrar sesión → volver a entrar → pagar con Bizum. Ahora debe enlazarse y cancelarse el anterior. Verificado en seco contra el remoto, no en pantalla.
 3. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
    - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar.
-4. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
+4. ⭐ **Aplicar la CSP** (del 2026-08-11): está en `Report-Only`. Recorrer la tienda con la consola abierta —login, carrito y los cuatro medios de pago— y, si no salta ningún aviso, pasarla a obligatoria. Instrucciones en `next.config.mjs`.
+5. La cola de siempre: **tests de la web (siguen a 0)**, **CI**, accesibilidad, paso a producción real.
 
 ⚠️ **Sigue en pie**: `NODE_ENV` está en `development` en Render (ver «Pendientes de Jonathan»), y conviene re-guardar la plantilla del correo de acceso en el Dashboard de Supabase.
 
@@ -112,7 +113,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **058** (un usuario, un rol — ver la sesión del 2026-08-11). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -159,6 +160,92 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
 - Pendientes de fondo: ~~tests (0%)~~ → **316 tests: 299 en la API y 17 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), de momento solo sobre lógica pura de `lib/`; los componentes siguen sin cubrir. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-11 — Auditoría de ciberseguridad: se cierra la escalada de privilegios
+
+Jonathan encargó una auditoría, que quedó en **`AUDITORIA_CIBERSEGURIDAD_2026-08-08.txt`** (P0/P1/P2 con criterios de aceptación). Esta sesión cierra **el P0 de escalada** y **el P1 de cabeceras**. Lo demás sigue abierto y está listado al final.
+
+Primero se comprobó hallazgo por hallazgo contra el código, no contra el informe: **todos seguían vivos**.
+
+### ⭐ 1. El rol ya no puede venir del propio usuario
+
+`jwt.strategy.ts` decidía el rol así:
+
+```
+dbRole ?? payload.user_metadata?.role ?? "cliente"
+```
+
+⚠️⚠️ **`user_metadata` lo escribe el DUEÑO de la cuenta** (`supabase.auth.updateUser`), así que ese respaldo convertía un campo del usuario en una fuente de autorización. Bastaba con no tener fila en `user_roles` para que un token con `"role": "admin"` dentro entrase al panel.
+
+**Ahora `user_roles` es la única fuente**, con tres salidas y las tres cerrando hacia abajo:
+
+| Caso | Qué pasa |
+|---|---|
+| una fila | ese rol |
+| sin fila | `cliente` — mínimo privilegio, y queda un `warn` (un cliente normal SÍ tiene la suya, la pone `assign_default_role`) |
+| error de consulta, o **más de una fila** | se deniega, con el detalle solo en el log |
+
+- **`user_metadata` se borró del tipo `SupabaseJwt`**, no solo de la expresión. Mientras el campo siga declarado en el tipo que alimenta la autorización, alguien lo volverá a usar.
+- ⚠️ **Al denegar, ojo con `OptionalJwtGuard`** (carrito, checkout): se traga la excepción y la petición sigue **como anónima**, no como 401. Es la degradación correcta —sin privilegios—, pero explica por qué un usuario identificado podría verse como invitado si Supabase falla.
+- **Comprobado antes de tocar nada**: el `raw_user_meta_data` del admin **no tiene rol** (solo `nombre`), así que quitar el respaldo no dejaba a nadie fuera de su propio panel. Si su rol hubiera vivido ahí, este cambio lo habría echado.
+
+### ⭐ 2. Un usuario, un rol — y lo garantiza la BD (migración 058)
+
+La PK era **`(user_id, role_id)`**: la tabla **admitía** que alguien tuviera `cliente` y `admin` a la vez. Lo único que lo impedía era que la aplicación borrase antes de insertar, y el comentario del código lo decía tal cual («reemplazar = borrar + insertar garantiza un único rol»).
+
+> ⚠️ **Es la lección de la 055 otra vez**: una restricción que depende de que la aplicación se acuerde **no es una restricción**. Y aquí había además un agujero real — el borrado previo **no comprobaba su error**, así que un delete fallido dejaba dos filas y nadie se enteraba.
+
+**Y con dos filas el rol quedaba indeterminado**: tanto `get_user_role()` como `JwtStrategy` leían con `LIMIT 1` **sin `ORDER BY`**. Cuál de los dos roles ganaba lo decidía Postgres.
+
+- PK ahora **`(user_id)`**. Un segundo rol es un `23505`.
+- La migración **aborta si encuentra duplicados** en vez de elegir uno: escoger por el usuario sería adivinar cuál era el bueno.
+- **Probado en el remoto en transacción revertida**: insertar un segundo rol al admin → `unique_violation`. Después, 1 fila y 1 cuenta, sin rastro.
+- Se aplicó **antes** del despliegue del código a propósito: es compatible hacia atrás, porque todo lo que escribe roles borra antes de insertar.
+- `usuarios.controller.ts` ahora **sí comprueba el error del borrado**. Sin eso el mensaje sería un `23505` incomprensible en vez de decir qué pasó.
+
+### 3. Cabeceras de seguridad en la web
+
+`next.config.mjs` **no tenía bloque `headers()`**: cero CSP, cero protección de marco, cero `nosniff`.
+
+**Se aplican ya** (no pueden romper nada): `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` y una `Permissions-Policy` mínima. El HSTS que pone Vercel sigue igual.
+
+⚠️ **La CSP completa va en `Report-Only` A PROPÓSITO**, como pide la auditoría. Aplicarla de golpe sobre `main`, que auto-despliega, es arriesgarse a tumbar el checkout en producción, y **un pago que falla no se reintenta**.
+
+⚠️⚠️ **La trampa que se cazó escribiéndola**: `connect-src 'self'` **habría roto la página de confirmación del pedido**. Casi todo el navegador pasa por el proxy `/api`, pero **la confirmación y el widget de calificar llaman a `api.valatino.es` directamente**. El cliente habría pagado y se habría quedado mirando una confirmación que no carga. Por eso el origen de la API va explícito, y **derivado de `NEXT_PUBLIC_API_URL`** para que no haya que acordarse de tocar dos sitios el día que cambie.
+
+- ⚠️ **`payment` NO se cierra** en la `Permissions-Policy`: es lo que usan Apple Pay y Google Pay vía Stripe. Cerrarlo apagaría medios de pago sin que nadie relacionara la causa con ese fichero.
+- ⚠️ **El punto flojo es `script-src 'unsafe-inline'`, y es de Next**: el App Router inyecta el payload RSC en `<script>` inline. Quitarlo exige nonces por middleware, y eso **obliga a render dinámico** — adiós al `revalidate: 60` de las fichas. Es una decisión con precio, no un olvido.
+- **Verificado con `next build` + `next start`**: las 6 cabeceras salen, y las páginas siguen estáticas (`○`), o sea que no forzaron render dinámico.
+
+### ⚠️ Cómo se aplica la CSP cuando toque
+
+Recorrer en el navegador **con la consola abierta**: login por código, catálogo, carrito, y pagar con **tarjeta, Bizum, PayPal y transferencia**. Si no sale ni un aviso de CSP, mover el valor de `CSP` a la cabecera que se aplica y borrar la línea de `Report-Only`. Está todo señalado en el fichero.
+
+### Tests: 9 pruebas negativas de autorización (308 en la API)
+
+`jwt.strategy.spec.ts`. La mitad existen **para que no vuelva el respaldo**: un token con `user_metadata.role = "admin"` y sin fila en `user_roles` tiene que salir `cliente`.
+
+- ⚠️ **`jwks-rsa` arrastra `jose` v6, que es solo ESM y Jest (CJS) no puede cargar.** Se mockea `jwks-rsa` en el spec. La firma del token la verifica `passport-jwt` **antes** de llegar a `validate()`; aquí se prueba lo que pasa después.
+- Los espías tienen que ir sobre `Logger.prototype`, **no sobre `console`**: el Logger de Nest no escribe ahí, así que espiar `console` no silencia nada y encima parece que sí.
+
+### ⚠️ Hallazgo de propina: `pnpm lint` de la API nunca ha funcionado
+
+`apps/api/package.json` tiene el script `lint` pero **eslint no está en sus dependencias**. Es anterior a esta sesión. Importa para el **P2 (CI)**: un CI que corra `pnpm turbo lint` falla el primer día.
+
+### Lo que la auditoría deja abierto
+
+| Bloque | Estado |
+|---|---|
+| **P0 escalada de privilegios** | ✅ cerrado |
+| **P1 cabeceras / clickjacking** | ✅ aplicado, CSP en `Report-Only` a la espera de la prueba manual |
+| **P0 dependencias** | ❌ Next sigue en **14.2.35**, Multer en **2.0.2**. Es una migración mayor (Next 15) que toca App Router, imágenes y todos los pagos |
+| **P1 uploads** | ❌ los dos `FileInterceptor` solo limitan `fileSize`; faltan `files`/`fields`/`parts` |
+| **P1 CSRF** | ❌ sin token ni validación de `Origin`. La cookie sigue en `SameSite=None` (el proxy same-origin ya permitiría `Lax`, pero hay que probar Safari/iOS) |
+| **P1 rate limit** | ❌ sigue el global de 100/min en memoria, sin `trust proxy` ni límites por operación |
+| **P2 Supabase remoto** | ❌ falta pasar el Security Advisor y revisar redirect URLs y accesos |
+| **P2 CI y evidencias** | ❌ sin CI (y con el lint roto de arriba) |
 
 ---
 
