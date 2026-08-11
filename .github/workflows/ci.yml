@@ -1,0 +1,147 @@
+name: CI
+
+# Se ejecuta en cada pull request y en cada push a main. En main también, y no
+# solo en los PR, porque en este proyecto se commitea directo a main: si el CI
+# solo mirase los PR, no miraría casi nada.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Un push nuevo cancela la ejecución anterior de la misma rama: no tiene sentido
+# gastar minutos comprobando un commit que ya se ha quedado atrás.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Tests, tipos y build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # Sin versión: la toma de "packageManager" del package.json, que es la
+        # única fuente de verdad. Ponerla aquí sería un segundo sitio que
+        # actualizar y que se olvidaría.
+
+      - uses: actions/setup-node@v4
+        with:
+          # La misma que Render (ver NODE_VERSION en render.yaml). Probar con
+          # otra es probar algo que no es lo que se despliega.
+          node-version: "20"
+          cache: pnpm
+
+      # --frozen-lockfile: si el lockfile no cuadra con los package.json, falla
+      # en vez de resolver por su cuenta. Es lo que impide que una dependencia
+      # entre sin quedar registrada.
+      - name: Instalar
+        run: pnpm install --frozen-lockfile
+
+      - name: Tipos
+        run: pnpm turbo type-check
+
+      # Solo cubre la web: la API no tiene linter. Su script `lint` existía pero
+      # eslint no estaba entre sus dependencias, así que nunca llegó a
+      # ejecutarse; se quitó en vez de dejar algo que aparenta comprobar y no
+      # comprueba. Montárselo a la API es trabajo aparte.
+      - name: Lint
+        run: pnpm turbo lint
+
+      - name: Tests
+        run: pnpm turbo test
+
+      # El build entra a propósito aunque no lo pida la auditoría: type-check no
+      # detecta lo que rompe a `next build` (rutas, componentes de servidor,
+      # imágenes). Un fallo aquí es un despliegue roto en Vercel o Render.
+      - name: Build
+        run: pnpm turbo build
+
+  secretos:
+    name: Escaneo de secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Escanea el ÁRBOL DE TRABAJO (--no-git), no el historial. Lo que importa
+      # es frenar la fuga que entra hoy; auditar el pasado es una tarea aparte y
+      # con otra respuesta (rotar la clave, no arreglar el commit).
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --no-git --redact --verbose
+
+      # Comprobación propia, además del escáner genérico, porque esta sabe QUÉ
+      # se ha filtrado en este proyecto: ESTADO.md documenta cinco secretos
+      # expuestos en su día (Vercel, Render, SendGrid y las dos de Supabase).
+      # La `sb_secret_` es la que más duele: se salta el RLS entero.
+      - name: Ficheros y claves que no pueden entrar al repo
+        run: |
+          set -e
+          fallo=0
+
+          # 1. Ficheros que nunca deben estar rastreados
+          for patron in '\.env$' '\.env\..*' 'Contrase' 'tokens.*\.txt' 'keys\.txt'; do
+            encontrados=$(git ls-files | grep -E "$patron" | grep -v '\.env\.example' || true)
+            if [ -n "$encontrados" ]; then
+              echo "::error::Fichero de secretos rastreado: $encontrados"
+              fallo=1
+            fi
+          done
+
+          # 2. Prefijos de clave de los proveedores que usa Valatino.
+          #
+          # ⚠️ Cada patrón EXIGE un cuerpo de clave detrás, y no es un detalle:
+          # con el prefijo suelto, `sb_secret_` daba positivo en ESTADO.md, que
+          # los NOMBRA al contar qué se filtró en su día. Un CI que salta con la
+          # documentación es un CI que se acaba ignorando — y entonces no avisa
+          # de la clave de verdad.
+          for prefijo in \
+            'sk_live_[A-Za-z0-9]{20,}' \
+            'sk_test_[A-Za-z0-9]{20,}' \
+            'rk_live_[A-Za-z0-9]{20,}' \
+            'SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}' \
+            'sbp_[a-f0-9]{40}' \
+            'sb_secret_[A-Za-z0-9_-]{20,}' \
+            'rnd_[A-Za-z0-9]{20,}' \
+            'vcp_[A-Za-z0-9]{20,}' \
+            'eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'; do
+            # Se excluyen los .example y este propio fichero, que los NOMBRA.
+            hallazgo=$(git grep -nIE "$prefijo" -- . ':!*.example' ':!.github/workflows/ci.yml' || true)
+            if [ -n "$hallazgo" ]; then
+              echo "::error::Posible clave de proveedor en el repo ($prefijo)"
+              echo "$hallazgo" | head -5
+              fallo=1
+            fi
+          done
+
+          [ "$fallo" -eq 0 ] && echo "Sin secretos rastreados."
+          exit $fallo
+
+  dependencias:
+    name: Auditoría de dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # ⚠️ En trabajo, NO bloqueante, y con la fecha puesta para que no se
+      # quede así para siempre.
+      #
+      # Hoy hay avisos altos que NO se pueden cerrar sin migrar a Next 15 y a
+      # NestJS 11 (postcss y nanoid cuelgan de next@14, que los fija; file-type
+      # y qs vienen de Nest 10). Y el de lodash NO TIENE PARCHE PUBLICADO: dice
+      # "parche >=4.18.0" y esa version no existe.
+      #
+      # Bloquear hoy deja el CI en rojo permanente, y un CI que siempre está en
+      # rojo no lo mira nadie — con lo que deja de avisar de lo que sí es nuevo.
+      # Revisar al cerrar la subida a Next 15 y ponerlo bloqueante entonces.
+      - name: pnpm audit --prod
+        continue-on-error: true
+        run: pnpm audit --prod

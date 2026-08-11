@@ -34,7 +34,11 @@ export function PermisosProvider({
   return <PermisosContext.Provider value={valor}>{children}</PermisosContext.Provider>;
 }
 
-function usarContexto(): Contexto {
+// Se llama `use...` porque LO ES: consume un contexto. Con el nombre anterior
+// (`usarContexto`) React no podía comprobar que se respeta el orden de los
+// hooks, que es la regla que evita que uno se salte según por dónde vaya la
+// función. Los tres de abajo ya seguían la convención.
+function useContextoPermisos(): Contexto {
   const ctx = useContext(PermisosContext);
   if (!ctx) {
     throw new Error("usePermisos solo funciona dentro del layout del backoffice");
@@ -43,13 +47,13 @@ function usarContexto(): Contexto {
 }
 
 export function usePermisos() {
-  const { userId, rol } = usarContexto();
+  const { userId, rol } = useContextoPermisos();
   return { userId, rol, esAdmin: rol === "admin" };
 }
 
 /** Nivel en un módulo; el admin es `total` en todo sin tener filas. */
 export function useNivel(modulo: StaffModulo): NivelPermiso | null {
-  const { rol, permisos } = usarContexto();
+  const { rol, permisos } = useContextoPermisos();
   if (rol === "admin") return "total";
   if (rol !== "asesor") return null;
   return nivelDe(permisos, modulo);
