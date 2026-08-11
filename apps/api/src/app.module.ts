@@ -20,6 +20,17 @@ import { EventosModule } from "./eventos/eventos.module";
 import { CalificacionesModule } from "./calificaciones/calificaciones.module";
 import { HealthController } from "./health.controller";
 import { SessionMiddleware } from "./carrito/session.middleware";
+import { OrigenCsrfMiddleware } from "./common/origen-csrf.middleware";
+
+/**
+ * Los webhooks de los proveedores de pago. Quedan fuera de los middlewares que
+ * asumen un navegador detrás: ni traen cookie de sesión ni cabecera Origin, y
+ * lo que los autentica es la firma que verifica su propio controlador.
+ */
+const WEBHOOKS = [
+  { path: "pagos/stripe/webhook", method: RequestMethod.POST },
+  { path: "pagos/paypal/webhook", method: RequestMethod.POST },
+] as const;
 
 @Module({
   imports: [
@@ -50,10 +61,15 @@ export class AppModule implements NestModule {
     // Aplicar el middleware de session_id a todas las rutas excepto webhooks
     consumer
       .apply(SessionMiddleware)
-      .exclude(
-        { path: "pagos/stripe/webhook", method: RequestMethod.POST },
-        { path: "pagos/paypal/webhook", method: RequestMethod.POST },
-      )
+      .exclude(...WEBHOOKS)
+      .forRoutes("*");
+
+    // Y el freno de CSRF, con la misma exclusión y por el mismo motivo: los
+    // webhooks no vienen de un navegador y se autentican con su firma.
+    // Va en middleware y no en guard para rechazar antes de tocar nada.
+    consumer
+      .apply(OrigenCsrfMiddleware)
+      .exclude(...WEBHOOKS)
       .forRoutes("*");
   }
 }

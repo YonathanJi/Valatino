@@ -4,6 +4,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
+import { construirOrigenesPermitidos } from "./common/origenes-permitidos";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -59,33 +60,10 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  // CORS_ORIGIN admite una lista separada por comas (localhost + dominio de
-  // producción).
-  const origenesPermitidos = (process.env.CORS_ORIGIN ?? "http://localhost:3000")
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
-
-  // Preview URLs de Vercel: se aceptan SOLO las del propio proyecto, indicando
-  // su prefijo en CORS_VERCEL_PREVIEW_PREFIX (p.ej. "valatino" habilita
-  // https://valatino-<hash>.vercel.app). Antes se admitía cualquier
-  // *.vercel.app, así que bastaba con desplegar ahí para hablar con esta API
-  // con `credentials: true` y manipular carrito y checkout de invitados.
-  const prefijoPreview = process.env.CORS_VERCEL_PREVIEW_PREFIX?.trim();
-  const previewVercel = prefijoPreview
-    ? new RegExp(`^${prefijoPreview.replace(/[^a-zA-Z0-9-]/g, "")}-[a-z0-9-]+\\.vercel\\.app$`)
-    : null;
-
-  const origenPermitido = (origin: string): boolean => {
-    if (origenesPermitidos.includes(origin)) return true;
-    if (!previewVercel) return false;
-    try {
-      const { hostname, protocol } = new URL(origin);
-      return protocol === "https:" && previewVercel.test(hostname);
-    } catch {
-      return false; // Origin malformado
-    }
-  };
+  // La lista vive en common/origenes-permitidos.ts porque la comparten CORS y
+  // la comprobación de Origin que frena el CSRF: dos listas separadas acaban
+  // divergiendo, y el fallo solo se vería al escribir y en producción.
+  const origenes = construirOrigenesPermitidos(process.env);
 
   app.enableCors({
     origin: (origin, callback) => {
@@ -95,7 +73,7 @@ async function bootstrap() {
       // origen no autorizado no es un fallo del servidor. Sin la cabecera
       // Access-Control-Allow-Origin el navegador bloquea igual, pero la
       // respuesta es limpia y no llena los logs de errores internos.
-      callback(null, origenPermitido(origin));
+      callback(null, origenes.permite(origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
