@@ -140,12 +140,12 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
 
-0. ⭐ **De la auditoría (2026-08-11), por orden de urgencia:**
-   - **`TRUST_PROXY_HOPS=1` en Render** → Environment → Save. Está declarado en `render.yaml`, pero si el blueprint no se sincroniza solo hay que añadirlo a mano. **Sin él el límite de peticiones sigue metiendo a todos los clientes en el mismo cubo de 100/min.**
-   - **Probar los pagos con la rama `subida-next-15`** (tarjeta, Bizum, PayPal y transferencia) y fusionarla. Es lo único que falta del P0 de dependencias, y es lo que yo no puedo comprobar.
-   - **Aplicar la CSP**: recorrer la tienda con la consola abierta y, si no salta ningún aviso, pasarla de `Report-Only` a obligatoria (instrucciones en `next.config.mjs`).
-   - **Supabase Dashboard**: activar **MFA** para las cuentas del equipo y la **protección de contraseñas filtradas** (Auth → Policies). Las dos las señala el Security Advisor y no se pueden tocar por MCP.
-1. **`NODE_ENV` está en `development` en Render**, aunque `render.yaml` dice `production`. Verificado que **ningún código depende de esa variable** (solo un comentario en `session.middleware.ts` explicando que a propósito no se depende de ella), así que cambiarlo es seguro: Render → servicio Valatino → Environment → Save (dispara redeploy). No se hizo por API porque los tokens ya estaban revocados.
+0. ⭐ **De la auditoría (2026-08-11). TODO DESPLEGADO Y VERIFICADO EN PRODUCCIÓN.** Queda solo lo que no puedo tocar yo:
+   - ⚠️⚠️ **REVOCAR LOS TOKENS Y BORRAR `C:\YJIMENEZ	okens-despliegue.env.txt`.** Sigue ahí desde el 2026-08-05 y **están vivos**: se comprobó que el de Render responde 200. Dentro van la `sb_secret_` (**se salta el RLS entero**: lee y escribe toda la BD), la de SendGrid (acceso total) y las de Vercel y Render. Es hoy el agujero más grande que queda, y no está en el código.
+   - **Supabase Dashboard**: activar **MFA** para las cuentas del equipo y la **protección de contraseñas filtradas** (Auth → Policies). Las señala el Security Advisor. ⚠️ Por MCP no se puede: la Management API pide un token `sbp_`, y las claves del proyecto no sirven.
+   - **Aplicar la CSP**: recorrer la tienda con la consola abierta y, si no salta ningún aviso, pasarla de `Report-Only` a obligatoria (instrucciones en `next.config.mjs`). Hace falta un navegador de verdad.
+   - **Pasar los pagos por caja una vez** (tarjeta, Bizum, PayPal y transferencia) ahora que Next 15 está desplegado.
+1. ~~`NODE_ENV` está en `development` en Render~~ → **ya está en `production`**, comprobado por API el 2026-08-11. El pendiente estaba desactualizado.
 2. ~~Regenerar los tokens expuestos~~ → **hecho el 2026-07-25**: todos revocados.
 3. **Paso a producción real** (ver "Plan de producción" en la sesión 2026-07-22): API en región **EU (Frankfurt) + plan de pago** (quita el "dormir" y el cruce transatlántico Render-Oregon ↔ Supabase-Irlanda), dominio propio, claves **Stripe `live`** + recrear el webhook con el nuevo signing secret, actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
 
@@ -344,10 +344,10 @@ Tres cambios que exige Next 15: **`params` es una promesa** (solo afecta a `prod
 | Bloque | Estado |
 |---|---|
 | **P0 escalada de privilegios** | ✅ cerrado y desplegado |
-| **P0 dependencias** | ✅ hecho **en la rama `subida-next-15`** — falta que Jonathan pruebe los pagos y la fusione |
+| **P0 dependencias** | ✅ **fusionado y desplegado** el 2026-08-11: Jonathan confirmó que el proyecto está en pruebas y sin clientes reales, así que no había venta que perder esperando |
 | **P1 uploads** | ✅ cerrado y desplegado |
 | **P1 CSRF / cookies / cabeceras** | ✅ cerrado y desplegado (la CSP completa sigue en `Report-Only`) |
-| **P1 rate limit y errores** | ✅ cerrado — ⚠️ **falta poner `TRUST_PROXY_HOPS=1` en Render** o el límite sigue agrupando a todos |
+| **P1 rate limit y errores** | ✅ cerrado. `TRUST_PROXY_HOPS=1` **puesto en Render y verificado en el log de arranque** (`Confiando en 1 salto(s) de proxy`) |
 | **P2 Supabase remoto** | 🟡 Security Advisor pasado y lo grave cerrado (059+060). Faltan **MFA del staff** y la **protección de contraseñas filtradas**, que son del Dashboard |
 | **P2 CI y evidencias** | ✅ montado |
 
