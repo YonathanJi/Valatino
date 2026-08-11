@@ -14,6 +14,8 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { Throttle } from "@nestjs/throttler";
+import { LIMITE_SUBIDAS } from "../common/limites-peticiones";
 import { ComprasService } from "./compras.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
@@ -64,6 +66,7 @@ export class ComprasController {
   // habilitar nada. (Que no exista anular una compra es deuda anterior a esto.)
   @Post()
   @Nivel("edicion")
+  @Throttle(LIMITE_SUBIDAS)
   @UseInterceptors(FileInterceptor("pdf", { limits: LIMITES_FACTURA }))
   async crear(
     @UploadedFile() pdf: Express.Multer.File | undefined,

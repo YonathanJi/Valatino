@@ -15,6 +15,8 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { Request } from "express";
+import { Throttle, SkipThrottle } from "@nestjs/throttler";
+import { LIMITE_CREAR_PAGO } from "../common/limites-peticiones";
 import { StripeService } from "./stripe.service";
 import { PaypalService } from "./paypal.service";
 import { TransferenciaService } from "../pedidos/transferencia.service";
@@ -132,6 +134,7 @@ export class PagosController {
   // ──────────────────────────────────────────────
 
   @Post("stripe/create-payment-intent")
+  @Throttle(LIMITE_CREAR_PAGO)
   @UseGuards(OptionalJwtGuard)
   @HttpCode(HttpStatus.CREATED)
   async createPaymentIntent(@Req() req: SessionRequest, @Body() dto: CrearPagoDto) {
@@ -173,6 +176,7 @@ export class PagosController {
    * equipo confirme el ingreso, o hasta que venza el plazo y se cancele solo.
    */
   @Post("transferencia/crear-pedido")
+  @Throttle(LIMITE_CREAR_PAGO)
   @UseGuards(OptionalJwtGuard)
   @HttpCode(HttpStatus.CREATED)
   async crearPedidoTransferencia(
@@ -212,6 +216,7 @@ export class PagosController {
   // ──────────────────────────────────────────────
 
   @Post("paypal/create-order")
+  @Throttle(LIMITE_CREAR_PAGO)
   @UseGuards(OptionalJwtGuard)
   @HttpCode(HttpStatus.CREATED)
   async createPaypalOrder(@Req() req: SessionRequest, @Body() dto: CrearPagoDto) {
@@ -243,6 +248,7 @@ export class PagosController {
    * cualquier orderID de PayPal que se conociera.
    */
   @Post("paypal/capture-order")
+  @Throttle(LIMITE_CREAR_PAGO)
   @UseGuards(OptionalJwtGuard)
   @HttpCode(HttpStatus.OK)
   async capturePaypalOrder(@Req() req: SessionRequest, @Body() dto: CapturarOrdenDto) {
@@ -266,7 +272,13 @@ export class PagosController {
   // Stripe: webhook (firma verificada)
   // ──────────────────────────────────────────────
 
+  // Exento del limite de peticiones a proposito, y es lo unico que se exime.
+  // La firma se verifica antes de tocar nada, asi que un envio sin firma no
+  // llega a hacer trabajo; y un 429 aqui es un pago cobrado cuyo pedido NO se
+  // crea. Stripe reintenta, pero tras una caida llegan a rafagas y cualquier
+  // techo razonable las cortaria.
   @Post("stripe/webhook")
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   async handleStripeWebhook(
     @Req() req: RawBodyRequest<Request>,
@@ -378,7 +390,13 @@ export class PagosController {
   // PayPal: webhook (firma verificada)
   // ──────────────────────────────────────────────
 
+  // Exento del limite de peticiones a proposito, y es lo unico que se exime.
+  // La firma se verifica antes de tocar nada, asi que un envio sin firma no
+  // llega a hacer trabajo; y un 429 aqui es un pago cobrado cuyo pedido NO se
+  // crea. Stripe reintenta, pero tras una caida llegan a rafagas y cualquier
+  // techo razonable las cortaria.
   @Post("paypal/webhook")
+  @SkipThrottle()
   @HttpCode(HttpStatus.OK)
   async handlePaypalWebhook(
     @Req() req: RawBodyRequest<Request>,

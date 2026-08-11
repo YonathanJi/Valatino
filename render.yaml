@@ -20,6 +20,14 @@ services:
         value: "20"
       - key: NODE_ENV
         value: production
+      # Saltos de proxy en los que confiar para deducir la IP del cliente.
+      # Render pone UN proxy delante, así que 1. Sin esto, req.ip es la IP del
+      # proxy y el límite de peticiones agrupa a todos los clientes en un solo
+      # cubo de 100/min. Ojo: NUNCA poner `true` en el código (ver main.ts) y
+      # quedarse corto antes que pasarse, porque pasarse permite falsificar la
+      # IP con X-Forwarded-For.
+      - key: TRUST_PROXY_HOPS
+        value: "1"
       # Origen(es) permitidos para CORS: la URL de tu web en Vercel.
       # Admite varias separadas por comas.
       - key: CORS_ORIGIN

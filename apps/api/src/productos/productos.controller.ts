@@ -19,6 +19,8 @@ import {
   HttpStatus,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
+import { Throttle } from "@nestjs/throttler";
+import { LIMITE_SUBIDAS } from "../common/limites-peticiones";
 import { ProductosService, EXTENSION_POR_MIME } from "./productos.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
@@ -136,6 +138,7 @@ export class ProductosController {
   @Roles("admin", "asesor")
   @Modulo("catalogo")
   @Nivel("edicion")
+  @Throttle(LIMITE_SUBIDAS)
   @UseInterceptors(FileInterceptor("imagen", { limits: LIMITES_IMAGEN }))
   subirImagen(@UploadedFile() imagen: Express.Multer.File | undefined) {
     if (!imagen) {
