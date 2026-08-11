@@ -141,7 +141,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 ### ⚠️ Pendientes de Jonathan (acción manual)
 
 0. ⭐ **De la auditoría (2026-08-11). TODO DESPLEGADO Y VERIFICADO EN PRODUCCIÓN.** Queda solo lo que no puedo tocar yo:
-   - ⚠️⚠️ **REVOCAR LOS TOKENS Y BORRAR `C:\YJIMENEZ	okens-despliegue.env.txt`.** Sigue ahí desde el 2026-08-05 y **están vivos**: se comprobó que el de Render responde 200. Dentro van la `sb_secret_` (**se salta el RLS entero**: lee y escribe toda la BD), la de SendGrid (acceso total) y las de Vercel y Render. Es hoy el agujero más grande que queda, y no está en el código.
+   - ⚠️⚠️ **REVOCAR LOS TOKENS Y BORRAR `C:\YJIMENEZ\tokens-despliegue.env.txt`.** Sigue ahí desde el 2026-08-05 y **están vivos**: se comprobó que el de Render responde 200. Dentro van la `sb_secret_` (**se salta el RLS entero**: lee y escribe toda la BD), la de SendGrid (acceso total) y las de Vercel y Render. Es hoy el agujero más grande que queda, y no está en el código.
    - **Supabase Dashboard**: activar **MFA** para las cuentas del equipo y la **protección de contraseñas filtradas** (Auth → Policies). Las señala el Security Advisor. ⚠️ Por MCP no se puede: la Management API pide un token `sbp_`, y las claves del proyecto no sirven.
    - **Aplicar la CSP**: recorrer la tienda con la consola abierta y, si no salta ningún aviso, pasarla de `Report-Only` a obligatoria (instrucciones en `next.config.mjs`). Hace falta un navegador de verdad.
    - **Pasar los pagos por caja una vez** (tarjeta, Bizum, PayPal y transferencia) ahora que Next 15 está desplegado.
@@ -171,7 +171,11 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 
 ## Sesión 2026-08-11 — Auditoría de ciberseguridad: se cierra la escalada de privilegios
 
-Jonathan encargó una auditoría, que quedó en **`AUDITORIA_CIBERSEGURIDAD_2026-08-08.txt`** (P0/P1/P2 con criterios de aceptación). Esta sesión cierra **el P0 de escalada** y **el P1 de cabeceras**. Lo demás sigue abierto y está listado al final.
+Jonathan encargó una auditoría (P0/P1/P2 con criterios de aceptación). Esta sesión cierra **el P0 de escalada** y **el P1 de cabeceras**; el resto va en la continuación de abajo.
+
+> 📄 **El informe original ya no está en el árbol**: se borró al terminar, porque lo que había que hacer con él está hecho y lo que queda vive en «Pendientes de Jonathan». **Sigue entero en el historial** — se recupera con
+> `git show 908af36:AUDITORIA_CIBERSEGURIDAD_2026-08-08.txt`
+> y ahí están sus criterios de aceptación, por si hay que volver a certificar algo.
 
 Primero se comprobó hallazgo por hallazgo contra el código, no contra el informe: **todos seguían vivos**.
 
