@@ -35,12 +35,21 @@ async function getHermanos(producto: Producto): Promise<Producto[]> {
   }
 }
 
+/**
+ * ⚠️ `params` es una PROMESA desde Next 15, y hay que esperarla.
+ *
+ * Es el cambio de fondo de esa versión: la página empieza a renderizarse antes
+ * de que se conozcan los parámetros de la ruta, así que dejan de estar
+ * disponibles de forma síncrona. Es la única ruta dinámica del proyecto que los
+ * usa — las tres del panel leen su id en cliente.
+ */
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 export async function generateMetadata({ params }: Props) {
-  const producto = await getProducto(params.slug);
+  const { slug } = await params;
+  const producto = await getProducto(slug);
   if (!producto) return { title: "Producto no encontrado" };
   return {
     title: producto.nombre,
@@ -49,7 +58,8 @@ export async function generateMetadata({ params }: Props) {
 }
 
 export default async function ProductoPage({ params }: Props) {
-  const producto = await getProducto(params.slug);
+  const { slug } = await params;
+  const producto = await getProducto(slug);
   if (!producto) notFound();
 
   const agotado = producto.stock_disponible <= 0;

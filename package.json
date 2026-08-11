@@ -2,7 +2,10 @@
   "name": "valatino",
   "version": "0.0.1",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
@@ -17,7 +20,10 @@
   },
   "pnpm": {
     "overrides": {
-      "multer": "^2.2.0"
+      "multer": "^2.2.0",
+      "postcss": "^8.5.23",
+      "nanoid": "^3.3.18",
+      "sharp": "^0.35.3"
     }
   },
   "packageManager": "pnpm@9.6.0"
