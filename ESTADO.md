@@ -113,7 +113,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **058** (un usuario, un rol — ver la sesión del 2026-08-11). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **060**. Del 2026-08-11 salieron tres: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas) y **060** (su corrección: había que revocar también a `PUBLIC`). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -139,6 +139,12 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
   - El dataset **se genera, no se pega**: `node scripts/generar-municipios.mjs` lo baja del INE y escribe las dos salidas (`apps/api/src/common/datos/municipios.generado.ts` y los 52 `apps/web/public/municipios/<cpro>.json`). Falla si los códigos no cuadran con `PROVINCIAS_ES`. Regenerar cuando el INE publique edición nueva.
 
 ### ⚠️ Pendientes de Jonathan (acción manual)
+
+0. ⭐ **De la auditoría (2026-08-11), por orden de urgencia:**
+   - **`TRUST_PROXY_HOPS=1` en Render** → Environment → Save. Está declarado en `render.yaml`, pero si el blueprint no se sincroniza solo hay que añadirlo a mano. **Sin él el límite de peticiones sigue metiendo a todos los clientes en el mismo cubo de 100/min.**
+   - **Probar los pagos con la rama `subida-next-15`** (tarjeta, Bizum, PayPal y transferencia) y fusionarla. Es lo único que falta del P0 de dependencias, y es lo que yo no puedo comprobar.
+   - **Aplicar la CSP**: recorrer la tienda con la consola abierta y, si no salta ningún aviso, pasarla de `Report-Only` a obligatoria (instrucciones en `next.config.mjs`).
+   - **Supabase Dashboard**: activar **MFA** para las cuentas del equipo y la **protección de contraseñas filtradas** (Auth → Policies). Las dos las señala el Security Advisor y no se pueden tocar por MCP.
 1. **`NODE_ENV` está en `development` en Render**, aunque `render.yaml` dice `production`. Verificado que **ningún código depende de esa variable** (solo un comentario en `session.middleware.ts` explicando que a propósito no se depende de ella), así que cambiarlo es seguro: Render → servicio Valatino → Environment → Save (dispara redeploy). No se hizo por API porque los tokens ya estaban revocados.
 2. ~~Regenerar los tokens expuestos~~ → **hecho el 2026-07-25**: todos revocados.
 3. **Paso a producción real** (ver "Plan de producción" en la sesión 2026-07-22): API en región **EU (Frankfurt) + plan de pago** (quita el "dormir" y el cruce transatlántico Render-Oregon ↔ Supabase-Irlanda), dominio propio, claves **Stripe `live`** + recrear el webhook con el nuevo signing secret, actualizar CORS_ORIGIN / Supabase URLs al dominio propio.
@@ -159,7 +165,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **316 tests: 299 en la API y 17 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), de momento solo sobre lógica pura de `lib/`; los componentes siguen sin cubrir. CI, accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **350 tests: 331 en la API y 19 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), de momento solo sobre lógica pura de `lib/`; los componentes siguen sin cubrir. ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
 
 ---
 
@@ -234,18 +240,116 @@ Recorrer en el navegador **con la consola abierta**: login por código, catálog
 
 `apps/api/package.json` tiene el script `lint` pero **eslint no está en sus dependencias**. Es anterior a esta sesión. Importa para el **P2 (CI)**: un CI que corra `pnpm turbo lint` falla el primer día.
 
-### Lo que la auditoría deja abierto
+---
+
+## Sesión 2026-08-11 (cont.) — El resto de la auditoría
+
+### ⭐⭐ 4. Lo más grave no lo dijo la auditoría: el inventario se movía desde internet
+
+El **Security Advisor de Supabase** destapó que `desempaquetar_producto` es `SECURITY DEFINER` y tenía `EXECUTE` para `anon`. O sea: llamable desde internet por `/rest/v1/rpc/` **con la clave anon, que ES pública** — va dentro del bundle de la web, se lee viendo el código fuente.
+
+⚠️⚠️ **Y esa función MUEVE INVENTARIO**: `−1 caja → +N unidades`. Los UUID de producto también son públicos (los sirve el catálogo), así que cualquiera podía deshacer cajas hasta descuadrar el stock. Al ser `SECURITY DEFINER` corre con los permisos del dueño, de modo que **el RLS no la frenaba**.
+
+**No es teórico**: se llamó con `p_bultos = 0`, que la propia función rechaza antes de tocar nada, y respondió con su mensaje de validación en vez de un error de permisos. El permiso estaba y se entraba en el cuerpo.
+
+Con ella iban `resumen_calificaciones` y `registrar_cambio_estado_pedido`. La práctica de revocar `EXECUTE` **ya existía aquí** (`reservar_carrito`, `confirmar_venta`, `ajustar_stock` y `registrar_factura_compra` la tienen bien); lo que pasó es que las funciones nuevas —la 056 y la 042— no la heredaron.
+
+#### ⚠️⚠️ Y LA 059 NO BASTÓ. Esta es la lección de la sesión
+
+> **En Postgres una función NACE con `EXECUTE` para `PUBLIC`.** `anon` y `authenticated` no tenían permiso propio que quitar: lo heredaban de `PUBLIC`. Así que `REVOKE ... FROM anon, authenticated` **no revocó nada** y las funciones siguieron llamándose igual.
+
+Se vio **porque se probó después de aplicarla**, no porque lo dijera el `REVOKE`. En el ACL se lee a simple vista:
+
+```
+desempaquetar_producto -> =X/postgres | postgres=X/... | service_role=X/...
+                          ^^^^^^^^^^^ ese "=X" sin nombre delante ES PUBLIC
+reservar_carrito       -> postgres=X/... | service_role=X/...
+                          (sin "=X": aquí sí se revocó a PUBLIC en su día)
+```
+
+La **060** revoca a `PUBLIC` y ahí sí: `42501 permission denied` en las tres.
+
+⚠️ **REGLA PARA LA PRÓXIMA RPC** que no llame el navegador: `REVOKE EXECUTE ON FUNCTION <nombre>(<tipos>) FROM PUBLIC;` y **comprobarlo** con `has_function_privilege('anon', ...)`, sin dar por hecho que el REVOKE hizo algo.
+
+- `mi_cargo` conserva su grant a `authenticated` (la llama `lib/auth/staff.ts` con sesión y siendo staff) y pierde el de `anon`.
+- ⚠️ **`get_user_role` NO se toca a propósito**: la usan **once políticas RLS de ocho tablas**, se evalúan con el rol de quien consulta, y la web lee `user_roles` y `profiles` con la sesión del usuario. Quitarle el `EXECUTE` a `authenticated` puede reventar esas lecturas, y **peor aún de forma intermitente**, porque Postgres no garantiza el orden de evaluación de las políticas permisivas. Lo que expone es acotado: hay que conocer ya el UUID de una cuenta y solo devuelve su rol.
+- Comprobado después que no se rompió nada: el trigger del historial del pedido **sigue disparando** (1 evento al alta, 2 tras cambiar estado, en transacción revertida y sin dejar rastro).
+
+### 5. Subidas: `fileSize` no limitaba lo que parecía
+
+Los dos `FileInterceptor` solo acotaban el tamaño del fichero, y en Multer **`fields`, `parts` y `files` valen `Infinity` por defecto**. Un envío con cien mil campos de texto diminutos pasa el límite de 10 MB del PDF sin despeinarse y tiene al proceso parseando. Los cuatro avisos altos de Multer eran de eso.
+
+Ahora van acotados los seis, y un límite superado responde **413/400** en vez del 500 genérico.
+
+⚠️ **Dato que ajusta la gravedad, comprobado y no supuesto**: en Nest **los guards corren ANTES que los interceptores**, así que Multer solo parsea después de pasar `JwtGuard`, `RolesGuard` y `ModulosGuard`. Estas rutas no son alcanzables sin cuenta del equipo. Sigue mereciendo el arreglo —queda la cuenta comprometida— pero no era una puerta abierta a internet.
+
+### 6. Los errores dejan de irse de la lengua, y se corta EN EL BORDE
+
+Había una docena de sitios lanzando `InternalServerErrorException` con el mensaje del proveedor interpolado (`No se pudo crear la cuenta: duplicate key value violates unique constraint ...`).
+
+**Se depura en el filtro global, no sitio a sitio**: cualquier **5xx** sale genérico y con un **id de incidencia** de 8 caracteres, lo lance quien lo lance. Depurarlo en cada sitio es volver a la trampa de la 055 — funciona hasta que alguien añade el número trece. El detalle va entero al log con el mismo código que ve el cliente.
+
+Los **4xx no se tocan**: su mensaje es lo que el usuario necesita. Pero faltaba el otro lado — tres sitios devolvían **cualquier** `error.message` de una RPC como 400, y ahí caben los de Postgres. ⚠️ **La frontera es el SQLSTATE**, que ya usaba `checkout.service.ts`: `raise exception` sin `errcode` da **P0001**, que es exactamente «lo ha escrito una persona en la migración». Lo demás lo genera el motor y se queda en el log.
+
+### 7. ⚠️ El límite de peticiones no limitaba a quien parecía
+
+Detrás de Render la conexión la abre **su** proxy, así que `req.ip` era la IP del proxy: **todo el mundo compartía el mismo cubo de 100/min**. Con cuatro personas navegando ya se reparten la cuota. Era un problema de disponibilidad tanto como de seguridad.
+
+⚠️⚠️ **Y el arreglo fácil es peor**: `trust proxy: true` hace que Express se crea el `X-Forwarded-For` entero, y esa cabecera **la escribe quien quiera** — cualquiera se inventaría una IP nueva por petición y no habría límite ninguno. Por eso se confía en un **número concreto de saltos**, que llega en `TRUST_PROXY_HOPS`.
+
+- **Por defecto 0** (no confiar en nadie), que es lo correcto en local. **No se deduce de `NODE_ENV`** a propósito: en Render está en `development`, así que decidirlo con esa variable dejaría producción con la configuración de local.
+- **Quedarse corto es seguro y pasarse no**: con menos saltos de los reales se agrupa gente bajo una IP intermedia (impreciso, pero nadie la falsifica); con más de los reales se lee un valor que pone el atacante.
+- Techos por operación: **crear pago 15/min** (15 y no 5 porque a quien le rechazan la tarjeta reintenta, y quedarse corto es no dejar comprar a alguien que quiere pagar), **carrito 40/min** solo en las escrituras —el `GET` lo pide la barra de navegación en cada carga— y **subidas 20/min**.
+- **Webhooks exentos, y solo ellos**: un 429 ahí es un pago cobrado cuyo pedido **no** se crea.
+- **Redis NO se añade**: el plan free corre UNA instancia, así que el contador en memoria es correcto hoy.
+
+### 8. CSRF: la cookie volvía como de tercera parte sin necesitarlo
+
+`sameSite=none` era de cuando la web vivía en `*.vercel.app` y la API en `*.onrender.com` — dos sitios distintos para el navegador. **Comprobado contra producción antes de tocarlo**: hoy la cookie vuelve por el proxy `/api` y el navegador la guarda en `valatino.es`, de primera parte.
+
+⚠️ **Y `none` no solo sobraba: era lo que abría el CSRF.** Una web ajena podía lanzar un POST a `valatino.es/api/...` y el navegador adjuntaba la cookie. **CORS no lo impide** — impide *leer* la respuesta, no *enviar* la petición, y para cambiar un carrito no hace falta leerla.
+
+Segunda capa: middleware que rechaza escrituras cuyo `Origin` (o `Referer`) no esté permitido. ⚠️ **Sin `Origin` ni `Referer` se deja pasar**, y no es un hueco: los navegadores ponen `Origin` en todo lo que escribe, así que su ausencia significa que no hay navegador detrás (Stripe, un health check, curl).
+
+- **Comprobado que Next REENVÍA `Origin` al cruzar el rewrite `/api`**, así que la comprobación cubre también esa ruta, que es por donde va casi todo.
+- La lista de orígenes se sacó a `common/origenes-permitidos.ts` porque ahora la comparten CORS y esto.
+
+### 9. CI, y las dos mentiras que había que arreglar antes
+
+`.github/workflows/ci.yml` con tres trabajos: verificar (tipos, lint, tests y **build**), secretos (gitleaks + comprobación propia) y auditoría de dependencias.
+
+1. ⚠️ **Ninguna de las dos apps tenía linter que funcionase.** El de la API invocaba `eslint` sin tenerlo en dependencias —no se ejecutó nunca— y el de la web abría el asistente interactivo de `next lint`, que en CI se colgaría. Se quita el de la API y se configura de verdad el de la web. **Al ponerlo a funcionar apareció un error real**: `PermisosProvider` tenía un hook llamado `usarContexto`; al no empezar por `use`, React no podía comprobar el orden de los hooks.
+2. ⚠️ **El escaneo propio daba falso positivo**: con los prefijos sueltos, `sb_secret_` saltaba en **ESTADO.md**, que los nombra al contar qué se filtró en su día. Ahora cada patrón exige cuerpo de clave detrás. Un CI que salta con la documentación se acaba ignorando.
+
+⚠️ **Los pasos van SEPARADOS y no en un `turbo type-check lint test build`**: juntos, turbo corre type-check y build a la vez y se pisan en `.next/types`. Da un rojo intermitente, que es el peor porque enseña a reintentar en vez de a mirar.
+
+### ⭐ 10. Next 15 — hecho, EN RAMA `subida-next-15`, sin desplegar
+
+**De 43 avisos a 8, y de 18 altos a 1.**
+
+Va en rama a propósito: la auditoría exige probar a mano App Router, imágenes, checkout, Stripe y PayPal antes de desplegar, y `main` auto-despliega sobre una tienda viva.
+
+Sube `next` 14.2.35 → 15.5.x con React 19 detrás, y con él `@stripe/react-stripe-js` 2→6, `@stripe/stripe-js` 5→9, `@paypal/react-paypal-js` 8→10, `framer-motion` 11→12 y `sonner` 1→2.
+
+⚠️ **Overrides de `postcss` y `nanoid` porque NEXT 15 SIGUE FIJANDO `postcss 8.4.31`** — esos altos no se arreglan subiendo Next. Y de `sharp`, que sí es de ejecución: la trae Next 15 para optimizar imágenes y arrastra cuatro CVE de libvips.
+
+Tres cambios que exige Next 15: **`params` es una promesa** (solo afecta a `productos/[slug]`; las tres del panel leen su id en cliente), **`cookies()` es asíncrona** y `serverComponentsExternalPackages` se renombró.
+
+**Lo que queda, con su motivo**: `lodash` (el único alto) **no tiene parche publicado** —dice «parche >=4.18.0» y esa versión no existe—; comprobado que no es alcanzable, porque `@nestjs/config` solo hace `require` de `lodash/get`, `has` y `set`, así que `_.template` ni se carga. El resto (`file-type`, `@nestjs/core`, `qs`, `body-parser`) cae con la subida a **NestJS 11**, que es otra migración.
+
+**Probado arrancando de verdad**: home, carrito, checkout, login, términos y privacidad a 200; `/productos/<slug>` a 200 con su `<title>` saliendo de `generateMetadata`; las 6 cabeceras intactas; la home recuperando sus 35 enlaces al revalidar el ISR; y ni un error en el log de Next.
+
+### Cómo queda la auditoría
 
 | Bloque | Estado |
 |---|---|
-| **P0 escalada de privilegios** | ✅ cerrado |
-| **P1 cabeceras / clickjacking** | ✅ aplicado, CSP en `Report-Only` a la espera de la prueba manual |
-| **P0 dependencias** | ❌ Next sigue en **14.2.35**, Multer en **2.0.2**. Es una migración mayor (Next 15) que toca App Router, imágenes y todos los pagos |
-| **P1 uploads** | ❌ los dos `FileInterceptor` solo limitan `fileSize`; faltan `files`/`fields`/`parts` |
-| **P1 CSRF** | ❌ sin token ni validación de `Origin`. La cookie sigue en `SameSite=None` (el proxy same-origin ya permitiría `Lax`, pero hay que probar Safari/iOS) |
-| **P1 rate limit** | ❌ sigue el global de 100/min en memoria, sin `trust proxy` ni límites por operación |
-| **P2 Supabase remoto** | ❌ falta pasar el Security Advisor y revisar redirect URLs y accesos |
-| **P2 CI y evidencias** | ❌ sin CI (y con el lint roto de arriba) |
+| **P0 escalada de privilegios** | ✅ cerrado y desplegado |
+| **P0 dependencias** | ✅ hecho **en la rama `subida-next-15`** — falta que Jonathan pruebe los pagos y la fusione |
+| **P1 uploads** | ✅ cerrado y desplegado |
+| **P1 CSRF / cookies / cabeceras** | ✅ cerrado y desplegado (la CSP completa sigue en `Report-Only`) |
+| **P1 rate limit y errores** | ✅ cerrado — ⚠️ **falta poner `TRUST_PROXY_HOPS=1` en Render** o el límite sigue agrupando a todos |
+| **P2 Supabase remoto** | 🟡 Security Advisor pasado y lo grave cerrado (059+060). Faltan **MFA del staff** y la **protección de contraseñas filtradas**, que son del Dashboard |
+| **P2 CI y evidencias** | ✅ montado |
 
 ---
 
