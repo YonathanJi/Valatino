@@ -18,7 +18,7 @@ export interface StaffAcceso {
  * El rol sale de user_roles y los permisos de staff_modulos (nunca de user_metadata).
  */
 export async function getStaffAcceso(): Promise<StaffAcceso | null> {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();

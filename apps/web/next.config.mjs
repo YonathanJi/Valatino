@@ -77,9 +77,9 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    serverComponentsExternalPackages: [],
-  },
+  // `experimental.serverComponentsExternalPackages` se renombró a
+  // `serverExternalPackages` en Next 15. Estaba vacío, así que se quita en vez
+  // de renombrarlo: una opción sin contenido solo sirve para confundir.
   // Proxy same-origin: el navegador llama a /api/* (mismo dominio que la web)
   // y Next lo reenvía a la API. Así la cookie de sesión del carrito es de
   // PRIMERA PARTE y Safari/iOS la aceptan (bloquean las cookies de terceros,

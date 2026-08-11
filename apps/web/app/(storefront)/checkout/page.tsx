@@ -199,7 +199,7 @@ export default function CheckoutPage() {
     return (
       <main className="max-w-2xl mx-auto px-4 py-12 text-center">
         <h1 className="text-2xl font-bold mb-4">Tu carrito está vacío</h1>
-        <Button asChild><a href="/">Ir al catálogo</a></Button>
+        <Button asChild><Link href="/">Ir al catálogo</Link></Button>
       </main>
     );
   }

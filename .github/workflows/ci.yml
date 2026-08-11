@@ -39,6 +39,11 @@ jobs:
       - name: Instalar
         run: pnpm install --frozen-lockfile
 
+      # ⚠️ En PASOS SEPARADOS, no en un `pnpm turbo type-check lint test build`.
+      # Juntarlos deja que turbo corra type-check y build a la vez, y se pisan:
+      # `next build` regenera .next/types mientras tsc los está leyendo, y el
+      # type-check falla sin motivo. Da un CI en rojo intermitente, que es el
+      # peor de todos porque enseña a reintentar en vez de a mirar.
       - name: Tipos
         run: pnpm turbo type-check
 

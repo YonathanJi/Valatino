@@ -1,8 +1,14 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+/**
+ * ⚠️ Es `async` desde Next 15: `cookies()` devuelve una promesa.
+ *
+ * Next lo cambió porque la petición ya no está disponible de forma síncrona en
+ * los componentes de servidor. Quien llame a esto tiene que hacer `await`.
+ */
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
