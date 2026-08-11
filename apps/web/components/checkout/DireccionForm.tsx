@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { codigoPostalValido, provinciaPorCP, telefonoValido } from "@valatino/types";
@@ -48,15 +49,36 @@ interface DireccionFormProps {
  *
  * El código postal manda. Sus dos primeros dígitos son el código de provincia
  * del INE, así que la provincia no se pregunta —se deduce y se muestra— y la
- * lista de localidades se limita a los municipios de esa provincia. Antes los
- * tres campos eran texto libre y ya habían dejado «españa» escrito como ciudad.
+ * lista de localidades se limita a los municipios de ese CP. Antes los tres
+ * campos eran texto libre y ya habían dejado «españa» escrito como ciudad.
+ *
+ * ⚠️ EL ACOTADO POR CP ES UNA AYUDA, NO UNA PUERTA CERRADA, y ese matiz es todo
+ * el diseño de este componente.
+ *
+ * La tabla de códigos postales no es oficial (Correos no la publica), así que
+ * puede faltarle un CP o un municipio. Si acotar fuese restringir, esa laguna
+ * dejaría a alguien SIN PODER COMPRAR, y sin ninguna pista de por qué. Por eso
+ * siempre hay una salida a la lista completa de la provincia, y por eso el
+ * servidor sigue validando contra la provincia y no contra esta tabla.
+ *
+ * Los dos casos en que la provincia entera se muestra sola, sin pedirla:
+ *   - el CP no está en la tabla (`delCP` vacío),
+ *   - o la localidad ya elegida no pertenece a ese CP — porque entonces
+ *     esconderla la borraría de la vista sin avisar.
  */
 export function DireccionForm({ value, onChange }: DireccionFormProps) {
   const set = (field: keyof DireccionInline) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...value, [field]: e.target.value });
 
   const provincia = provinciaPorCP(value.codigo_postal);
-  const { municipios, cargando } = useMunicipios(value.codigo_postal);
+  const { municipios, delCP, cargando } = useMunicipios(value.codigo_postal);
+
+  // Lo pide quien no ve su localidad. Se reinicia al cambiar de CP: es una
+  // salida para ESE código postal, no una preferencia del formulario.
+  const [verProvinciaEntera, setVerProvinciaEntera] = useState(false);
+
+  const acotaElCP = delCP.length > 0 && !verProvinciaEntera && (!value.ciudad || delCP.includes(value.ciudad));
+  const opciones = acotaElCP ? delCP : municipios;
 
   const cpInvalido = value.codigo_postal.trim() !== "" && !codigoPostalValido(value.codigo_postal);
 
@@ -68,6 +90,7 @@ export function DireccionForm({ value, onChange }: DireccionFormProps) {
   const cambiarCP = (e: React.ChangeEvent<HTMLInputElement>) => {
     const cp = e.target.value;
     const provinciaNueva = provinciaPorCP(cp);
+    setVerProvinciaEntera(false);
     onChange({
       ...value,
       codigo_postal: cp,
@@ -170,9 +193,9 @@ export function DireccionForm({ value, onChange }: DireccionFormProps) {
               ? "Escribe primero el código postal"
               : cargando
                 ? "Cargando…"
-                : `Elige tu localidad (${municipios.length})`}
+                : `Elige tu localidad (${opciones.length})`}
           </option>
-          {municipios.map((m) => (
+          {opciones.map((m) => (
             <option key={m} value={m}>
               {m}
             </option>
@@ -180,7 +203,26 @@ export function DireccionForm({ value, onChange }: DireccionFormProps) {
         </select>
         {provincia && !cargando && (
           <p className="text-xs text-muted-foreground">
-            Municipios de {provincia}, según el INE.
+            {acotaElCP ? (
+              <>
+                {opciones.length === 1
+                  ? `Única localidad del ${value.codigo_postal.trim()}.`
+                  : `Localidades del ${value.codigo_postal.trim()}.`}{" "}
+                {/* La salida. Va como botón y no como enlace porque no navega
+                    a ningún sitio, y se anuncia con `aria-controls` para que
+                    con lector de pantalla se entienda qué cambia al pulsarlo. */}
+                <button
+                  type="button"
+                  onClick={() => setVerProvinciaEntera(true)}
+                  aria-controls="dir-ciudad"
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  ¿No ves la tuya? Ver las {municipios.length} de {provincia}
+                </button>
+              </>
+            ) : (
+              <>Municipios de {provincia}, según el INE.</>
+            )}
           </p>
         )}
       </div>
