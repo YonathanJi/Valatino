@@ -113,7 +113,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -257,6 +257,51 @@ Es **`safeupdate`**, que Supabase precarga en el rol de PostgREST y que rechaza 
 - La **065** da a cada `DELETE` un predicado sobre una columna NOT NULL (`where id is not null`, y `session_id` en `checkout_datos`, que es su clave). **No un `where true`**: se escribe un predicado de verdad y no un rodeo para engañar a la protección.
 - **Barrido de la misma familia de fallo**: se buscaron en todas las funciones del esquema los `DELETE` y `UPDATE` sin `WHERE`. **`limpiar_datos_de_prueba` era la única.** Las demás llevan el suyo y además llevan meses ejecutándose.
 - ⚠️ **El otro dato del rol, para acordarse**: `statement_timeout = 8s`. Hoy con 3 pedidos esto es instantáneo, pero una limpieza sobre miles de filas se cortaría a la mitad. Si pasa, hay que trocearla — **no subir el timeout**, que es lo que protege a la API de quedarse colgada.
+
+### ⭐ Verificado tras limpiar: la tienda queda en «arranque real» (2026-08-12)
+
+| A cero | Conservado |
+|---|---|
+| `pedidos` · `pedido_items` · `pedido_iva` · `pedido_eventos` · `pedido_calificaciones` · `transacciones_pago` · `reembolso_lineas` | **20 productos**, **336 unidades = las 336 compradas**, descuadre **0** |
+| `carritos` · `carrito_items` · `checkout_datos` · `stock_reservas` · `direcciones_envio` | **2 facturas de compra** con sus **23 líneas**, y el proveedor |
+| **Cuentas de cliente: 0** (`jonathanduqee@hotmail.com` y `jonathanduqee@gmail.com` borradas) | **6 cargos** con plantilla · `ajustes_tienda` · **1 cuenta: `jonathanduqee+admin@gmail.com`** |
+
+Sin perfiles huérfanos y sin stock reservado.
+
+⚠️ **Y pasó lo avisado: la caja de Quipitos Pops quedó a 0.** Era la unidad fantasma sin apunte. Si la caja existe en el almacén, hay que meterla con un ajuste de tipo «recuento» — ahora sí queda registrada y sobrevive a la siguiente limpieza.
+
+### 066 y 067 — la limpieza se lleva las cuentas y los empleados de prueba
+
+La 064 contaba las cuentas y no las tocaba, por prudencia. Dejaba un cabo suelto en cada limpieza («todo a cero menos esto») que había que atar a mano.
+
+**La 066** empezó borrando solo las de rol `cliente`. **La 067 la corrigió al pedir Jonathan que los empleados de prueba también se fueran**, y al mirarlo apareció el fallo de fondo: el flujo RRHH → TI crea **dos** cosas —la ficha de `empleados` y **su cuenta de asesor**—, así que borrar la ficha dejaba **un asesor con acceso al panel y sin nadie detrás**.
+
+La regla se simplificó en vez de complicarse:
+
+| Se va | Se queda |
+|---|---|
+| **Todas las cuentas cuyo rol NO sea `admin`** (clientes y asesores) | el `admin` |
+| **Empleados** con su histórico mensual (cascada) | **los cargos con sus 27 filas de permisos** |
+
+⚠️⚠️ **LOS CARGOS NO SE TOCAN, Y ES DELIBERADO.** No son datos de prueba: son el **organigrama del negocio** —Gerente General, Director Comercial…— con permisos ajustados a mano, sembrados en la 038. **Un empleado se contrata y se va; el puesto que ocupaba sigue existiendo.** Borrarlos dejaría TI → Cargos vacío y provisionar a alguien exigiría reconstruir el organigrama entero.
+
+Tres detalles de orden que no son cosméticos:
+
+1. Las cuentas se borran **después** de pedidos y empleados: `pedidos.user_id` cascadea desde `auth.users`, así que al revés se llevaría pedidos por la puerta de atrás y el recuento mentiría.
+2. En **una sola sentencia**: `user_roles.asignado_por` es `NO ACTION`, así que si un asesor asignó el rol de otro, borrarlos por separado fallaría. En la misma sentencia Postgres comprueba al final.
+3. `profiles`, `user_roles` y `staff_modulos` caen en cascada con la cuenta; `empleado_historial_mensual` con el empleado. No hay que borrarlos aparte.
+
+Y una cuenta **sin rol** no se toca: es un estado anómalo (`assign_default_role` le pone `cliente` a todo el que se registra) y ante algo que no debería existir avisar es más útil que borrar en silencio. El panel lo destaca.
+
+⚠️ Comprobado tras la 067 que **los 8 `DELETE` de la función llevan su `WHERE`** (la lección de la 065). Ojo al comprobarlo: un regex `delete from <tabla> where` da un falso positivo con `delete from auth.users u where …`, porque el alias va en medio.
+
+La 064 las contaba y no las tocaba, por prudencia. En la práctica dejaba un cabo suelto en cada limpieza («todo a cero menos esto») que había que atar a mano, y el estado que se busca es la tienda entera recién montada. **A quién NO toca, que es lo que lo hace seguro:**
+
+1. Solo cuentas cuyo rol sea **exactamente `cliente`** (desde la 058 un usuario tiene como mucho uno, así que no hay ambigüedad).
+2. **Nunca** una cuenta ligada a una ficha de `empleados`, aunque su rol siga siendo `cliente`. Es la red para quien quede a medias del flujo RRHH → TI: la ficha existe, el rol aún no se ha cambiado, y borrarle la cuenta sería tirar el trabajo de dos personas.
+3. **Nunca** una cuenta sin rol. Es anómalo —`assign_default_role` le pone `cliente` a todo el que se registra— y ante algo anómalo se **cuenta y no se borra en silencio**. El panel lo destaca en la línea de resultado.
+
+⚠️ El borrado de cuentas va **después** del de pedidos a propósito: `pedidos.user_id` cascadea desde `auth.users`, así que al revés se llevaría pedidos por la puerta de atrás y el recuento mentiría.
 
 ### ⚠️ Lo que hay que saber antes de pulsar «limpiar»
 

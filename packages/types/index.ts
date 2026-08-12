@@ -1074,12 +1074,26 @@ export interface EstadoMantenimiento {
 /** Lo que hizo la limpieza, para poder afirmarlo en pantalla y no suponerlo. */
 export interface ResultadoLimpieza {
   pedidos_borrados: number;
+  /** Empleados dados de alta probando, con su histórico mensual (migración 067) */
+  empleados_borrados: number;
+  /**
+   * Cuentas eliminadas: **todas las que no son `admin`** (migración 067).
+   *
+   * Clientes y asesores. Incluye la cuenta que TI provisiona a un empleado de
+   * prueba: si se borra la ficha y se deja la cuenta, queda un asesor con
+   * acceso al panel y sin nadie detrás.
+   */
+  cuentas_borradas: number;
+  /**
+   * Cuentas sin ningún rol. Es un estado anómalo (`assign_default_role` le pone
+   * `cliente` a todo el que se registra), y ante algo anómalo se cuenta y no se
+   * borra en silencio.
+   */
+  cuentas_sin_rol_sin_tocar: number;
   quedan: Record<string, number>;
   /** Solo los productos cuyo stock cambió, con el valor nuevo */
   stock_recalculado: Record<string, number>;
   descuadres_tras_limpiar: number;
-  /** No se tocan: borrar una cuenta es irreversible de otra manera */
-  cuentas_de_cliente_sin_tocar: number;
   cuando: string;
 }
 

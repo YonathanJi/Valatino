@@ -151,11 +151,13 @@ export function MantenimientoPanel() {
           <div className="rounded-lg border bg-muted/40 p-3 text-xs">
             <p className="font-medium">Última limpieza</p>
             <p className="mt-1 text-muted-foreground">
-              {ultima.pedidos_borrados} pedido(s) borrados ·{" "}
+              {ultima.pedidos_borrados} pedido(s), {ultima.empleados_borrados} empleado(s) y{" "}
+              {ultima.cuentas_borradas} cuenta(s) borradas ·{" "}
               {Object.keys(ultima.stock_recalculado).length} producto(s) con el stock recalculado ·{" "}
-              {ultima.descuadres_tras_limpiar} descuadre(s) después ·{" "}
-              {ultima.cuentas_de_cliente_sin_tocar} cuenta(s) de cliente sin tocar (borrarlas es
-              cosa aparte).
+              {ultima.descuadres_tras_limpiar} descuadre(s) después
+              {ultima.cuentas_sin_rol_sin_tocar > 0 &&
+                ` · ⚠️ ${ultima.cuentas_sin_rol_sin_tocar} cuenta(s) sin rol, que no se tocan: revísalas`}
+              .
             </p>
           </div>
         )}
@@ -185,10 +187,16 @@ export function MantenimientoPanel() {
                 <p className="font-medium">Se van a borrar {estado.pedidos} pedido(s).</p>
                 <p className="text-muted-foreground">
                   Con ellos se van sus líneas, su historial, los pagos, las devoluciones, los
-                  carritos, las reservas y las direcciones de envío. <strong>Se conservan</strong>{" "}
-                  el catálogo con su stock, las facturas de compra —que son documentos contables
-                  reales—, los proveedores, los cargos y esta configuración. El stock vuelve a lo
-                  que dicen las compras y los ajustes.
+                  carritos, las reservas y las direcciones de envío. También{" "}
+                  <strong>los empleados de Gestión Humana</strong> con su histórico, y{" "}
+                  <strong>todas las cuentas que no sean de administrador</strong> —clientes y
+                  asesores, incluida la que TI le haya provisionado a un empleado de prueba—.
+                  <br />
+                  <strong>Se conservan</strong> el catálogo con su stock, las facturas de compra
+                  —que son documentos contables reales—, los proveedores, <strong>los cargos con
+                  sus permisos</strong> (son el organigrama, no datos de prueba: un empleado se va y
+                  el puesto sigue existiendo) y esta configuración. El stock vuelve a lo que dicen
+                  las compras y los ajustes.
                 </p>
               </div>
             ) : (
