@@ -230,6 +230,10 @@ Los espías van sobre `Logger.prototype`, no sobre `console` (la lección del 11
 
 **619 tests** (336 en la API, 283 en la web), `type-check` y `lint` en verde.
 
+**Desplegado y verificado**: build nuevo en Vercel a los 40 s del push; home, `www`, carrito, checkout, login y `api.valatino.es/health` a 200; las 6 cabeceras intactas y la CSP todavía en `Report-Only`. **Jonathan comprobó TI → Cargos en pantalla**: los chips de los seis cargos salen bien.
+
+⚠️ **TI → Usuarios no sirve para comprobar esto, y conviene saber por qué**: la API devuelve `permisos: []` a los admin a propósito (un súper admin lo puede todo, los chips sobran), y hoy solo existe esa cuenta con Gestión Humana vacío. Esa pantalla saldría sin chips y sin pendientes con el cambio o sin él. Cargos era el único sitio donde se podía ver de verdad.
+
 ---
 
 ## Sesión 2026-08-11 — Auditoría de ciberseguridad: se cierra la escalada de privilegios
