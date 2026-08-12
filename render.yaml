@@ -28,8 +28,12 @@ services:
       # IP con X-Forwarded-For.
       - key: TRUST_PROXY_HOPS
         value: "1"
-      # Origen(es) permitidos para CORS: la URL de tu web en Vercel.
-      # Admite varias separadas por comas.
+      # Origen(es) permitidos para CORS, separados por comas. Hoy la tienda vive
+      # en su dominio propio, así que son https://valatino.es y su www; el
+      # https://valatino-api-steel.vercel.app de la transición se conserva a
+      # propósito y se quita cuando ya no lo use nadie. La misma lista decide
+      # qué Origin acepta el middleware anti-CSRF (ver origenes-permitidos.ts),
+      # así que quitar uno le corta también las escrituras.
       - key: CORS_ORIGIN
         sync: false
       # Preview URLs de Vercel: solo las de este proyecto, por prefijo

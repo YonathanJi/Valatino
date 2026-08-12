@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-11
+**Última actualización**: 2026-08-12
 
 ---
 
@@ -42,7 +42,7 @@
    - **TXT `@`** = `v=spf1 include:sendgrid.net ~all` — el dominio del remitente no declara SPF; el subdominio de envío sí. El DMARC ya pasa por DKIM, pero varios filtros miran esto.
    - **MX** — `valatino.es` sigue sin poder **recibir** correo. Resolverlo (reenvío de GoDaddy, Zoho o Workspace) permite **quitar `EMAIL_REPLY_TO`** y deja de ser una señal de spam.
    - **Remitente del correo de acceso**: sigue saliendo por **Supabase Auth** con su propio remitente, que no es del dominio → por eso el cliente marca ese correo como «no comprobado». Se cambia en Supabase → Project Settings → Auth → SMTP Settings.
-2. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado.
+2. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado. **Comprobado el 2026-08-12 contra producción** qué hay hoy: se admiten `https://valatino.es`, `https://www.valatino.es`, `https://valatino-api-steel.vercel.app` y `http://localhost:3000`; las previews de Vercel **no** (`CORS_VERCEL_PREVIEW_PREFIX` sin poner) y un origen ajeno se deniega. El valor a dejar es `https://valatino.es,https://www.valatino.es,http://localhost:3000`. ⚠️ Es del **dashboard de Render** (`sync: false`), y **cambiarlo por API no basta**: hay que forzar un deploy o guardarlo en el panel. Y la misma lista alimenta el middleware anti-CSRF, así que quitar el origen le corta también las escrituras — que es justo lo que se quiere.
 2. **Revocar los CINCO secretos y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`**: Vercel (`vcp_`), Render (`rnd_`), SendGrid (`SG.`, que es de **acceso total**, 210 permisos) y las dos de Supabase. ⚠️ La `sb_secret_…` es la que más prisa tiene: **salta el RLS** y puede leer y escribir toda la base de datos.
 3. Cuando se pase a **Stripe `live`**: los webhooks son **por modo**, así que hay que crear el de producción desde cero con los 5 eventos y su secret nuevo en Render. Y si algún día se activa Apple Pay, Stripe exige **registrar el dominio**.
 
@@ -67,7 +67,7 @@
 
 ### 🔜 Lo único pendiente al volver
 
-1. **Probar el correo de la transferencia**: hacer un pedido por transferencia y comprobar que llega el correo con el IBAN y el concepto, y que aparece en el histórico. Es lo único sin verificar en pantalla.
+1. **Probar el correo de la transferencia**: hacer un pedido por transferencia y comprobar que llega el correo con el IBAN y el concepto, y que aparece en el histórico. Es lo único sin verificar en pantalla. ⚠️ **Lo que sí quedó cubierto el 2026-08-12 son los 5 tests que faltaban** (que el correo salga, a quién, y que un fallo de SMTP no se lleve el pedido): eso cierra el hueco de regresión, pero **no sustituye a la prueba** — nadie ha visto todavía ese correo en una bandeja de entrada.
 2. **Probar de nuevo el escenario que falló** (`052`): pedido por transferencia → cerrar sesión → volver a entrar → pagar con Bizum. Ahora debe enlazarse y cancelarse el anterior. Verificado en seco contra el remoto, no en pantalla.
 3. **Poner el IBAN definitivo** en **TI → Ajustes**. El que hay es de prueba: `ES33 9490 0934 2392 2994 3748`.
    - ⚠️ El que se dio originalmente (`ES48 9490…`) **no era válido**: su dígito de control es **33**, no 48. Ahora el panel lo valida al guardar.
@@ -98,7 +98,7 @@ Lo del **2026-07-27** sí está todo probado por él en producción. **Tres pedi
 4. **Paso a producción real** — ver los pendientes manuales de abajo (región EU, Stripe `live`, dominio propio).
 5. **Accesibilidad**, sin auditar todavía.
 6. **Correo de acceso: quitarse la dependencia de Supabase** (opcional, pero es el flujo más crítico). Su endpoint de plantillas dio un 502 y dejó el login enviando correos en inglés con enlace. Mitigado ya, pero la causa sigue ahí. Antes de nada, lo barato: **re-guardar la plantilla en el Dashboard**. Si vuelve a pasar, mandarlo nosotros con SendGrid vía **Send Email Hook** — `EmailModule` ya tiene las plantillas en español.
-7. **Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []` en `UsuariosPanel.tsx` y `CargosPanel.tsx`) se puso para la ventana de despliegue de la 038 y decía «quitar en la siguiente release». Ya van tres releases: se puede quitar. Es cosmético, pero es código que finge cubrir un caso que ya no existe.
+7. ~~**Cabo suelto pequeño**: la tolerancia al formato anterior de permisos (`permisos ?? []`)~~ → **quitada el 2026-08-12** (ver la sesión de ese día).
 
 **Antes de tocar la tienda, leer esto** (la lección de la sesión del 27, que costó dos despliegues aprender): Vercel y Render despliegan **del mismo push** y no se pueden ordenar, y Vercel es siempre más rápido. Así que el orden seguro depende de **qué lado se vuelve más estricto**:
 
@@ -174,7 +174,61 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **614 tests: 331 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **619 tests: 336 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-12 — Cabos sueltos: el `?? []` que ya no cubría nada, y el correo que nadie comprobaba
+
+Sesión corta y deliberadamente de bajo riesgo. Tres cosas, y una de ellas **no se hizo porque no puedo**.
+
+### 1. Fuera la tolerancia al formato viejo de permisos
+
+Se puso para la ventana de despliegue de la 038 —Vercel llega en dos minutos y Render tarda bastante más, así que un rato la API respondía en el formato anterior— con un comentario que decía «quitar en la siguiente release». Ya iban tres.
+
+**Antes de quitarlo se comprobó que de verdad está muerto**, que es lo único que hacía falta decidir: la API rellena el array **en su lado** en los tres sitios (`cargos.service.ts:56`, `usuarios.controller.ts:129` y `:181`, todos con su propio `?? []`), así que la respuesta nunca puede traer el campo ausente. Los tipos lo declaran no opcional, pero un tipo es una afirmación sobre JSON que llega por la red, no una garantía; por eso se miró el servidor y no solo `packages/types`.
+
+⚠️ **Eran TRES sitios, no los dos que decía este archivo**: se había quedado sin anotar el `plantilla ?? []` de `loadPendientes` en el mismo `UsuariosPanel.tsx`. Al quitarlo, los tres `filas.map(...)` desaparecen enteros y quedan en `setStaff(filas)`.
+
+### 2. El correo de la transferencia: 5 tests donde había un mock mudo
+
+El estado decía «desplegado, sin probar a mano», y al abrirlo apareció algo peor: `transferencia.service.spec.ts` **mockeaba `enviarInstruccionesTransferencia` y no afirmaba nada sobre él**. Es el correo más importante de la tienda —el único que hace falta para *poder* pagar— y no había ni una prueba de que saliera.
+
+Ahora se fija lo que estaba solo en un comentario del código:
+
+| Se comprueba | Por qué importa |
+|---|---|
+| sale con IBAN, titular, importe y concepto | el concepto **es** el número de pedido: es lo único que casa el apunte del banco con el pedido |
+| va al correo **del pedido**, no al del DTO | quien compra con cuenta puede no mandarlo en el checkout |
+| sin correo en el pedido, cae al del DTO | y sin ninguno de los dos no se envía nada, pero **el pedido sale igual** |
+| un fallo de SMTP no se lleva por delante el pedido | el pedido ya existe y retiene stock; devolver un error sobre algo que sí se creó es lo peor que podría pasar ahí |
+
+⚠️⚠️ **La trampa de escribirlos, que vale para cualquier aviso que salga con `void`**: el envío es fire-and-forget a propósito (el cliente está esperando su IBAN en pantalla y SMTP tarda segundos). Un test que afirme justo después de `await crearPedido()` **mira antes de que el correo haya salido** — y como afirmaría sobre un array vacío que aún no se ha llenado, un `expect(correos).toEqual([])` pasaría en verde estando todo roto. Hay que drenar la cola de microtareas primero (`dejarSalirElAviso`, con `setImmediate`).
+
+⚠️ **Y esto NO sustituye a la prueba a mano.** Cierra la regresión: que nadie rompa el envío sin enterarse. Pero **nadie ha visto todavía ese correo en una bandeja de entrada**, y lo que falla en un correo real —que SendGrid lo acepte, que no caiga en spam, que el HTML se lea en el móvil— no lo caza ningún test. Sigue en la lista.
+
+Los espías van sobre `Logger.prototype`, no sobre `console` (la lección del 11).
+
+### 3. ⚠️ Lo del CORS no se hizo: es del dashboard de Render
+
+`CORS_ORIGIN` es `sync: false` —se rellena a mano en Render— y los tokens de despliegue están revocados desde el 2026-07-25. **Se midió, que es lo que sí podía hacer**, sondeando `api.valatino.es` con distintos `Origin`:
+
+| Origen | Hoy |
+|---|---|
+| `https://valatino.es` · `https://www.valatino.es` | permitidos |
+| `https://valatino-api-steel.vercel.app` | **permitido** — es el que sobra |
+| `http://localhost:3000` | permitido |
+| `https://valatino-<hash>.vercel.app` (preview) | denegado (`CORS_VERCEL_PREVIEW_PREFIX` sin poner) |
+| origen ajeno | denegado |
+
+**Valor a dejar**: `https://valatino.es,https://www.valatino.es,http://localhost:3000`.
+
+- ⚠️ **Cambiarlo por API no basta**: guardar la variable por REST **no dispara redespliegue** y el proceso sigue con el valor viejo en memoria (lección del 2026-08-05). Por el panel sí.
+- ⚠️ **Desde la auditoría, esa lista alimenta también el middleware anti-CSRF** (`common/origenes-permitidos.ts`), no solo CORS. Quitar el origen le corta además las **escrituras**, que es justo lo que se busca, pero conviene saberlo antes de tocarlo.
+- **`http://localhost:3000` se deja**: sirve para apuntar la web local contra la API de producción y el riesgo es teórico (haría falta que la víctima tuviera algo escuchando en su propio puerto 3000).
+- El comentario de `render.yaml` **mentía** —decía «la URL de tu web en Vercel», de cuando la tienda vivía ahí— y se ha corregido: es el fichero que le dice a quien despliegue qué poner en el dashboard.
+
+**619 tests** (336 en la API, 283 en la web), `type-check` y `lint` en verde.
 
 ---
 

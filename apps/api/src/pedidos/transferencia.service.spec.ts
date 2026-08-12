@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Logger, NotFoundException } from "@nestjs/common";
 import { TransferenciaService } from "./transferencia.service";
 
 const CUENTA = {
@@ -14,10 +14,12 @@ function montar(
     rpc?: unknown;
     error?: unknown;
     ajustes?: Record<string, unknown> | null;
+    emailFalla?: boolean;
   } = {},
 ) {
-  const { pedido = null, rpc = null, error = null, ajustes = null } = opciones;
+  const { pedido = null, rpc = null, error = null, ajustes = null, emailFalla = false } = opciones;
   const llamadas: Array<{ fn: string; params: Record<string, unknown> }> = [];
+  const correos: Array<Record<string, unknown>> = [];
 
   const supabase = {
     from: (tabla: string) => ({
@@ -41,9 +43,11 @@ function montar(
   };
 
   const config = { get: (clave: string) => entorno[clave] };
-  // Los avisos al cliente salen sin await y no son objeto de estas pruebas.
   const email = {
-    enviarInstruccionesTransferencia: async () => undefined,
+    enviarInstruccionesTransferencia: async (datos: Record<string, unknown>) => {
+      if (emailFalla) throw new Error("SMTP no responde");
+      correos.push(datos);
+    },
     enviarConfirmacionPedido: async () => undefined,
   };
   const inventario = { getPedidoConItems: async () => null };
@@ -54,8 +58,16 @@ function montar(
     inventario as never,
     config as never,
   );
-  return { servicio, llamadas };
+  return { servicio, llamadas, correos };
 }
+
+/**
+ * El aviso sale con `void`, sin await: el cliente está esperando su IBAN en
+ * pantalla y SMTP tarda segundos. Hay que dejar correr la cola de microtareas
+ * antes de mirar si se envió, o el test comprueba un correo que aún no ha
+ * salido y pasa a verde por accidente.
+ */
+const dejarSalirElAviso = () => new Promise((listo) => setImmediate(listo));
 
 describe("TransferenciaService — disponibilidad", () => {
   /**
@@ -219,6 +231,105 @@ describe("TransferenciaService — crear el pedido", () => {
       fn: "crear_pedido_transferencia",
       params: { p_clave_idempotencia: "clave-1", p_dias_plazo: 4, p_session_id: "s-1" },
     });
+  });
+});
+
+/**
+ * Es el correo más importante de la tienda: el único que hace falta para PODER
+ * pagar. Sin él, el cliente tiene un pedido y ningún sitio a donde transferir
+ * salvo que conserve la pestaña abierta.
+ */
+describe("TransferenciaService — el correo con las instrucciones", () => {
+  const NUEVO = {
+    id: "ped-nuevo",
+    numero_pedido: "260802039999",
+    total: "5.00",
+    pago_vence_el: "2026-08-06T21:59:59Z",
+    metodo_pago: "transferencia",
+    estado: "PENDIENTE_PAGO",
+    email_cliente: "cliente@ejemplo.es",
+  };
+
+  const crear = (opciones: Parameters<typeof montar>[1] = {}, dto: { email?: string } = {}) => {
+    const armado = montar(CUENTA, { rpc: "ped-nuevo", pedido: NUEVO, ...opciones });
+    return {
+      ...armado,
+      hecho: armado.servicio.crearPedido({
+        sessionId: "s-1",
+        claveIdempotencia: "clave-1",
+        ...dto,
+      }),
+    };
+  };
+
+  // El servicio registra los avisos fallidos; aquí eso es ruido esperado.
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it("lleva el IBAN, el titular y el concepto del pedido recién creado", async () => {
+    const { correos, hecho } = crear();
+    await hecho;
+    await dejarSalirElAviso();
+
+    expect(correos).toHaveLength(1);
+    expect(correos[0]).toMatchObject({
+      email: "cliente@ejemplo.es",
+      numeroPedido: "260802039999",
+      concepto: "260802039999",
+      iban: "ES33 9490 0934 2392 2994 3748",
+      titular: "Valentino Jimenez Mendoza",
+      importe: 5,
+    });
+  });
+
+  /**
+   * A propósito el del pedido y no el del DTO: quien compra con cuenta puede no
+   * mandarlo en el checkout, y el pedido siempre tiene a quién avisar (lo
+   * garantiza `pedidos_localizable_check`).
+   */
+  it("se manda al correo del pedido, no al que venga en el DTO", async () => {
+    const { correos, hecho } = crear({}, { email: "tecleado@ejemplo.es" });
+    await hecho;
+    await dejarSalirElAviso();
+
+    expect(correos[0]).toMatchObject({ email: "cliente@ejemplo.es" });
+  });
+
+  it("si el pedido no trae correo, se usa el del DTO antes que no avisar", async () => {
+    const { correos, hecho } = crear(
+      { pedido: { ...NUEVO, email_cliente: null } },
+      { email: "invitado@ejemplo.es" },
+    );
+    await hecho;
+    await dejarSalirElAviso();
+
+    expect(correos[0]).toMatchObject({ email: "invitado@ejemplo.es" });
+  });
+
+  it("sin correo por ninguno de los dos lados no se envía nada, y el pedido sale igual", async () => {
+    const { correos, hecho } = crear({ pedido: { ...NUEVO, email_cliente: null } });
+
+    await expect(hecho).resolves.toMatchObject({ numero_pedido: "260802039999" });
+    await dejarSalirElAviso();
+    expect(correos).toEqual([]);
+  });
+
+  /**
+   * El envío va sin await justamente para esto: el pedido ya existe y retiene
+   * stock. Si un fallo de SMTP tumbara la respuesta, el cliente vería un error
+   * sobre un pedido que sí se creó, y las instrucciones siguen en «Mis pedidos».
+   */
+  it("un fallo del envío no se lleva por delante el pedido", async () => {
+    const { hecho } = crear({ emailFalla: true });
+
+    await expect(hecho).resolves.toMatchObject({
+      numero_pedido: "260802039999",
+      iban: "ES33 9490 0934 2392 2994 3748",
+    });
+    await dejarSalirElAviso();
   });
 });
 

@@ -20,7 +20,7 @@ export function CargosPanel() {
   const cargar = async () => {
     try {
       const filas = await apiFetch<CargoConPlantilla[]>("/admin/ti/cargos");
-      setCargos(filas.map((c) => ({ ...c, permisos: c.permisos ?? [] })));
+      setCargos(filas);
     } catch {
       // el layout ya protege la ruta
     } finally {
