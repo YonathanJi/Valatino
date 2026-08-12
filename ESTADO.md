@@ -50,6 +50,28 @@
 
 ### 🔜 Al volver, empezar por aquí
 
+## ⭐⭐ PRÓXIMA SESIÓN: contabilidad, Capa 2 — facturación a clientes y liquidación del IVA
+
+Lo acordado con Jonathan el 2026-08-12. **Las capas 0 y 1 están hechas y desplegadas** (el dato: `productos.iva_pct`, el snapshot en `pedido_items` y el desglose por tipo en `pedido_iva`), así que el IVA de cada venta ya es calculable y está cuadrado al céntimo. Lo que falta:
+
+1. **Facturas a clientes** — tabla propia, **serie y numeración correlativa SIN HUECOS**, inmutable, con snapshot de todo (emisor, cliente, líneas, base y cuota por tipo).
+   - ⚠️ **Una secuencia de Postgres NO sirve**: no retrocede al abortar una transacción y deja huecos. Hace falta un contador con `for update` en la misma transacción, la disciplina de bloqueo de la 056.
+   - Una factura emitida **no se edita ni se borra jamás**. Corregir = emitir una **rectificativa**, así que el flujo de reembolsos por artículos (044) tiene que empezar a generar una.
+   - **Decidido: simplificada por defecto** (el ticket, permitido en venta a consumidor por debajo de 400 €, sin NIF ni dirección), con un «quiero factura con mis datos» que emita la completa. Encaja con que `documento_cliente` sea hoy opcional.
+2. **Liquidación del IVA (modelo 303)** — el libro de **facturas recibidas ya existe** (compras, desde la 029) y el de **expedidas** sale del punto 1. La pantalla es un informe por rango de fechas: devengado por tipo, deducible por tipo, y la diferencia.
+
+### ⚠️⚠️ LO ÚNICO QUE BLOQUEA: confirmar Verifactu con la gestoría
+
+El **RD 1007/2023** obliga a que los sistemas de facturación encadenen los registros por hash, no permitan borrado, lleven registro de eventos y pongan un QR en la factura. **Las fechas de entrada en vigor se han movido varias veces y no se dan por sabidas aquí**: hay que preguntarlo.
+
+Importa **antes** de escribir la tabla, no después: encadenar por hash desde el día uno es barato y retrofitarlo es horrible. La buena noticia es que el diseño que exige es casi el que se quiere igualmente —inmutable, append-only, rectificativas en vez de ediciones—, así que se puede avanzar en esa dirección sin apostar por una fecha.
+
+**Y el terreno ya está preparado**: el **arranque fiscal** (064) existe, así que la tabla de facturas nace sabiendo que hay un antes y un después. ⚠️ Cuando exista, la limpieza tendrá que borrar facturas **solo en modo pruebas** — tras el arranque ya se niega entera.
+
+### 🔜 Lo demás, al volver
+
+⚠️ **Pendiente pequeño de Jonathan**: si la caja de **Quipitos Pops Caja 24** existe de verdad en el almacén, meterla desde Inventario con un ajuste de tipo **«recuento»**. Se quedó a 0 en la limpieza del 12/08 por ser la unidad fantasma sin apunte; ahora sí quedaría registrada.
+
 ✅ **Los cuatro bugs del 2026-07-28 están probados por Jonathan y funcionan.** (Teléfono del cliente al panel, la ventana de calificación que se cierra al enviar, el mensaje honesto del reembolso y la coma en el importe.) Ya no hay nada pendiente de comprobar de esa sesión.
 
 ✅ **TODO LO DEL 2026-08-02 ESTÁ DESPLEGADO Y PROBADO POR JONATHAN.** Fue una sesión larga; esto es lo que quedó funcionando en producción:
