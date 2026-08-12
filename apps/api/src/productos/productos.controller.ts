@@ -175,8 +175,12 @@ export class ProductosController {
   @Modulo("inventario")
   @Nivel("edicion")
   @HttpCode(HttpStatus.OK)
-  ajustarStock(@Param("id", ParseUUIDPipe) id: string, @Body() dto: AjustarStockDto) {
-    return this.productosService.ajustarStock(id, dto.cantidad);
+  ajustarStock(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: AjustarStockDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.productosService.ajustarStock(id, dto.cantidad, dto.motivo, dto.nota, user.sub);
   }
 
   /**

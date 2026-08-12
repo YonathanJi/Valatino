@@ -1,5 +1,15 @@
-import { Body, Controller, Get, Put, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+  UseGuards,
+} from "@nestjs/common";
 import { TransferenciaService } from "../pedidos/transferencia.service";
+import { MantenimientoService } from "./mantenimiento.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
@@ -27,7 +37,10 @@ import type { JwtPayload } from "@valatino/types";
 @Modulo("ti")
 @Nivel("lectura")
 export class AjustesController {
-  constructor(private readonly transferencia: TransferenciaService) {}
+  constructor(
+    private readonly transferencia: TransferenciaService,
+    private readonly mantenimiento: MantenimientoService,
+  ) {}
 
   @Get("transferencia")
   leer() {
@@ -46,5 +59,39 @@ export class AjustesController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.transferencia.guardarAjustes(dto, user.sub);
+  }
+
+  /** En qué modo está la tienda, cuántos pedidos hay y si el stock cuadra. */
+  @Get("mantenimiento")
+  estado() {
+    return this.mantenimiento.estado();
+  }
+
+  /**
+   * ⚠️⚠️ BORRA TODAS LAS VENTAS. Por eso es `@Roles("admin")` **además** de
+   * `total`: un asesor de TI con control total administra cuentas y accesos,
+   * pero vaciar la tienda no es administrar, y el nivel más alto de un módulo
+   * no debería alcanzar para eso.
+   *
+   * El guardia de verdad —negarse tras el arranque fiscal— está en la BD, no
+   * aquí: así protege también al editor SQL y a lo que se escriba mañana.
+   */
+  @Post("mantenimiento/limpiar")
+  @Roles("admin")
+  @Nivel("total")
+  @HttpCode(HttpStatus.OK)
+  limpiar(@CurrentUser() user: JwtPayload) {
+    return this.mantenimiento.limpiarDatosDePrueba(user.sub);
+  }
+
+  /**
+   * Marca que las ventas empiezan a contar de verdad. **Sin vuelta atrás.**
+   */
+  @Post("mantenimiento/arranque-fiscal")
+  @Roles("admin")
+  @Nivel("total")
+  @HttpCode(HttpStatus.OK)
+  arrancar(@CurrentUser() user: JwtPayload) {
+    return this.mantenimiento.marcarArranqueFiscal(user.sub);
   }
 }

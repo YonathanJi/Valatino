@@ -113,7 +113,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -174,7 +174,70 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **626 tests: 343 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **632 tests: 349 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-12 (cont. 2) — ⭐ Probar sin miedo, y arrancar de verdad una sola vez (063 y 064)
+
+Jonathan lo planteó así: «creamos ventas, las eliminamos, dejamos la base limpia, volvemos a probar… ¿qué hacemos para que cuando sea la real se pueda limpiar y arrancar?».
+
+### ⚠️⚠️ Lo primero, porque cambia el problema: eso deja de ser legal en cuanto haya facturas
+
+Una serie de facturación tiene que ser **correlativa y sin huecos**. Borrarla para empezar de nuevo es destruir registros contables. Así que lo que hacía falta no era una limpieza: era **un punto de no retorno explícito**, con una limpieza detrás que se apague sola al cruzarlo.
+
+Y una asimetría que conviene tener presente: **las compras ya son reales**. Las facturas 202521188 y 202521893 son de proveedor, con mercancía y dinero de verdad, y ese IVA soportado ya es deducible. Lo que está en pruebas es solo el lado de las ventas.
+
+### El hallazgo: el stock era reconstruible salvo por un agujero, y se pudo medir
+
+Antes de diseñar nada se comprobó contra el remoto si el stock se deduce de lo que sobreviviría a una limpieza:
+
+`stock = compras − ventas + reposiciones de reembolso ± desempaquetados`
+
+**19 de 20 productos cuadraban exactamente.** El único que no: **Quipitos Pops Caja 24**, con 1 unidad y 0 compradas. Entró por un `ajustar_stock` a mano y **no había rastro de ella en ninguna parte** — no existía libro de movimientos.
+
+⚠️ Al principio parecían dos descuadres. El otro era mío: faltaba el término de **reposición de reembolso** en la fórmula (el pedido `260812017439` está REEMBOLSADO con dos líneas devueltas). Con ese término encaja.
+
+### 063 — el libro de ajustes, y solo el de ajustes
+
+`ajustes_stock` guarda qué, cuánto, quién y **por qué**. Deliberadamente **no** es un libro de todos los movimientos: compras, ventas, reembolsos y desempaquetados ya tienen su fuente de verdad, y duplicarlos crearía un segundo sitio que puede divergir del primero — además de obligar a tocar `confirmar_venta`, que es la ruta del dinero. **Solo se registra la única entrada que no tenía fuente.**
+
+- El apunte va **en la misma transacción** que el movimiento. Un libro que se escribe aparte se queda a medias en cuanto algo falle, y **un libro con huecos es peor que no tenerlo porque parece completo**.
+- ⚠️ **Se BORRA la `ajustar_stock` vieja antes de crear la nueva.** Con `create or replace` quedarían las dos vivas y una llamada de dos argumentos sería **ambigua** — la trampa que documenta la 039. Y el `drop` no abre ventana: Supabase llama con argumentos **con nombre**, así que la API ya desplegada entra por los `default` de los parámetros nuevos. Se comprobó en el ensayo.
+- **`comprobar_stock()`** convierte en consulta lo que hasta hoy se miraba a ojo tras cada limpieza. Un descuadre no da error por sí solo: hay que ir a buscarlo.
+
+### ⚠️ El panel solo sabía SUMAR stock
+
+Al poner el motivo apareció: `StockAjusteModal` era un «+Stock» con `min={1}`. O sea que **rotura, merma y caducidad —las razones por las que un inventario se descuadra de verdad— no tenían forma de entrar**, y quien las sufría no registraba nada. Un libro que solo apunta altas no explica ningún descuadre, así que el widget lleva ahora el signo.
+
+El signo **se deduce del motivo** cuando el motivo lo implica (rotura resta, siempre) y solo se pregunta cuando no (corrección). Preguntarlo siempre invita a equivocarse en la mitad de los casos.
+
+### 064 — el interruptor de un solo sentido
+
+`ajustes_tienda.arranque_fiscal_el`: `NULL` = pruebas, con fecha = real. Y `limpiar_datos_de_prueba()` **se niega a ejecutarse** en cuanto tiene fecha.
+
+⚠️ **El guardia vive en la BD, no en el servicio de Nest.** Es lo que hace que proteja también al editor SQL, a un script y a cualquier endpoint que se escriba mañana — la lección de la 055: una restricción que depende de que la aplicación se acuerde no es una restricción.
+
+- La limpieza **recalcula el stock** desde lo que sobrevive. Sin eso el inventario queda descontado por ventas que ya no existen, y no se nota hasta que falta mercancía para servir un pedido de verdad.
+- **No toca cuentas de usuario.** Borrar una es irreversible de otra manera y vive en `auth`; se limita a contarlas en el resumen.
+- `marcar_arranque_fiscal` es **idempotente y no sobrescribe la fecha**: la primera es la que vale, porque es el momento en que las ventas empezaron a contar.
+- En el panel exige **`admin` además de `ti:total`**: vaciar la tienda no es «administrar accesos», y el nivel más alto de un módulo no debería alcanzar para eso.
+
+### Probado en transacción revertida antes de aplicar
+
+| Prueba | Resultado |
+|---|---|
+| `comprobar_stock()` antes | 1 descuadre: **Quipitos Pops (+1)** — encuentra el fantasma |
+| Llamada de **2 argumentos** (la API desplegada) | entra, apunte `motivo=sin_indicar` → **sin ventana** |
+| Descuadres tras 2 ajustes nuevos | **sigue en 1**: el libro los explica |
+| Limpieza | 3 pedidos fuera, todo a 0, stock recalculado, **0 descuadres después** |
+| Guardia tras marcar el arranque | **salta** con fecha y motivo |
+
+### ⚠️ Lo que hay que saber antes de pulsar «limpiar»
+
+**Tras limpiar, Quipitos Pops Caja queda a 0.** Es el fantasma sin apunte: el stock se recalcula desde los movimientos, y esa unidad no está en ninguno. **Si esa caja existe de verdad en el almacén, hay que registrarla antes con un ajuste de tipo «recuento»** o desaparece. El panel lo avisa en pantalla, con nombre y números, justo encima del botón.
+
+**349 tests en la API** (+6 del DTO de ajustes) y 283 en la web = **632**.
 
 ---
 

@@ -17,8 +17,10 @@ import {
 import {
   CATEGORIAS_PRODUCTO,
   IVA_PORCENTAJES,
+  MOTIVOS_AJUSTE_STOCK,
   TIPOS_VARIANTE,
   type IvaPorcentaje,
+  type MotivoAjusteStock,
   type TipoVariante,
 } from "@valatino/types";
 
@@ -166,6 +168,28 @@ export class AjustarStockDto {
   @IsInt({ message: "cantidad debe ser un número entero" })
   @NotEquals(0, { message: "El ajuste no puede ser cero" })
   cantidad!: number;
+
+  /**
+   * Por qué se mueve el inventario (migración 063).
+   *
+   * Sin esto el stock no era reconstruible: se comprobó contra la base real que
+   * 19 de 20 productos se deducen de sus movimientos, y el que no —una caja de
+   * Quipitos— tenía una unidad puesta a mano de la que no quedaba **ningún
+   * rastro**. Un ajuste sin motivo es un descuadre que nadie sabrá explicar.
+   *
+   * Opcional en el DTO solo para no romper a quien llame sin él; el panel lo
+   * pide siempre.
+   */
+  @IsOptional()
+  @IsIn(MOTIVOS_AJUSTE_STOCK, {
+    message: `El motivo debe ser uno de: ${MOTIVOS_AJUSTE_STOCK.join(", ")}`,
+  })
+  motivo?: MotivoAjusteStock;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  nota?: string;
 }
 
 /**

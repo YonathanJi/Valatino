@@ -285,10 +285,25 @@ export class ProductosService {
     return data as ResultadoDesempaquetado;
   }
 
-  async ajustarStock(id: string, cantidad: number): Promise<{ stock_disponible: number }> {
+  /**
+   * El motivo y quién lo hizo van a la RPC, que los apunta en `ajustes_stock`
+   * **en la misma transacción** que el movimiento (migración 063). Escribir el
+   * libro aparte lo dejaría a medias en cuanto algo fallara, y un libro con
+   * huecos es peor que no tenerlo porque parece completo.
+   */
+  async ajustarStock(
+    id: string,
+    cantidad: number,
+    motivo?: string,
+    nota?: string,
+    actorId?: string,
+  ): Promise<{ stock_disponible: number }> {
     const { data, error } = await this.supabase.rpc("ajustar_stock", {
       p_producto_id: id,
       p_cantidad: cantidad,
+      p_motivo: motivo ?? "sin_indicar",
+      p_nota: nota ?? null,
+      p_actor_id: actorId ?? null,
     });
 
     if (error) {

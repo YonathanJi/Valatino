@@ -1030,6 +1030,60 @@ export interface Proveedor {
 }
 
 /**
+ * Por qué se movió el inventario a mano (migración 063).
+ *
+ * `sin_indicar` existe solo para los ajustes hechos antes de que el panel
+ * preguntase el motivo. No se ofrece al elegir.
+ */
+export const MOTIVOS_AJUSTE_STOCK = [
+  "rotura",
+  "merma",
+  "caducidad",
+  "recuento",
+  "devolucion_proveedor",
+  "correccion",
+] as const;
+export type MotivoAjusteStock = (typeof MOTIVOS_AJUSTE_STOCK)[number] | "sin_indicar";
+
+/** Un producto cuyo stock no coincide con la suma de sus movimientos. */
+export interface DescuadreStock {
+  producto_id: string;
+  nombre: string;
+  /** Lo que dice `productos.stock_disponible` */
+  stock_hoy: number;
+  /** Lo que sale de compras − ventas + reposiciones ± desempaquetados + ajustes */
+  deducido: number;
+  stock_hoy_menos_deducido: number;
+}
+
+/**
+ * Si la tienda sigue en pruebas o ya vende de verdad (migración 064).
+ *
+ * ⚠️ El paso a «real» es de un solo sentido: en cuanto se marca, la limpieza de
+ * datos de prueba se niega a ejecutarse para siempre. Borrar ventas reales
+ * destruye registros contables.
+ */
+export interface EstadoMantenimiento {
+  en_pruebas: boolean;
+  arranque_fiscal_el: string | null;
+  /** Lo que se perdería al limpiar, para poder enseñarlo antes de confirmar */
+  pedidos: number;
+  descuadres: DescuadreStock[];
+}
+
+/** Lo que hizo la limpieza, para poder afirmarlo en pantalla y no suponerlo. */
+export interface ResultadoLimpieza {
+  pedidos_borrados: number;
+  quedan: Record<string, number>;
+  /** Solo los productos cuyo stock cambió, con el valor nuevo */
+  stock_recalculado: Record<string, number>;
+  descuadres_tras_limpiar: number;
+  /** No se tocan: borrar una cuenta es irreversible de otra manera */
+  cuentas_de_cliente_sin_tocar: number;
+  cuando: string;
+}
+
+/**
  * Tipos de IVA admitidos, en compras **y en ventas** (migración 062).
  *
  * Una sola lista a propósito: el tipo va con la MERCANCÍA, no con la operación,

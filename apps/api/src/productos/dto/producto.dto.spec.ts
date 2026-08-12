@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { BadRequestException, ValidationPipe } from "@nestjs/common";
-import { CreateProductoDto, UpdateProductoDto } from "./producto.dto";
+import { AjustarStockDto, CreateProductoDto, UpdateProductoDto } from "./producto.dto";
 
 /** Mismo pipe que main.ts: si aquí pasa, en producción pasa. */
 const pipe = new ValidationPipe({
@@ -78,5 +78,50 @@ describe("UpdateProductoDto — el tipo de IVA", () => {
   it("pero si viene, sigue teniendo que ser uno de los tres", async () => {
     await expect(validar({ iva_pct: 10 }, UpdateProductoDto)).resolves.toEqual({ iva_pct: 10 });
     await expect(validar({ iva_pct: 16 }, UpdateProductoDto)).rejects.toThrow();
+  });
+});
+
+/**
+ * El motivo del ajuste (migración 063). Sin él el stock no era reconstruible:
+ * se comprobó contra la base real que 19 de 20 productos se deducen de sus
+ * movimientos, y el que no —una caja de Quipitos— tenía una unidad puesta a
+ * mano de la que no quedaba ningún rastro.
+ */
+describe("AjustarStockDto", () => {
+  it("acepta los motivos del vocabulario", async () => {
+    for (const motivo of ["rotura", "merma", "caducidad", "recuento", "correccion"]) {
+      await expect(validar({ cantidad: 3, motivo }, AjustarStockDto)).resolves.toMatchObject({
+        motivo,
+      });
+    }
+  });
+
+  /** Rotura, merma y caducidad son salidas: sin signo negativo no se registran. */
+  it("acepta cantidades negativas: quitar stock también es un ajuste", async () => {
+    await expect(
+      validar({ cantidad: -2, motivo: "rotura" }, AjustarStockDto),
+    ).resolves.toMatchObject({ cantidad: -2 });
+  });
+
+  it("cero sigue sin ser un ajuste", async () => {
+    await expect(validar({ cantidad: 0, motivo: "recuento" }, AjustarStockDto)).rejects.toThrow();
+  });
+
+  it("un motivo inventado se rechaza", async () => {
+    await expect(validar({ cantidad: 1, motivo: "porque_si" }, AjustarStockDto)).rejects.toThrow();
+  });
+
+  /**
+   * Opcional en el DTO para no romper a quien llame sin él; la RPC lo apunta
+   * como `sin_indicar`. El panel lo pide siempre.
+   */
+  it("es opcional, para no romper a quien llame sin él", async () => {
+    await expect(validar({ cantidad: 5 }, AjustarStockDto)).resolves.toEqual({ cantidad: 5 });
+  });
+
+  it("la nota tiene tope: no es un cajón de sastre", async () => {
+    await expect(
+      validar({ cantidad: 1, motivo: "merma", nota: "x".repeat(301) }, AjustarStockDto),
+    ).rejects.toThrow();
   });
 });
