@@ -14,9 +14,16 @@ import {
   Min,
   NotEquals,
 } from "class-validator";
-import { CATEGORIAS_PRODUCTO, TIPOS_VARIANTE, type TipoVariante } from "@valatino/types";
+import {
+  CATEGORIAS_PRODUCTO,
+  IVA_PORCENTAJES,
+  TIPOS_VARIANTE,
+  type IvaPorcentaje,
+  type TipoVariante,
+} from "@valatino/types";
 
 const MENSAJE_CATEGORIA = `La categoría debe ser una de: ${CATEGORIAS_PRODUCTO.join(", ")}`;
+const MENSAJE_IVA = `El IVA debe ser ${IVA_PORCENTAJES.join(", ")}`;
 
 export class CreateProductoDto {
   @IsString()
@@ -31,6 +38,17 @@ export class CreateProductoDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive({ message: "El precio debe ser mayor que cero" })
   precio!: number;
+
+  /**
+   * Obligatorio, y **sin valor por defecto a propósito** (migración 062).
+   *
+   * Un defecto sería inventarse un número que acaba en el modelo 303, y lo peor
+   * de un número inventado es que parece puesto. Antes de esto el IVA de una
+   * venta no era calculable: el precio es un número sin tipo asociado y el
+   * catálogo mezcla el 4, el 10 y el 21.
+   */
+  @IsIn(IVA_PORCENTAJES, { message: MENSAJE_IVA })
+  iva_pct!: IvaPorcentaje;
 
   @IsOptional()
   @IsArray()
@@ -96,6 +114,15 @@ export class UpdateProductoDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive({ message: "El precio debe ser mayor que cero" })
   precio?: number;
+
+  /**
+   * ⚠️ Cambiarlo NO reescribe los pedidos ya vendidos: cada línea guarda su
+   * propia copia del tipo (migración 062). Es lo correcto —una factura emitida
+   * no cambia sola— pero conviene saberlo si se corrige una errata.
+   */
+  @IsOptional()
+  @IsIn(IVA_PORCENTAJES, { message: MENSAJE_IVA })
+  iva_pct?: IvaPorcentaje;
 
   @IsOptional()
   @IsArray()

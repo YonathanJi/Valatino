@@ -7,12 +7,19 @@ import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
-import { CATEGORIAS_PRODUCTO, type Producto, type TipoVariante } from "@valatino/types";
+import {
+  CATEGORIAS_PRODUCTO,
+  IVA_PORCENTAJES,
+  type IvaPorcentaje,
+  type Producto,
+  type TipoVariante,
+} from "@valatino/types";
 import {
   ENVASES_FORMATO,
   etiquetaFormato,
   partirEtiquetaFormato,
 } from "@lib/productos/variantes";
+import { EJEMPLO_IVA, ETIQUETA_IVA } from "@lib/contabilidad/iva";
 
 interface ProductoFormProps {
   producto: Producto | null;
@@ -154,6 +161,7 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
         nombre: formData.get("nombre") as string,
         descripcion: formData.get("descripcion") as string,
         precio: parseFloat(formData.get("precio") as string),
+        iva_pct: Number(formData.get("iva_pct")) as IvaPorcentaje,
         categoria: formData.get("categoria") as string,
         imagenes: familiaUrl ? [imagenUrl, familiaUrl] : [imagenUrl],
         activo: formData.get("activo") === "on",
@@ -358,9 +366,39 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
           )}
         </div>
         <div className="space-y-1">
-          <Label htmlFor="precio">Precio (EUR)</Label>
+          <Label htmlFor="precio">Precio de venta (EUR, IVA incluido)</Label>
           <Input id="precio" name="precio" type="number" step="0.01" min="0.01" required
             defaultValue={producto ? String(producto.precio) : ""} />
+          <p className="text-xs text-muted-foreground">
+            Es el precio final que ve y paga el cliente. La base imponible se calcula
+            desde aquí con el tipo de IVA de abajo.
+          </p>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="iva_pct">Tipo de IVA</Label>
+          <select
+            id="iva_pct"
+            name="iva_pct"
+            required
+            // Sin valor por defecto en un producto nuevo, a propósito: un tipo
+            // que parece puesto es un tipo que nadie revisa, y este número
+            // acaba en el modelo 303.
+            defaultValue={producto ? String(producto.iva_pct) : ""}
+            className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="" disabled>
+              Selecciona el tipo…
+            </option>
+            {IVA_PORCENTAJES.map((iva) => (
+              <option key={iva} value={iva}>
+                {iva} % — {ETIQUETA_IVA[iva]} ({EJEMPLO_IVA[iva]})
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Con qué IVA se vende. Es el mismo que te cobra el proveedor al comprarlo:
+            el tipo va con la mercancía, no con la operación.
+          </p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="categoria">Categoría</Label>

@@ -201,6 +201,7 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                     <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
                       <th className="p-3 text-left font-medium">Producto</th>
                       <th className="p-3 text-right font-medium">Cant.</th>
+                      <th className="p-3 text-right font-medium">IVA</th>
                       <th className="p-3 text-right font-medium">Precio</th>
                       <th className="p-3 text-right font-medium">Subtotal</th>
                     </tr>
@@ -235,6 +236,9 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                           </td>
                           <td className="p-3 text-right">{it.cantidad}</td>
                           <td className="p-3 text-right text-muted-foreground">
+                            {it.iva_pct != null ? `${it.iva_pct} %` : "—"}
+                          </td>
+                          <td className="p-3 text-right text-muted-foreground">
                             {formatEUR(Number(it.precio_unitario))}
                           </td>
                           <td className="p-3 text-right font-medium">
@@ -245,8 +249,31 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                     })}
                   </tbody>
                   <tfoot className="border-t">
+                    {/*
+                      El desglose que se declara en el modelo 303, tal como lo
+                      congeló la base de datos al vender (migración 062).
+
+                      ⚠️ NO se recalcula aquí. Los precios llevan el IVA
+                      incluido, así que la base se obtiene dividiendo, y hacerlo
+                      en pantalla acabaría enseñando una base distinta de la que
+                      se declara: agrupar por tipo antes de dividir da un
+                      resultado y hacerlo línea a línea da otro.
+
+                      `?? []` cubre la ventana de despliegue —Vercel llega antes
+                      que Render—, y se puede quitar en la siguiente release.
+                    */}
+                    {(detalle.desglose_iva ?? []).map((d) => (
+                      <tr key={d.iva_pct} className="text-xs text-muted-foreground">
+                        <td colSpan={4} className="px-3 pt-3 text-right">
+                          Base al {d.iva_pct} % · IVA {formatEUR(Number(d.cuota))}
+                        </td>
+                        <td className="px-3 pt-3 text-right font-mono">
+                          {formatEUR(Number(d.base))}
+                        </td>
+                      </tr>
+                    ))}
                     <tr>
-                      <td colSpan={3} className="p-3 text-right text-muted-foreground">
+                      <td colSpan={4} className="p-3 text-right text-muted-foreground">
                         Total
                       </td>
                       <td className="p-3 text-right font-semibold">
@@ -255,7 +282,7 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                     </tr>
                     {devuelto > 0 && (
                       <tr>
-                        <td colSpan={3} className="px-3 pb-3 text-right text-xs text-amber-700">
+                        <td colSpan={4} className="px-3 pb-3 text-right text-xs text-amber-700">
                           Devuelto al cliente
                         </td>
                         <td className="px-3 pb-3 text-right text-xs font-medium text-amber-700">

@@ -11,7 +11,13 @@ import { ShoppingBag } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { usePuede } from "@components/backoffice/PermisosProvider";
 import { ProductoBorradorModal } from "@components/backoffice/ProductoBorradorModal";
-import type { FacturaCompra, PaginatedResponse, Producto, Proveedor } from "@valatino/types";
+import type {
+  FacturaCompra,
+  IvaPorcentaje,
+  PaginatedResponse,
+  Producto,
+  Proveedor,
+} from "@valatino/types";
 
 interface Linea {
   productoId: string;
@@ -433,6 +439,8 @@ export default function NuevaCompraPage() {
       {lineaCreandoProducto !== null && (
         <ProductoBorradorModal
           onClose={() => setLineaCreandoProducto(null)}
+          // El tipo que ya está puesto en ESA línea: es la misma mercancía.
+          ivaInicial={lineas[lineaCreandoProducto].ivaPct as IvaPorcentaje}
           onCreado={(producto) => {
             // Se añade a la lista local en vez de recargar del servidor: recargar
             // aquí perdería lo que ya hay escrito en el formulario.

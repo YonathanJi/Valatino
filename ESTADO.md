@@ -113,7 +113,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -174,7 +174,93 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **619 tests: 336 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **626 tests: 343 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-12 (cont.) — ⭐ Contabilidad, capas 0 y 1: el IVA de venta (migración 062)
+
+Jonathan abre el módulo de contabilidad con el objetivo claro: **poder presentar el modelo 303**, que es restar el IVA que le cobran los proveedores del que cobra a sus clientes. Confirmó que está en **régimen general** (no en recargo de equivalencia, que habría invalidado el módulo entero: en ese régimen no se presenta 303).
+
+### El hallazgo que mandó sobre todo el diseño
+
+**El IVA repercutido de una venta no era calculable. No es que fuera difícil: no estaba el dato.**
+
+- `productos.precio` es un número **sin tipo asociado**
+- `pedido_items` guardaba `precio_unitario` y nada más
+- `pedidos.total` es la suma pura de líneas (sin envío, sin descuentos, sin línea de impuestos)
+
+Y el catálogo **mezcla los tres tipos**, así que no se podía deducir aplicando uno solo. La ironía: **el IVA soportado ya estaba montado y bien** desde la 029 (`iva_pct` por línea de compra). Estaba medio libro hecho y el otro medio a cero.
+
+⚠️ Tenía prisa por un motivo concreto: cada venta sin el dato es una venta a reconstruir a mano. Había 3 pedidos de prueba. Era el momento más barato que iba a haber.
+
+### ⭐ El relleno salió completo, 20 de 20, sin poner nada a dedo
+
+| Fuente | Cuántos |
+|---|---|
+| Sus propias líneas de compra (lo que el proveedor declaró) | 17 |
+| **Su `familia`** — la columna que la 057 puso para el selector de sabores | 3 |
+
+Los tres huérfanos eran Galleta Festival **Fresa** y **Vainilla** (sus hermanas Chocolate y Limón están al 10%) y **Quipitos Pops Caja 24** (la unidad está al 10%, y ahí es indiscutible: **es la misma mercancía física**, que es justo lo que dice el modelo de desempaquetar de la 056). Quedó **4%: 1 · 10%: 16 · 21%: 3**.
+
+De paso, los tipos del proveedor cuadran con la ley: queso fresco al **4%** (superreducido) y Pony Malta y Jugo Hit al **21%** (refrescos con azúcares añadidos, que salieron del reducido en 2021). Es el error fácil de este catálogo.
+
+### ⚠️⚠️ La regla de redondeo, y por qué vive en un solo sitio
+
+Los precios son **PVP con IVA incluido**, así que la base se deriva dividiendo — y **el orden de las operaciones cambia lo que se declara**. 7 uds a 0,95 € al 21%:
+
+| Método | Base | Cuota | Total |
+|---|---|---|---|
+| línea a línea y luego sumar | 5,53 | 1,12 | 6,65 |
+| **agregar por tipo y dividir una vez** | **5,50** | **1,15** | 6,65 |
+
+El total cuadra en los dos y **la base difiere en 3 céntimos**. La que se declara es la segunda. Por eso `recalcular_iva_pedido` es el único sitio que redondea, y la cuota se saca **restando** y no multiplicando: así `base + cuota` es exactamente lo cobrado.
+
+### ⭐ Cero cambios en la ruta del dinero: todo por triggers
+
+`confirmar_venta` y `crear_pedido_transferencia` **no se tocaron**, y es lo mejor de esta migración. Se comprobó contra las definiciones **vivas en el remoto** que las dos insertan el pedido con su total primero y las líneas después, con la misma forma exacta. Así que:
+
+- un trigger `before insert` en `pedido_items` copia el tipo desde `productos` (snapshot, como `nombre_producto`)
+- un trigger **de sentencia** `after insert` recalcula el desglose del pedido entero
+
+Por sentencia y no por fila: por fila lo recalcularía N veces y —peor— la primera vez con el pedido a medias, que es cuando no cuadra con el total.
+
+El trigger además garantiza lo que un `perform` explícito no puede: **que ningún camino futuro cree un pedido sin desglose**. Es el argumento de la 039 con el historial.
+
+⚠️ El snapshot no es purismo: si Hacienda cambia un tipo —pasó con el aceite, las mascarillas y la luz—, un `join` a `productos` **reescribiría facturas ya emitidas**.
+
+### El guardia del invariante
+
+`recalcular_iva_pedido` **aborta si el desglose no suma exactamente lo cobrado**. Si algún día se añaden gastos de envío o un descuento, salta en el momento de la venta y no en el 303 tres meses después con el trimestre cerrado. Probado: salta.
+
+### Probado en transacción revertida antes de aplicar
+
+Lo que exige esta casa cuando hay dinero de por medio. Se aplicó la migración entera, se simularon **dos ventas** (una con tipos mezclados y el caso de redondeo de arriba) y se tiró todo con un `raise exception` final, que garantiza el rollback y aun así devuelve los números. Salió todo: 20/20, las dos ventas cuadrando al céntimo, los 3 históricos desglosados y el guardia saltando.
+
+⚠️ El primer intento falló por el fixture, no por la migración: `pedidos_localizable_check` exige que el pedido tenga a quién avisar.
+
+### ⚠️⚠️ Y de propina, un fallo de seguridad en la regla documentada
+
+El ensayo terminó diciendo **`EJECUTABLE POR anon/authenticated: las tres funciones`** pese a haber revocado a `PUBLIC` — que es literalmente lo que manda la «REGLA PARA LA PRÓXIMA RPC» de la sesión del 11.
+
+**Una función nace con DOS fuentes de permiso**: la herencia de `PUBLIC` (Postgres) y un grant propio a `anon`/`authenticated` que pone Supabase con `alter default privileges`. Quitar una no cierra nada, y el REVOKE no protesta. La regla está corregida más abajo, en su sitio; y de paso queda claro que **la 059 no fue inútil**: quitó una de las dos fuentes y la 060 la otra.
+
+### Lo que se decidió para más adelante
+
+- **Factura simplificada por defecto** (el ticket de siempre, permitido en venta a consumidor por debajo de 400 €, sin NIF ni dirección), con un «quiero factura con mis datos» que emita la completa. Encaja con que `documento_cliente` sea hoy opcional.
+- ⚠️ **Antes de escribir la tabla de facturas (Capa 2), confirmar Verifactu con la gestoría.** El RD 1007/2023 obliga a encadenar registros por hash, no permitir borrado y poner un QR; **las fechas de entrada en vigor se han movido varias veces y no las doy por sabidas**. Encadenar desde el día uno es barato; retrofitarlo es horrible. La buena noticia: el diseño que exige es casi el que se quiere igualmente (inmutable, append-only, rectificativas en vez de ediciones).
+
+### ⚠️ Ventana de despliegue: crear un producto se rompe hasta que suba la API
+
+`productos.iva_pct` es **NOT NULL y sin valor por defecto** a propósito: un defecto sería inventarse un número que acaba en el 303, y lo peor de un número inventado es que parece puesto. Pero la API vieja no manda el campo (`insert({...dto, slug})`), así que **entre aplicar la migración y desplegar, crear un producto en el panel da error**.
+
+Se eligió a sabiendas: **ruidoso e inofensivo** (solo el panel, solo unos minutos, ningún camino de cliente crea productos) frente a **silencioso y equivocado** (un 21% colándose en una declaración). Vender **no** se ve afectado.
+
+Del lado contrario, la API se vuelve **más estricta** al crear productos → según la tabla de órdenes de despliegue, **basta un push**: Vercel llega antes y la web nueva ya manda el campo. El desglose en la ficha usa `?? []` para la ventana inversa.
+
+**343 tests en la API** (+7 del DTO de IVA) y 283 en la web = **626**.
+
+⚠️ **La regla de redondeo NO se prueba desde TypeScript, y es deliberado**: vive en SQL, y escribirla también en TS para poder testearla sería crear el segundo sitio que redondea — justo lo que esa función existe para evitar. Se verifica en transacción revertida contra el remoto.
 
 ---
 
@@ -340,7 +426,16 @@ reservar_carrito       -> postgres=X/... | service_role=X/...
 
 La **060** revoca a `PUBLIC` y ahí sí: `42501 permission denied` en las tres.
 
-⚠️ **REGLA PARA LA PRÓXIMA RPC** que no llame el navegador: `REVOKE EXECUTE ON FUNCTION <nombre>(<tipos>) FROM PUBLIC;` y **comprobarlo** con `has_function_privilege('anon', ...)`, sin dar por hecho que el REVOKE hizo algo.
+⚠️ **REGLA PARA LA PRÓXIMA RPC** que no llame el navegador: `REVOKE EXECUTE ON FUNCTION <nombre>(<tipos>) FROM PUBLIC, anon, authenticated;` y **comprobarlo** con `has_function_privilege('anon', ...)`, sin dar por hecho que el REVOKE hizo algo.
+
+> ⚠️⚠️ **CORREGIDO EL 2026-08-12: hay que revocar a los TRES, y esta sección decía solo `PUBLIC`.** Escribiendo la 062 se probó revocar únicamente a `PUBLIC` en una función nueva y `has_function_privilege('anon', …)` seguía diciendo `true`.
+>
+> El motivo: una función del esquema `public` nace con **dos** fuentes de permiso, no una. La herencia de `PUBLIC` (cosa de Postgres) **y un grant propio a `anon` y `authenticated` que pone Supabase** con `alter default privileges`. Se ve en `pg_default_acl`:
+> `anon=X/postgres | authenticated=X/postgres | service_role=X/postgres`
+>
+> Así que **la 059 no fue inútil como quedó escrito arriba**: quitó la segunda fuente, y la 060 quitó la primera. Hicieron falta las dos, y por eso funcionaron juntas. El ACL de aquellas lo confirma hoy — `desempaquetar_producto` está en `postgres=X/postgres | service_role=X/postgres`, sin el `=X` suelto de PUBLIC y sin `anon` ni `authenticated`.
+>
+> Quitar una sola de las dos fuentes no cierra nada **y el REVOKE no protesta**. De ahí que comprobar no sea opcional.
 
 - `mi_cargo` conserva su grant a `authenticated` (la llama `lib/auth/staff.ts` con sesión y siendo staff) y pierde el de `anon`.
 - ⚠️ **`get_user_role` no se puede arreglar revocando**: la usan **once políticas RLS de ocho tablas**, se evalúan con el rol de quien consulta, y quitarle el `EXECUTE` reventaría esas lecturas — **peor aún de forma intermitente**, porque Postgres no garantiza el orden de evaluación de las políticas permisivas. **Se cerró de otra manera en la 061** (ver abajo).

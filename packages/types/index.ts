@@ -361,7 +361,15 @@ export interface Producto {
   id: string;
   nombre: string;
   descripcion: string | null;
+  /** PVP **con IVA incluido**: es el precio final que ve el cliente */
   precio: number;
+  /**
+   * Tipo de IVA con el que se vende (migración 062). Sin esto el IVA
+   * repercutido de un pedido no es calculable, y sin él no hay modelo 303.
+   *
+   * Cambiarlo NO reescribe pedidos ya hechos: la línea guarda su propia copia.
+   */
+  iva_pct: IvaPorcentaje;
   imagenes: string[];
   categoria: string;
   stock_disponible: number;
@@ -565,6 +573,16 @@ export const ORIGEN_LABELS: Record<OrigenEvento, string> = {
 export interface PedidoDetalle {
   pedido: Pedido;
   items: PedidoItem[];
+  /**
+   * Base imponible y cuota por tipo de IVA, congeladas al vender (migración
+   * 062). Una entrada por tipo presente en el pedido, así que un pedido con
+   * galletas y un refresco trae dos.
+   *
+   * ⚠️ **No se recalcula en pantalla.** Viene ya cuadrado con lo cobrado, y
+   * volver a dividir aquí es abrir la puerta a que la ficha enseñe una base
+   * distinta de la que se declara.
+   */
+  desglose_iva: DesgloseIva[];
   eventos: PedidoEvento[];
   /**
    * Lo que opinó el cliente de la compra, si la calificó. `null` en la mayoría
@@ -892,7 +910,16 @@ export interface PedidoItem {
   producto_id: string;
   nombre_producto: string;
   cantidad: number;
+  /** PVP **con IVA incluido**: es lo que vio y pagó el cliente */
   precio_unitario: number;
+  /**
+   * El tipo de IVA que se aplicó AL VENDER, congelado como `nombre_producto`.
+   *
+   * Snapshot y no un join a `productos`: si Hacienda cambia un tipo —pasó con
+   * el aceite, las mascarillas y la luz—, leerlo del producto reescribiría
+   * facturas ya emitidas. Lo pone un trigger (migración 062).
+   */
+  iva_pct: IvaPorcentaje;
 }
 
 export interface JwtPayload {
@@ -1002,9 +1029,36 @@ export interface Proveedor {
   updated_at: string;
 }
 
-/** Tipos de IVA admitidos en las líneas de compra */
+/**
+ * Tipos de IVA admitidos, en compras **y en ventas** (migración 062).
+ *
+ * Una sola lista a propósito: el tipo va con la MERCANCÍA, no con la operación,
+ * así que un producto que se compra al 10 se vende al 10. Tener dos listas es
+ * pedir que se separen.
+ *
+ * El 0 (exento) no está. Una operación exenta no es «IVA al cero»: va a otra
+ * casilla del modelo 303 y necesita más que un tipo distinto.
+ */
 export const IVA_PORCENTAJES = [4, 10, 21] as const;
 export type IvaPorcentaje = (typeof IVA_PORCENTAJES)[number];
+
+/**
+ * Base imponible y cuota de un pedido, **agrupadas por tipo de IVA**.
+ *
+ * Por tipo y no por línea porque es lo que pide el modelo 303 — y porque
+ * agrupar primero es lo que decide el redondeo. Lo calcula y lo congela la base
+ * de datos (`recalcular_iva_pedido`, migración 062), nunca el cliente: dos
+ * sitios redondeando por su cuenta acaban declarando bases distintas.
+ */
+export interface DesgloseIva {
+  iva_pct: IvaPorcentaje;
+  /** Importe sin IVA */
+  base: number;
+  /** El IVA repercutido de este tramo */
+  cuota: number;
+  /** `base + cuota`: lo que de verdad se cobró en este tramo */
+  total: number;
+}
 
 export interface FacturaCompraItem {
   id: string;

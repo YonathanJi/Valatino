@@ -5,10 +5,26 @@ import { toast } from "sonner";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { sanearImporte } from "@lib/utils";
-import { CATEGORIAS_PRODUCTO, type Producto } from "@valatino/types";
+import {
+  CATEGORIAS_PRODUCTO,
+  IVA_PORCENTAJES,
+  type IvaPorcentaje,
+  type Producto,
+} from "@valatino/types";
+import { EJEMPLO_IVA, ETIQUETA_IVA } from "@lib/contabilidad/iva";
 
 interface ProductoBorradorModalProps {
   onClose: () => void;
+  /**
+   * El tipo de IVA de la línea de factura desde la que se abre el modal.
+   *
+   * ⚠️ Este SÍ se rellena solo, al revés que el precio, y el motivo importa: el
+   * precio de venta es una **decisión** que hay que tomar, y por eso se deja en
+   * blanco; el tipo de IVA es un **hecho de la mercancía** que el proveedor ya
+   * ha declarado en su factura. Rellenarlo no es adivinar, es copiar el dato
+   * fiable que está a un centímetro en la misma pantalla.
+   */
+  ivaInicial: IvaPorcentaje;
   /** El producto creado, para añadirlo a la lista y seleccionarlo en la línea */
   onCreado: (producto: Producto) => void;
 }
@@ -37,10 +53,15 @@ interface ProductoBorradorModalProps {
  * se rellena con el costo de la factura: un precio que parece puesto es un
  * precio que nadie revisa, y así es como se acaba vendiendo al costo.
  */
-export function ProductoBorradorModal({ onClose, onCreado }: ProductoBorradorModalProps) {
+export function ProductoBorradorModal({
+  onClose,
+  ivaInicial,
+  onCreado,
+}: ProductoBorradorModalProps) {
   const [nombre, setNombre] = useState("");
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_PRODUCTO[0]);
   const [precio, setPrecio] = useState("");
+  const [ivaPct, setIvaPct] = useState<IvaPorcentaje>(ivaInicial);
   const [guardando, setGuardando] = useState(false);
 
   // La coma vale igual que el punto (ver `sanearImporte`).
@@ -60,6 +81,7 @@ export function ProductoBorradorModal({ onClose, onCreado }: ProductoBorradorMod
           nombre: nombre.trim(),
           categoria,
           precio: precioNum,
+          iva_pct: ivaPct,
           activo: false,
         }),
       });
@@ -152,6 +174,28 @@ export function ProductoBorradorModal({ onClose, onCreado }: ProductoBorradorMod
               Provisional: lo ajustas al publicarlo.
             </p>
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label htmlFor="pb-iva" className="text-sm font-medium">
+            Tipo de IVA <span className="text-destructive">*</span>
+          </label>
+          <select
+            id="pb-iva"
+            value={ivaPct}
+            onChange={(e) => setIvaPct(Number(e.target.value) as IvaPorcentaje)}
+            className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+          >
+            {IVA_PORCENTAJES.map((iva) => (
+              <option key={iva} value={iva}>
+                {iva} % — {ETIQUETA_IVA[iva]} ({EJEMPLO_IVA[iva]})
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Viene del que has puesto en esta línea de la factura. Este sí conviene
+            dejarlo como está: es el tipo que el proveedor declara para esa mercancía.
+          </p>
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-1">

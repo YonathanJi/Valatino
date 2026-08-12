@@ -24,6 +24,7 @@ function prod(nombre: string, extra: Partial<Producto> = {}): Producto {
     nombre,
     descripcion: null,
     precio: 1,
+    iva_pct: 10,
     imagenes: [],
     categoria: "Dulces",
     stock_disponible: 10,

@@ -10,6 +10,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { NIVEL_LABELS, transicionesPermitidas } from "@valatino/types";
 import type {
+  DesgloseIva,
   NivelPermiso,
   PaginatedResponse,
   Pedido,
@@ -407,15 +408,20 @@ export class PedidosService {
   async findOneDetalle(pedidoId: string): Promise<PedidoDetalle> {
     const { data, error } = await this.supabase
       .from("pedidos")
-      .select("*, pedido_items(*)")
+      .select("*, pedido_items(*), pedido_iva(*)")
       .eq("id", pedidoId)
       .maybeSingle();
 
     if (error) throw new InternalServerErrorException("No se pudo cargar el pedido");
     if (!data) throw new NotFoundException("Pedido no encontrado");
 
-    const { pedido_items: items = [], ...pedido } = data as Record<string, unknown> & {
+    const {
+      pedido_items: items = [],
+      pedido_iva: desgloseIva = [],
+      ...pedido
+    } = data as Record<string, unknown> & {
       pedido_items?: unknown[];
+      pedido_iva?: unknown[];
     };
 
     const [{ data: eventos, error: errorEventos }, reembolsados, calificacion, reembolsoLineas] =
@@ -440,6 +446,11 @@ export class PedidosService {
     return {
       pedido: { ...pedido, total_reembolsado: reembolsados.get(pedidoId) ?? 0 } as Pedido,
       items: items as PedidoItem[],
+      // De menor a mayor, que es como se lee un desglose y como lo pide el 303.
+      // El orden no lo garantiza Postgres, así que se ordena aquí.
+      desglose_iva: (desgloseIva as DesgloseIva[])
+        .slice()
+        .sort((a, b) => a.iva_pct - b.iva_pct),
       eventos: (eventos ?? []) as PedidoEvento[],
       calificacion,
       reembolso_lineas: reembolsoLineas,
