@@ -4,6 +4,7 @@ import {
   Calculator,
   Cpu,
   LayoutDashboard,
+  Percent,
   Settings,
   ShieldCheck,
   ShoppingBag,
@@ -66,6 +67,9 @@ export const NAV_ICONOS: Record<string, LucideIcon> = {
   proveedores: Truck,
   clientes: UsersRound,
   contabilidad: Calculator,
+  // Submódulos de Contabilidad. `iva` es la liquidación (modelo 303); cuando
+  // lleguen las facturas a clientes tendrán el suyo.
+  iva: Percent,
   usuarios: Users,
   cargos: ShieldCheck,
   ajustes: Settings,

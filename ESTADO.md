@@ -92,7 +92,7 @@ Por la tabla de órdenes de más abajo esto es el caso «la API acepta un campo 
 
 ## ⭐⭐ HECHO EL 2026-08-13: la liquidación del IVA (modelo 303) — migración 068
 
-**El 303 ya se calcula y tiene pantalla propia** (Contabilidad → Liquidación de IVA). Ver la sesión 2026-08-13 más abajo para las cuatro cosas que había que arreglar antes, que no se veían.
+**El 303 ya se calcula y tiene pantalla propia**: **Contabilidad → Liquidación de IVA** (`/backoffice/contabilidad/iva`; el módulo redirige ahí, como TI a Usuarios). Ver la sesión 2026-08-13 más abajo para las cuatro cosas que había que arreglar antes, que no se veían.
 
 **Lo que queda de la Capa 2:**
 
@@ -320,6 +320,10 @@ Y al revertir se comprobó que el stock volvía a 120 exacto, 1 pedido, 1 línea
 - **`facturas_compra.fecha_factura`** — la de expedición del proveedor. ⚠️ **Son dos fechas distintas y hacen falta las dos**: esta la exige el libro registro, y el trimestre en que se deduce lo decide **`created_at`** (cuándo se anotó). Una factura de diciembre que llega y se anota en enero se deduce en enero; usar la de expedición reabriría trimestres ya presentados cada vez que llega una con retraso. **Hay que confirmárselo a la gestoría**, que es quien presenta.
 - **`reembolsar_pedido_total`** apunta lo que repone, con el `refund_id` de Stripe cuando se conoce. Y `registrar_reembolso_lineas` se lo pasa, así que **un parcial y su cierre salen como UN documento rectificativo**, no como dos — que es lo correcto: un reembolso, una rectificativa.
 - **Módulo `contabilidad`** con `lectura` sembrado en **DIRADM** y **GER**. Vive aparte de Compras y del Dashboard porque el 303 cruza ventas **y** compras (ninguno es su dueño) y porque quien lo presenta no es quien registra facturas de proveedor. Es además la casa de las facturas a clientes.
+  - ⭐ **Y el 303 es un SUBMÓDULO, no la raíz del módulo** (lo pidió Jonathan, «así como proveedores en compras»): vive en **`/backoffice/contabilidad/iva`** y `/backoffice/contabilidad` **redirige** ahí. Es el patrón de TI, que aterriza en Usuarios — no una página índice, porque con un solo submódulo eso sería un menú de un elemento y un clic de más. Cuando lleguen las facturas a clientes serán otro submódulo y ese redirect decidirá la puerta de entrada.
+    - El guardia (`exigirModulo("contabilidad")`) sigue en `contabilidad/layout.tsx`, así que cubre el padre y todos los hijos.
+    - ⚠️ **Sin enlace «volver a Contabilidad», y a propósito**: el padre redirige *aquí*, así que sería un bucle. Proveedores sí lo lleva porque Compras es una pantalla de verdad; si alguien ve la diferencia y quiere «igualarlo», este es el motivo.
+    - Icono `Percent` en la cabecera y en el sidebar del hijo, no `Calculator`: el de la calculadora es el del módulo, y repetirlo haría pensar que se está en la raíz.
   - ⭐ **Y de paso, el CHECK de `modulo` deja de estar copiado.** Estaba en `staff_modulos` **y** en `cargo_modulos` y llevaba **cinco** reescrituras (023, 030, 032, 036 y esta). Ahora es el dominio **`staff_modulo`**: añadir un módulo = tocar un sitio. La 038 ya había diagnosticado el problema —creó el dominio `nivel_permiso` justo por eso— pero dejó `modulo` como estaba.
 - **`liquidacion_iva(desde, hasta)`** — devengado por tipo, rectificado por devoluciones, deducible de compras, la diferencia y **los avisos**.
 
@@ -430,7 +434,7 @@ Con la 068 la línea existe con `repuesto_al_stock = true`, así que los dos té
 
 **El cálculo está verificado contra datos reales por SQL y el despliegue por HTTP, pero tres cosas no las ha pulsado nadie:**
 
-1. **Contabilidad → Liquidación de IVA.** Abre por defecto en el trimestre **anterior** al de hoy (el que se presenta), no el actual, que estaría a medias. Con los datos de hoy debe salir **−25,10 € a compensar** en el 3T y dos avisos (`sin_facturas_emitidas` y `sin_arranque_fiscal`). En el bloque deducible, el total de la columna de facturas tiene que decir **2** y debajo la nota de que no suma.
+1. **Contabilidad → Liquidación de IVA** (el módulo redirige al submódulo). Abre por defecto en el trimestre **anterior** al de hoy (el que se presenta), no el actual, que estaría a medias. Con los datos de hoy debe salir **−25,10 € a compensar** en el 3T y dos avisos (`sin_facturas_emitidas` y `sin_arranque_fiscal`). En el bloque deducible, el total de la columna de facturas tiene que decir **2** y debajo la nota de que no suma.
 2. **Compras → Registrar compra**: el campo «Fecha de la factura» es obligatorio y no acepta futuro.
 3. **La ficha de una compra**: el bloque de la fecha con «Corregir». Solo se pinta con `compras:edicion` (la regla de «lo que no se puede hacer, no se pinta»).
 

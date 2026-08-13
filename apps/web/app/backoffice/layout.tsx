@@ -31,6 +31,9 @@ const NAV_ITEMS: {
     href: "/backoffice/contabilidad",
     label: "Contabilidad",
     iconKey: "contabilidad",
+    children: [
+      { href: "/backoffice/contabilidad/iva", label: "Liquidación de IVA", iconKey: "iva" },
+    ],
   },
   {
     modulo: "gestion_humana",
