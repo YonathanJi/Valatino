@@ -1184,9 +1184,15 @@ export interface LiquidacionIvaTramo {
   base: number;
   cuota: number;
   /**
-   * Cuántos documentos suman este tramo: pedidos en el devengado, reembolsos en
-   * el rectificado, facturas en el deducible. Se muestra al lado del importe
+   * Cuántos documentos aportan a ESTE tramo: pedidos en el devengado, reembolsos
+   * en el rectificado, facturas en el deducible. Se muestra al lado del importe
    * porque una cifra sin saber de cuántas operaciones sale no dice gran cosa.
+   *
+   * ⚠️⚠️ **NO ES ADITIVO.** Un documento con varios tipos de IVA dentro cuenta en
+   * cada tramo, así que sumar esta columna da de más: dos facturas de compra con
+   * tres tipos entre ellas dan 1 + 2 + 2 = 5. El número real está en
+   * `totales.*_documentos`, y la pantalla lo pinta en la fila de total — que es
+   * justo el fallo que corrigió la migración 070.
    */
   documentos: number;
 }
@@ -1211,14 +1217,24 @@ export interface LiquidacionIvaAviso {
 export interface LiquidacionIvaTotales {
   devengado_base: number;
   devengado_cuota: number;
+  /**
+   * Pedidos DISTINTOS que devengaron en el periodo. No es la suma de los
+   * `documentos` de cada tramo: un pedido con productos al 10 y al 21 aparece en
+   * los dos. Ver `LiquidacionIvaTramo.documentos`.
+   */
+  devengado_documentos: number;
   /** Lo devuelto en el periodo: se RESTA del devengado */
   rectificado_base: number;
   rectificado_cuota: number;
+  /** Reembolsos DISTINTOS del periodo (un reembolso = una rectificativa) */
+  rectificado_documentos: number;
   /** Devengado − rectificado: lo repercutido de verdad */
   repercutido_base: number;
   repercutido_cuota: number;
   deducible_base: number;
   deducible_cuota: number;
+  /** Facturas de compra DISTINTAS anotadas en el periodo */
+  deducible_documentos: number;
   /** Positivo = a ingresar. Negativo = a compensar en el periodo siguiente */
   resultado: number;
 }

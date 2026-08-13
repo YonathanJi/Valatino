@@ -30,9 +30,18 @@ function formatearFecha(iso: string): string {
 function TablaTramos({
   tramos,
   etiquetaDocumentos,
+  documentos,
+  unoDeEsos,
 }: {
   tramos: LiquidacionIvaTramo[];
   etiquetaDocumentos: string;
+  /**
+   * Documentos DISTINTOS del bloque, que llega aparte porque **no es la suma de
+   * la columna**: lo calcula la base con un `count(distinct …)`.
+   */
+  documentos: number;
+  /** Con artículo y en singular: «una factura», «un pedido», «una devolución». */
+  unoDeEsos: string;
 }) {
   if (tramos.length === 0) {
     return (
@@ -45,41 +54,64 @@ function TablaTramos({
   const base = tramos.reduce((acc, t) => acc + t.base, 0);
   const cuota = tramos.reduce((acc, t) => acc + t.cuota, 0);
 
+  /*
+   * ⚠️⚠️ EL FALLO QUE ESTO ARREGLA, Y LO VIO JONATHAN MIRANDO LA PANTALLA.
+   *
+   * La columna de documentos NO ES ADITIVA: un documento con varios tipos de IVA
+   * dentro cuenta en cada fila. El deducible salia «1 · 2 · 2» con dos facturas,
+   * y como el pie dejaba esa celda EN BLANCO, nada contradecia el «5».
+   *
+   * Quien presenta un 303 tiene que poder decir cuantas facturas respaldan una
+   * cifra, asi que el numero real va en el total. Y la nota solo se pinta cuando
+   * la suma DIFIERE: avisar siempre de una trampa que hoy no existe —un periodo
+   * con un solo tipo— es ruido que se aprende a ignorar.
+   */
+  const sumaColumna = tramos.reduce((acc, t) => acc + t.documentos, 0);
+  const noSuma = sumaColumna !== documentos;
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/50">
-            <th className="px-4 py-2.5 text-left font-medium">Tipo</th>
-            <th className="px-4 py-2.5 text-right font-medium">Base imponible</th>
-            <th className="px-4 py-2.5 text-right font-medium">Cuota</th>
-            <th className="px-4 py-2.5 text-right font-medium">{etiquetaDocumentos}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tramos.map((t) => (
-            <tr key={t.iva_pct} className="border-b last:border-0">
-              <td className="px-4 py-2.5 font-medium">{t.iva_pct} %</td>
-              <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(t.base)}</td>
-              <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(t.cuota)}</td>
-              <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                {t.documentos}
-              </td>
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/50">
+              <th className="px-4 py-2.5 text-left font-medium">Tipo</th>
+              <th className="px-4 py-2.5 text-right font-medium">Base imponible</th>
+              <th className="px-4 py-2.5 text-right font-medium">Cuota</th>
+              <th className="px-4 py-2.5 text-right font-medium">{etiquetaDocumentos}</th>
             </tr>
-          ))}
-        </tbody>
-        {/* El total va en el pie y no en una tarjeta aparte: con tres tipos, la
-            suma tiene que poder comprobarse a ojo desde las filas de arriba. */}
-        <tfoot>
-          <tr className="border-t bg-muted/30 font-semibold">
-            <td className="px-4 py-2.5">Total</td>
-            <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(base)}</td>
-            <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(cuota)}</td>
-            <td className="px-4 py-2.5" />
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {tramos.map((t) => (
+              <tr key={t.iva_pct} className="border-b last:border-0">
+                <td className="px-4 py-2.5 font-medium">{t.iva_pct} %</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(t.base)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(t.cuota)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                  {t.documentos}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {/* El total va en el pie y no en una tarjeta aparte: con tres tipos, la
+              suma tiene que poder comprobarse a ojo desde las filas de arriba. */}
+          <tfoot>
+            <tr className="border-t bg-muted/30 font-semibold">
+              <td className="px-4 py-2.5">Total</td>
+              <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(base)}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums">{formatEUR(cuota)}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums">{documentos}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {noSuma && (
+        <p className="border-t px-4 py-2.5 text-xs text-muted-foreground">
+          Son <strong>{documentos}</strong> en total, no {sumaColumna}: {unoDeEsos} con varios
+          tipos de IVA dentro cuenta en cada fila, así que esa columna no suma.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -284,21 +316,36 @@ export default function LiquidacionIvaPage() {
             titulo="IVA devengado — ventas"
             explicacion="Por la fecha en que se cobró cada pedido, no por la de creación: una transferencia se cobra días después."
           >
-            <TablaTramos tramos={data.devengado} etiquetaDocumentos="Pedidos" />
+            <TablaTramos
+              tramos={data.devengado}
+              etiquetaDocumentos="Pedidos"
+              documentos={data.totales.devengado_documentos}
+              unoDeEsos="un pedido"
+            />
           </Bloque>
 
           <Bloque
             titulo="Rectificación — devoluciones"
             explicacion="Se resta del devengado, en el periodo en que se devolvió el dinero y al tipo con el que se cobró."
           >
-            <TablaTramos tramos={data.rectificado} etiquetaDocumentos="Devoluciones" />
+            <TablaTramos
+              tramos={data.rectificado}
+              etiquetaDocumentos="Devoluciones"
+              documentos={data.totales.rectificado_documentos}
+              unoDeEsos="una devolución"
+            />
           </Bloque>
 
           <Bloque
             titulo="IVA deducible — compras"
             explicacion="Por la fecha en que la factura quedó anotada, que es la que decide en qué trimestre se deduce."
           >
-            <TablaTramos tramos={data.deducible} etiquetaDocumentos="Facturas" />
+            <TablaTramos
+              tramos={data.deducible}
+              etiquetaDocumentos="Facturas"
+              documentos={data.totales.deducible_documentos}
+              unoDeEsos="una factura"
+            />
           </Bloque>
 
           <p className="text-xs text-muted-foreground">
