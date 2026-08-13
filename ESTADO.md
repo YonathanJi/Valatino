@@ -50,24 +50,45 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-## ⚠️ EL PUSH DE LA 068: UN SOLO PUSH, Y LO ÚNICO QUE NO SE TOCA DURANTE ~10 MINUTOS
+## ✅ LA 068 Y LA 069 ESTÁN DESPLEGADAS Y VERIFICADAS EN PRODUCCIÓN (2026-08-13)
 
-**La 068 ya está aplicada al remoto. El código está commiteado y SIN PUSHEAR** (commit `feat(contabilidad): la liquidación del IVA…`).
+**Todo lo de la liquidación del IVA está en pie**: migraciones aplicadas, código pusheado, Vercel y Render al día, y comprobado por HTTP.
 
-El cambio hace que **la API sea más estricta** (el DTO de compras exige ahora `fechaFactura`) **y** que la web mande un campo nuevo. Con `forbidNonWhitelisted: true` en el `ValidationPipe`, **los dos sentidos rompen durante la ventana de despliegue**:
+### Cómo se comprobó que el deploy entró de verdad, que es lo que suele darse por hecho
 
-| Estado transitorio | Qué pasa |
+Se tomó **línea base antes de pushear** y se comparó después. El discriminador limpio es que una ruta que **no existe** da 404 y una que existe pero está protegida da **401** — así se prueba que el código nuevo está arriba sin necesitar ninguna credencial:
+
+| Ruta de `api.valatino.es` | Antes | Después |
+|---|---|---|
+| `GET /admin/contabilidad/iva` | **404** | **401** ✅ |
+| `PATCH /admin/compras/:id/fecha-factura` | **404** | **401** ✅ |
+| `GET /admin/dashboard` (control) | 401 | 401 |
+| `GET /health` (control) | 200 | 200 |
+
+**Render tardó ~90 s**, no los 10 minutos temidos. Y `valatino.es/backoffice/contabilidad` da **307** (existe y redirige por no haber sesión) frente al **404** de una ruta inventada, así que Vercel también está al día.
+
+**Regresión de la tienda tras el deploy**: home, carrito, checkout y login a **200**, `www` en 308 al apex, `/productos` de la API a 200 y los productos saliendo en la home. Nada roto.
+
+### La ventana existió y se cerró sin incidencias
+
+El cambio hacía que **la API fuera más estricta** (el DTO de compras exige `fechaFactura`) **y** que la web mandara un campo nuevo. Con `forbidNonWhitelisted: true`, **los dos sentidos rompían**:
+
+| Estado transitorio | Qué pasaba |
 |---|---|
 | Web nueva + API vieja (lo que ocurre: Vercel llega antes) | La web manda `fechaFactura`, el DTO viejo no lo conoce → **400 «property fechaFactura should not exist»** |
 | Web vieja + API nueva | La web no lo manda, el DTO nuevo lo exige → **400** |
 
-Por la tabla de órdenes de más abajo esto es el caso «la API acepta un campo más», cuyo libro dice **dos pushes, API primero**. **Se ha decidido hacer UN push, a conciencia**, y el motivo es que la regla de los dos pushes existe por los **pagos**, donde un 400 es una venta perdida. Aquí no:
+Por la tabla de órdenes de más abajo esto es el caso «la API acepta un campo más», cuyo libro dice **dos pushes, API primero**. **Se hizo UN push, a conciencia**, y el motivo queda escrito porque vale para la próxima: la regla de los dos pushes existe por los **pagos**, donde un 400 es una venta perdida. Aquí no.
 
-- **Afecta a UNA pantalla**: «Compras → Registrar compra». El resto de la tienda —catálogo, carrito, los cuatro medios de pago, el panel— no se entera de nada.
-- Es una operación **manual, rara (unas veces al mes) y que la hace una persona que está mirando**. Falla con un error visible en pantalla y **se reintenta pulsando otra vez** cuando Render acaba. No se pierde dinero ni un pedido.
-- La alternativa de dos pushes obliga a dejar `fechaFactura` como `@IsOptional()` en el primero, y eso **crea un estado intermedio que alguien tiene que acordarse de apretar después**. Un `@IsOptional()` temporal que se queda es justo el tipo de deuda que no se ve.
+- **Afectaba a UNA pantalla**: «Compras → Registrar compra». El resto de la tienda —catálogo, carrito, los cuatro medios de pago, el panel— no se entera de nada.
+- Es una operación **manual, rara (unas veces al mes) y que la hace una persona que está mirando**. Falla con un error visible y **se reintenta pulsando otra vez**. No se pierde dinero ni un pedido.
+- La alternativa de dos pushes obligaba a dejar `fechaFactura` como `@IsOptional()` en el primero, y eso **crea un estado intermedio que alguien tiene que acordarse de apretar después**. Un `@IsOptional()` temporal que se queda es justo el tipo de deuda que no se ve.
 
-⚠️ **Así que la única precaución es: NO registrar una compra hasta que Render marque el deploy como terminado** (~5-10 min). Que es lo natural de todas formas, porque lo primero que se va a querer hacer es probar el formulario nuevo.
+⚠️ **La regla para la próxima vez, que es lo aprovechable**: antes de pushear, apuntar el código HTTP de las rutas nuevas; el salto **404 → 401** es la prueba de que el deploy entró, y no hace falta iniciar sesión para obtenerla. Mirar el HTML no sirve (lección del 05/08 con `NEXT_PUBLIC_API_URL`).
+
+### Y la 069 se aplicó DESPUÉS del deploy, que era la condición
+
+`facturas_compra.fecha_factura` ya es **NOT NULL** y `registrar_factura_compra` aborta con mensaje accionable si falta. **Aplicarla antes del despliegue habría convertido la ventana de minutos en una avería permanente**, porque la API vieja no mandaba el campo. Se comprobó el 404→401 primero y se aplicó después.
 
 ## ⭐⭐ HECHO EL 2026-08-13: la liquidación del IVA (modelo 303) — migración 068
 
@@ -105,7 +126,10 @@ Importa **antes** de escribir la tabla, no después: encadenar por hash desde el
 - El aviso `compra_sin_fecha_factura` **ya no aparece**. En el 3T quedan solo los dos estructurales: `sin_facturas_emitidas` (Capa 2 pendiente) y `sin_arranque_fiscal` (la tienda sigue en pruebas).
 - ⚠️ **No se rellenaron a dedo con `created_at` en la migración, y fue deliberado**: sería inventar una fecha que va a un libro oficial, y lo peor de un dato inventado es que parece puesto (la lección textual de la 062 con `iva_pct`). Se esperó a tener el dato real. Con `created_at` habrían quedado 18/07 y 06/08, o sea **las dos mal**.
 
-⚠️ **Migración 069 pendiente, de una línea, y ya desbloqueada a medias**: poner `facturas_compra.fecha_factura` a **NOT NULL** y exigirla en `registrar_factura_compra`. Ya no hay ninguna a nulo, así que el `set not null` entra. **Pero hay que esperar al push**: hoy la base la acepta nula a propósito para que la API todavía desplegada (que no manda el campo) siga registrando compras. Aplicarla antes del despliegue convertiría la ventana de 10 minutos en una avería permanente.
+✅ **Migración 069 aplicada** (después del deploy, que era la condición): `facturas_compra.fecha_factura` es **NOT NULL** y `registrar_factura_compra` aborta con un mensaje accionable si falta —P0001, así que la API lo publica tal cual— en vez de con el `23502` genérico del motor.
+- ⚠️ **La comprobación va ANTES del insert**, así que un intento sin fecha no deja factura a medias ni mueve stock. Se verificó en el ensayo (`FALLO A3`/`A4`).
+- **La firma no cambia**: `p_fecha_factura date default null` se queda, y por eso aquí **no** hubo que hacer `drop function` (la trampa de la 039 que la 068 sí tuvo que sortear). Quitar el `default` daría «function does not exist», que es el error que menos ayuda.
+- El guardia **nombra las facturas** que faltaran, porque «column contains null values» no dice cuál.
 
 ⚠️ **Pendiente pequeño de Jonathan**: si la caja de **Quipitos Pops Caja 24** existe de verdad en el almacén, meterla desde Inventario con un ajuste de tipo **«recuento»**. Se quedó a 0 en la limpieza del 12/08 por ser la unidad fantasma sin apunte; ahora sí quedaría registrada.
 
@@ -172,7 +196,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **069** (`fecha_factura` a NOT NULL, aplicada **después** de verificar el deploy por HTTP). Antes la **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -349,9 +373,19 @@ Lo único que sirve es el **viaje de ida y vuelta**: construir la fecha y compro
 - El endpoint contesta **401 sin token** — el guard corre antes de la validación, que es el orden correcto
 - Fichero de migración local **sincronizado con lo aplicado** al remoto
 
-### 🔜 Lo que NO está probado en pantalla
+### Desplegado el mismo día, y la 069 detrás
 
-**Nada de esta sesión lo ha visto un navegador todavía.** El cálculo está verificado contra datos reales por SQL y la API arranca y mapea, pero la pantalla de Contabilidad, el campo de fecha del formulario de compras y el «Poner fecha» de la ficha están sin pulsar. Y antes hay que decidir el orden del push (arriba).
+Ver el bloque «LA 068 Y LA 069 ESTÁN DESPLEGADAS» de arriba: se tomó línea base por HTTP antes de pushear, las dos rutas nuevas pasaron de **404 a 401**, Render tardó **90 s** y la tienda quedó sin regresiones. La 069 (`fecha_factura` a NOT NULL) se aplicó **después** de esa comprobación, que era su condición.
+
+También se pusieron las fechas reales de las dos facturas de compra (15/07 y 05/08), así que el aviso `compra_sin_fecha_factura` ya no sale y el 3T sigue en **−25,10 €** — confirmando que la fecha de expedición no mueve el trimestre.
+
+### 🔜 Lo único que queda: mirarlo con un navegador
+
+**El cálculo está verificado contra datos reales por SQL y el despliegue por HTTP, pero tres cosas no las ha pulsado nadie:**
+
+1. **Contabilidad → Liquidación de IVA.** Abre por defecto en el trimestre **anterior** al de hoy (el que se presenta), no el actual, que estaría a medias. Con los datos de hoy debe salir **−25,10 € a compensar** en el 3T y dos avisos (`sin_facturas_emitidas` y `sin_arranque_fiscal`).
+2. **Compras → Registrar compra**: el campo «Fecha de la factura» es obligatorio y no acepta futuro.
+3. **La ficha de una compra**: el bloque de la fecha con «Corregir». Solo se pinta con `compras:edicion` (la regla de «lo que no se puede hacer, no se pinta»).
 
 ---
 
