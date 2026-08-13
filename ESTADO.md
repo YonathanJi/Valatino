@@ -156,12 +156,59 @@ En el ensayo se **deshabilitó el trigger de inmutabilidad, se manipuló una fac
 
 La factura del único pedido real sale con **base 4,64 y cuota 0,46** — exactamente lo que el 303 declaró como devengado del 3T. **El documento y la liquidación cuadran al céntimo**, que es justo lo que la regla de copiar el desglose existe para garantizar.
 
+## ⭐ LA PRIMERA FACTURA REAL, Y LO QUE ENSEÑÓ (2026-08-14)
+
+Jonathan configuró el emisor y emitió **`F2026/00001`** desde el panel. Cursó bien:
+
+| | |
+|---|---|
+| Documento | `F2026/00001` · completa · 5,10 € |
+| Base / cuota | **4,64 + 0,46** al 10 % |
+| Fechas | expedida **14/08** · operación **13/08** |
+| Cadena | intacta, primera de la serie |
+| Emisor | Leydy Jhoanna Mendoza Sánchez · `Z4194001W` |
+
+Tres cosas quedaron demostradas **en producción**, no en un ensayo:
+
+1. **La base y la cuota de la factura son las que declara el 303** en el devengado del 3T. Es la regla de copiar el desglose (nunca recalcular) funcionando.
+2. **El 303 NO se movió**: sigue en **−25,10 €**. Emitir una factura no cambia la liquidación, porque liquida por `devengado_el`.
+3. ⭐ **Las dos fechas salieron distintas y bien.** Se emitió a las **00:12 de Madrid**; en UTC eran aún las 22:12 del día 13, y la factura dice **14**. Es `dia_fiscal()` funcionando en el único momento del día en que se nota la diferencia.
+
+Y el guardia de idempotencia asimétrica (073) **se probó solo el primer día**: como la venta ya tiene completa, «emitir las que faltan» no le añade una simplificada. Sin él habría creado una de más y **el IVA estaría dos veces en el libro**.
+
+### 🔴 PENDIENTE DE DECISIÓN DE JONATHAN: la población dice «españa»
+
+El domicilio fiscal quedó impreso como **`Calle del Arco, 9 · 28840 españa (Madrid)`**. El campo de población lleva el país. El **28840 es Mejorada del Campo** — el mismo CP y la misma población que el envío de ese pedido.
+
+⚠️ **Ya está congelado en el snapshot de `F2026/00001` y corregir Ajustes NO arregla esa factura**: una factura emitida no se edita.
+
+✅ **Todavía tiene arreglo porque NO se ha marcado el arranque fiscal.** Es exactamente para lo que existe ese interruptor. Lo propuesto y **no ejecutado, a la espera de que él lo diga**:
+
+1. corregir la población en TI → Ajustes,
+2. borrar `F2026/00001` y dejar `factura_contadores` (`F`, 2026) en `siguiente = 1`,
+3. reemitir → vuelve a salir `F2026/00001`, **sin hueco en la serie**.
+
+⚠️ Borrar sin reiniciar el contador dejaría la siguiente en `F2026/00002` y un hueco donde no hubo factura.
+
+### ⚠️ Se facturó un pedido REEMBOLSADO, y el libro y el 303 discrepan
+
+`260813018694` está devuelto. Facturarlo no está mal —la venta ocurrió—, pero la devolución exige una **rectificativa**, que es justo la pieza pendiente. Mientras no exista:
+
+- el **libro** dice que se facturaron 5,10 €,
+- el **303** ya lo neteó (rectificado 4,64/0,46, repercutido **0**).
+
+Los dos tienen razón por separado y no cuadran entre sí. **Se sabe por qué y es temporal.**
+
 ### 🔜 Lo que queda de esto
 
-- **La rectificativa por devolución.** Tiene ya su columna (`refund_id`) y su índice único, pero necesita usar **exactamente** la aritmética del bloque `rectificado` de la 068, o el documento y el 303 dirían cosas distintas. ⚠️ Y tiene que poder emitirse **a máquina**: la vía del webhook corre sin nadie delante.
-- **El aviso `sin_facturas_emitidas` del 303 tiene que convertirse** en «N pedidos devengados sin factura». Si solo desaparece al crear la tabla, desaparece también con la tabla vacía — y eso es tranquilidad falsa.
-- **El PDF.** ⚠️ Terreno nuevo: **no hay ninguna librería de generación de PDF en el monorepo** (las de compra se *suben*, no se generan). Cuando llegue, se genera **al pedirlo desde la fila**, no se almacena: la fila es la verdad y un PDF guardado es el segundo sitio que puede divergir.
-- **El atajo desde la ficha del pedido.** Hoy la completa se emite desde Contabilidad → Facturas eligiendo la venta. Falta el botón en el detalle del pedido, gobernado por `contabilidad:edicion` y **no** por el permiso de pedidos.
+1. 🔴 **El aviso `sin_facturas_emitidas` del 303 ya MIENTE.** Sigue diciendo «todavía no existe la serie de facturas a clientes (pendiente de confirmar Verifactu)», y existe. Pasó de incompleto a **falso**, así que va primero. Tiene que convertirse en «N ventas devengadas sin factura» — si solo se borrara, desaparecería también con la tabla vacía, que es tranquilidad falsa.
+2. **La rectificativa por devolución.** Tiene ya su columna (`refund_id`) y su índice único, pero necesita usar **exactamente** la aritmética del bloque `rectificado` de la 068, o el documento y el 303 dirían cosas distintas. ⚠️ Y tiene que poder emitirse **a máquina**: la vía del webhook corre sin nadie delante.
+3. **El PDF.** ⚠️ Terreno nuevo: **no hay ninguna librería de generación de PDF en el monorepo** (las de compra se *suben*, no se generan). Cuando llegue, se genera **al pedirlo desde la fila**, no se almacena: la fila es la verdad y un PDF guardado es el segundo sitio que puede divergir.
+4. **El atajo desde la ficha del pedido.** Hoy la completa se emite desde Contabilidad → Facturas eligiendo la venta. Falta el botón en el detalle del pedido, gobernado por `contabilidad:edicion` y **no** por el permiso de pedidos.
+
+### Por qué esa venta no tiene simplificada (lo preguntó Jonathan)
+
+Porque **es anterior al sistema**: devengó el 13/08 a las 06:00 y la migración 072 se aplicó esa misma noche, así que el trigger no existía y nunca llegó a dispararse. `sustituye_a` está vacío, el contador de la serie `S` **ni siquiera se ha creado**, y la pantalla lo dice al elegir la venta. **No es un fallo.** De la próxima venta en adelante, cada una emite su `S` sola y se ve en el mismo libro; al canjearla, la `S` se queda en gris con «sustituida por».
 
 ### ⚠️⚠️ SIGUE PENDIENTE DE LA GESTORÍA (pero ya no bloquea): Verifactu
 
