@@ -404,6 +404,28 @@ La columna es correcta fila a fila y **NO ES ADITIVA**. Y la fila «Total» deja
 
 **La lección, que vale más que el arreglo**: un recuento por categorías junto a un total invita a sumarlo. Si no es aditivo, hay que decirlo **en el sitio**, no confiar en que se deduzca.
 
+### ⭐⭐ Y un efecto colateral que no vi al diseñarlo: la 068 ARREGLA un agujero de `comprobar_stock()`
+
+Se comprobó al final, preguntándose si crear más filas en `reembolso_lineas` podía provocar **doble conteo** en `comprobar_stock()` (063) o en el recálculo de la limpieza (064). No lo provoca — y resulta que arregla lo contrario. La fórmula es:
+
+```
+deducido = comprado − vendido + repuesto − abierto + generado + ajustado
+  vendido  = pedido_items de pedidos cuyo estado NO es PENDIENTE_PAGO ni CANCELADO  → incluye REEMBOLSADO
+  repuesto = reembolso_lineas con repuesto_al_stock = true
+```
+
+**Antes de la 068**, un reembolso total por el webhook reponía el stock pero **no dejaba línea**. Así que:
+
+- `vendido` contaba sus unidades (REEMBOLSADO no está excluido),
+- `repuesto` contaba **0** (no había línea),
+- pero el stock real **sí** había subido.
+
+Resultado: **un descuadre fantasma de +N que nadie podía explicar**, porque no había ningún apunte al que atribuirlo. Es el mismo síntoma que la caja de Quipitos Pops del 12/08 pero por otra causa, y habría vuelto a aparecer en el primer reembolso hecho desde el panel de Stripe.
+
+Con la 068 la línea existe con `repuesto_al_stock = true`, así que los dos términos se cancelan y la fórmula cuadra. **`comprobar_stock()` devuelve hoy cero descuadres.** Y no hay doble conteo porque `repuesto` sale **solo** de `reembolso_lineas`, de ningún otro sitio.
+
+⚠️ Lo que sí hay que recordar si algún día se encuentra un descuadre viejo «arreglado a mano» con un `ajustar_stock` que en realidad era este agujero: ese ajuste ahora **sobra** y habría que revertirlo. No es el caso hoy (0 descuadres), pero es la única forma en que esto podría contar dos veces.
+
 ### 🔜 Lo único que queda: mirarlo con un navegador
 
 **El cálculo está verificado contra datos reales por SQL y el despliegue por HTTP, pero tres cosas no las ha pulsado nadie:**
