@@ -86,6 +86,19 @@ Por la tabla de órdenes de más abajo esto es el caso «la API acepta un campo 
 
 ⚠️ **La regla para la próxima vez, que es lo aprovechable**: antes de pushear, apuntar el código HTTP de las rutas nuevas; el salto **404 → 401** es la prueba de que el deploy entró, y no hace falta iniciar sesión para obtenerla. Mirar el HTML no sirve (lección del 05/08 con `NEXT_PUBLIC_API_URL`).
 
+⚠️⚠️ **PERO ESO SOLO VALE PARA LA API, Y CONVIENE SABERLO ANTES DE FIARSE.** Se probó después, al desplegar el submódulo del 303, y el truco **no funciona en las rutas del panel**: el `middleware` redirige **cualquier** `/backoffice/*` con **307** cuando no hay sesión, exista la ruta o no.
+
+```
+/backoffice/contabilidad/iva            307   ← existe
+/backoffice/contabilidad/inventado-xyz  307   ← NO existe
+/backoffice/inventado-xyz               307   ← NO existe
+/ruta-suelta-xyz                        404   ← fuera de /backoffice sí distingue
+```
+
+Tampoco sirve el `buildId`: en App Router **ya no se expone** en el HTML (se intentó y no está). Y un build fallido de Vercel deja **la versión anterior viva**, así que que la tienda responda 200 tampoco prueba que el deploy nuevo entró.
+
+**Conclusión honesta: un cambio que solo toca pantallas del panel no se puede verificar desde fuera sin sesión.** Se comprueba abriéndolo. Lo que sí se verifica siempre por HTTP es el lado de la API.
+
 ### Y la 069 se aplicó DESPUÉS del deploy, que era la condición
 
 `facturas_compra.fecha_factura` ya es **NOT NULL** y `registrar_factura_compra` aborta con mensaje accionable si falta. **Aplicarla antes del despliegue habría convertido la ventana de minutos en una avería permanente**, porque la API vieja no mandaba el campo. Se comprobó el 404→401 primero y se aplicó después.
