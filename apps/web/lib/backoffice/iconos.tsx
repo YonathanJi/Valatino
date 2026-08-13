@@ -3,6 +3,7 @@ import {
   Briefcase,
   Calculator,
   Cpu,
+  FileText,
   LayoutDashboard,
   Percent,
   Settings,
@@ -67,9 +68,10 @@ export const NAV_ICONOS: Record<string, LucideIcon> = {
   proveedores: Truck,
   clientes: UsersRound,
   contabilidad: Calculator,
-  // Submódulos de Contabilidad. `iva` es la liquidación (modelo 303); cuando
-  // lleguen las facturas a clientes tendrán el suyo.
+  // Submódulos de Contabilidad: la liquidación (modelo 303) y el libro de
+  // facturas expedidas.
   iva: Percent,
+  facturas: FileText,
   usuarios: Users,
   cargos: ShieldCheck,
   ajustes: Settings,

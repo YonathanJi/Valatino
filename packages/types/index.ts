@@ -352,6 +352,90 @@ export function formatearTelefono(valor: string | null | undefined): string {
   return `${n.slice(0, 3)} ${n.slice(3, 5)} ${n.slice(5, 7)} ${n.slice(7)}`;
 }
 
+/* ────────────────────────── NIF · CIF · NIE ───────────────────────────────
+ * Aquí y no en la API por lo mismo que el teléfono: la BD comprueba la FORMA
+ * (migración 073, `nif_forma_valida`) y el dígito de control se comprueba una
+ * sola vez, en un sitio que web y API comparten. Dos copias de esta aritmética
+ * se desincronizan.
+ *
+ * ⚠️ Y una advertencia sobre el equilibrio: aquí **rechazar algo válido es peor
+ * que aceptar algo inválido**. Si esto se equivoca con el CIF de una empresa
+ * real, Jonathan no puede emitirle su factura y no hay forma de saltárselo. Un
+ * dígito malo, en cambio, se corrige emitiendo una rectificativa. Por eso,
+ * cuando la letra inicial de un CIF admite las dos formas de control, se
+ * aceptan las dos.
+ */
+
+/** Quita espacios, guiones y puntos, y sube a mayúsculas. */
+export function normalizarNif(valor: string): string {
+  return valor.replace(/[\s.\-]/g, "").toUpperCase();
+}
+
+const DNI_LETRAS = "TRWAGMYFPDXBNJZSQVHLCKE";
+/** Para el control en letra de un CIF: índice 0 → J, 1 → A, … */
+const CIF_LETRAS = "JABCDEFGHI";
+
+/** Letra que le toca a 8 cifras. Vale para DNI y, tras traducir, para NIE. */
+function letraDeOchoCifras(cifras: string): string {
+  return DNI_LETRAS[Number(cifras) % 23]!;
+}
+
+function dniValido(nif: string): boolean {
+  return letraDeOchoCifras(nif.slice(0, 8)) === nif[8];
+}
+
+function nieValido(nif: string): boolean {
+  // X → 0, Y → 1, Z → 2, y a partir de ahí es un DNI.
+  const prefijo = "XYZ".indexOf(nif[0]!);
+  return letraDeOchoCifras(`${prefijo}${nif.slice(1, 8)}`) === nif[8];
+}
+
+function cifValido(nif: string): boolean {
+  const inicial = nif[0]!;
+  const cifras = nif.slice(1, 8);
+  const control = nif[8]!;
+
+  // Posiciones pares (2ª, 4ª, 6ª) tal cual; impares dobladas y con sus dígitos
+  // sumados —doblar 8 da 16, y lo que suma es 7—.
+  let suma = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = Number(cifras[i]);
+    if (i % 2 === 1) {
+      suma += d;
+    } else {
+      const doble = d * 2;
+      suma += doble > 9 ? doble - 9 : doble;
+    }
+  }
+
+  const resto = (10 - (suma % 10)) % 10;
+  const enCifra = String(resto);
+  const enLetra = CIF_LETRAS[resto]!;
+
+  // Las entidades sin ánimo de lucro y los organismos llevan letra; las
+  // sociedades, cifra. El resto admite las dos, y ahí se aceptan las dos.
+  if ("PQRSNW".includes(inicial)) return control === enLetra;
+  if ("ABEH".includes(inicial)) return control === enCifra;
+  return control === enCifra || control === enLetra;
+}
+
+/**
+ * Comprueba forma **y dígito de control** de un NIF, NIE o CIF español.
+ *
+ * La forma tiene que coincidir con la de `nif_forma_valida` en la BD: si esta
+ * función acepta algo que el CHECK rechaza, el error saldría de Postgres sin
+ * explicación en vez de del formulario con una.
+ */
+export function nifValido(valor: string): boolean {
+  const nif = normalizarNif(valor);
+
+  if (/^[0-9]{8}[A-Z]$/.test(nif)) return dniValido(nif);
+  if (/^[XYZ][0-9]{7}[A-Z]$/.test(nif)) return nieValido(nif);
+  if (/^[A-HJNP-SUVW][0-9]{7}[0-9A-J]$/.test(nif)) return cifValido(nif);
+
+  return false;
+}
+
 /**
  * Cómo se llama la diferencia entre dos presentaciones del mismo artículo. Solo
  * afecta al texto del selector: «Formato: C/U» o «Sabor: Fresa».
@@ -1076,6 +1160,15 @@ export interface EstadoMantenimiento {
 /** Lo que hizo la limpieza, para poder afirmarlo en pantalla y no suponerlo. */
 export interface ResultadoLimpieza {
   pedidos_borrados: number;
+  /**
+   * Facturas emitidas borradas (migración 073).
+   *
+   * ⚠️ Solo puede pasar **en modo pruebas**: el trigger `trg_factura_inmutable`
+   * se niega a borrar cualquier factura después del arranque fiscal, y esta
+   * limpieza ya se niega a ejecutarse entera. La limpieza también reinicia los
+   * contadores de serie, así que la primera factura real vuelve a ser la 00001.
+   */
+  facturas_borradas: number;
   /** Empleados dados de alta probando, con su histórico mensual (migración 067) */
   empleados_borrados: number;
   /**
@@ -1097,6 +1190,183 @@ export interface ResultadoLimpieza {
   stock_recalculado: Record<string, number>;
   descuadres_tras_limpiar: number;
   cuando: string;
+}
+
+/* ═══════════════════ Facturas emitidas (migraciones 071–073) ════════════════ */
+
+/**
+ * Los datos fiscales del negocio, tal como se editan en TI → Ajustes.
+ *
+ * ⚠️ Nacen vacíos y NO se siembran desde `transferencia_titular`: el titular de
+ * la cuenta bancaria y la razón social se parecen lo bastante para que copiarlo
+ * pareciera un acierto, y son cosas distintas. Mientras falte uno de los cinco
+ * obligatorios, **no se emite ninguna factura**.
+ */
+export interface AjustesEmisor {
+  nif: string;
+  nombre: string;
+  direccion: string;
+  codigo_postal: string;
+  ciudad: string;
+  provincia: string;
+  pais: string;
+  /** Si con estos datos ya se puede facturar. Lo decide `emisor_fiscal()`. */
+  completo: boolean;
+}
+
+/**
+ * Emisor o receptor congelados dentro de una factura.
+ *
+ * Es un SNAPSHOT: si el negocio cambia de domicilio, las facturas ya emitidas
+ * conservan el viejo. Igual que `iva_pct` en las líneas (migración 062).
+ */
+export interface DatosFiscales {
+  nif: string;
+  nombre: string;
+  direccion: string;
+  codigo_postal: string;
+  ciudad: string;
+  provincia: string | null;
+  pais: string;
+}
+
+/**
+ * Los tres documentos, y por qué son series distintas.
+ *
+ * Una serie tiene que ser correlativa **y cronológica dentro de sí misma**. Si
+ * las completas compartieran serie con las simplificadas, la que un cliente pide
+ * en octubre de una venta de julio recibiría un número de octubre en medio de la
+ * línea de julio.
+ */
+export const FACTURA_TIPOS = ["simplificada", "completa", "rectificativa"] as const;
+export type FacturaTipo = (typeof FACTURA_TIPOS)[number];
+
+/** Serie de cada tipo. Espejo de `serie_de_tipo()` en la BD. */
+export const FACTURA_SERIES: Record<FacturaTipo, string> = {
+  simplificada: "S",
+  completa: "F",
+  rectificativa: "R",
+};
+
+export const FACTURA_TIPO_LABELS: Record<FacturaTipo, string> = {
+  simplificada: "Simplificada",
+  completa: "Completa",
+  rectificativa: "Rectificativa",
+};
+
+/** Una línea congelada de la factura. El precio va **con IVA incluido**. */
+export interface FacturaLinea {
+  nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+  iva_pct: number;
+  importe: number;
+}
+
+/** Base y cuota por tipo, **copiadas** de `pedido_iva` y nunca recalculadas. */
+export interface FacturaDesglose {
+  iva_pct: number;
+  base: number;
+  cuota: number;
+}
+
+export interface FacturaEmitida {
+  id: string;
+  numero: string;
+  tipo: FacturaTipo;
+  serie: string;
+  ejercicio: number;
+  correlativo: number;
+
+  pedido_id: string;
+  /** Del pedido, para no tener que cruzarlo al listar. */
+  numero_pedido: string | null;
+
+  /**
+   * ⚠️ DOS FECHAS Y HACEN FALTA LAS DOS. El IVA pertenece al trimestre de la
+   * **operación**, así que emitir con retraso no mueve el trimestre.
+   */
+  fecha_expedicion: string;
+  fecha_operacion: string;
+
+  emisor: DatosFiscales;
+  /** NULL en una simplificada: no lleva NIF ni dirección del cliente. */
+  receptor: DatosFiscales | null;
+  lineas: FacturaLinea[];
+  desglose: FacturaDesglose[];
+
+  base_total: number;
+  cuota_total: number;
+  total: number;
+
+  /** La simplificada a la que sustituye esta completa (el canje). */
+  sustituye_a: string | null;
+  rectifica_a: string | null;
+  refund_id: string | null;
+
+  /** Verifactu: huella de este documento y de el anterior de la cadena. */
+  huella: string;
+  huella_anterior: string | null;
+
+  created_at: string;
+}
+
+/**
+ * Una factura del libro, con si cuenta o no.
+ *
+ * ⚠️⚠️ `vigente` es lo que evita contar el IVA dos veces: cuando una completa
+ * sustituye a una simplificada, **las dos existen** —una factura emitida no se
+ * anula jamás— pero solo la completa cuenta. No es un campo mutable «anulada»
+ * que alguien tenga que acordarse de poner: se deduce de que otra factura la
+ * señale con `sustituye_a`.
+ */
+export interface FacturaDelLibro extends FacturaEmitida {
+  vigente: boolean;
+  /** Número de la que la sustituyó, si dejó de ser vigente. */
+  sustituida_por: string | null;
+}
+
+/** Lo que devuelve ponerse al día con las ventas ya devengadas. */
+export interface ResultadoEmitirPendientes {
+  emitidas: number;
+  /** Sin emitir por falta de desglose. Si sale >0, hay algo que mirar. */
+  saltadas: number;
+}
+
+/** El resultado de recalcular la cadena de huellas de punta a punta. */
+export interface CadenaFacturas {
+  facturas: number;
+  intacta: boolean;
+  /** Números de las facturas cuya huella no cuadra. Vacío si está intacta. */
+  rotas: string[];
+}
+
+/**
+ * Una venta a la que se le puede emitir la factura completa que pide el cliente.
+ *
+ * Son las devengadas que todavía no tienen una completa. Las que ya tienen su
+ * simplificada siguen apareciendo: emitir la completa es el CANJE, el caso
+ * normal. Lo que desaparece de la lista es lo que ya tiene completa.
+ */
+export interface PedidoFacturable {
+  pedido_id: string;
+  numero_pedido: string;
+  devengado_el: string;
+  total: number;
+  cliente: string | null;
+  documento_cliente: string | null;
+  /** La simplificada que la completa sustituiría, si la hubo. */
+  simplificada: string | null;
+}
+
+/** Los datos fiscales que el cliente da al pedir su factura completa. */
+export interface ReceptorFactura {
+  nif: string;
+  nombre: string;
+  direccion: string;
+  codigo_postal: string;
+  ciudad: string;
+  provincia?: string;
 }
 
 /**

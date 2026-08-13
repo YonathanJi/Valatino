@@ -9,6 +9,7 @@ import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { MantenimientoPanel } from "@components/backoffice/MantenimientoPanel";
+import { EmisorPanel } from "@components/backoffice/EmisorPanel";
 import { useNivel } from "@components/backoffice/PermisosProvider";
 import { formatearIban, ibanValido, normalizarIban } from "@valatino/types";
 import type { AjustesTransferencia } from "@valatino/types";
@@ -231,6 +232,8 @@ export function AjustesPanel() {
           </>
         )}
       </section>
+
+      <EmisorPanel />
 
       <MantenimientoPanel />
     </div>

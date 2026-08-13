@@ -33,6 +33,7 @@ const NAV_ITEMS: {
     iconKey: "contabilidad",
     children: [
       { href: "/backoffice/contabilidad/iva", label: "Liquidación de IVA", iconKey: "iva" },
+      { href: "/backoffice/contabilidad/facturas", label: "Facturas emitidas", iconKey: "facturas" },
     ],
   },
   {

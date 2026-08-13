@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { TransferenciaService } from "../pedidos/transferencia.service";
+import { ContabilidadService } from "../contabilidad/contabilidad.service";
 import { MantenimientoService } from "./mantenimiento.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
@@ -17,6 +18,7 @@ import { Roles } from "../auth/decorators/roles.decorator";
 import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { GuardarAjustesTransferenciaDto } from "../pedidos/dto/ajustes-transferencia.dto";
+import { GuardarEmisorDto } from "../contabilidad/dto/factura.dto";
 import type { JwtPayload } from "@valatino/types";
 
 /**
@@ -40,6 +42,9 @@ export class AjustesController {
   constructor(
     private readonly transferencia: TransferenciaService,
     private readonly mantenimiento: MantenimientoService,
+    // El servicio vive en Contabilidad —es su dominio— y el controlador en TI,
+    // que es donde se edita. Mismo reparto que `TransferenciaService`.
+    private readonly contabilidad: ContabilidadService,
   ) {}
 
   @Get("transferencia")
@@ -59,6 +64,32 @@ export class AjustesController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.transferencia.guardarAjustes(dto, user.sub);
+  }
+
+  /**
+   * Los datos fiscales con los que se firman las facturas (migración 071).
+   *
+   * ⚠️ Vive aquí, con el IBAN, y no en Contabilidad, porque es donde vive la
+   * tabla `ajustes_tienda` y porque es configuración del negocio, no trabajo del
+   * día a día. Quien lo NECESITA es Contabilidad — así que su pantalla de
+   * facturas avisa cuando falta y enlaza aquí, en vez de tener otra pantalla de
+   * ajustes que diga lo mismo en otro sitio.
+   */
+  @Get("emisor")
+  emisor() {
+    return this.contabilidad.emisor();
+  }
+
+  /**
+   * Exige `total` por el mismo motivo que el IBAN: esto se imprime en documentos
+   * contables, y el snapshot de cada factura lo congela. Un NIF mal escrito no se
+   * arregla editando las facturas ya emitidas —no se editan jamás—, sino
+   * corrigiendo el dato y emitiendo rectificativas.
+   */
+  @Put("emisor")
+  @Nivel("total")
+  guardarEmisor(@Body() dto: GuardarEmisorDto, @CurrentUser() user: JwtPayload) {
+    return this.contabilidad.guardarEmisor(dto, user.sub);
   }
 
   /** En qué modo está la tienda, cuántos pedidos hay y si el stock cuadra. */

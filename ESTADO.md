@@ -69,6 +69,8 @@ Se tomó **línea base antes de pushear** y se comparó después. El discriminad
 
 **Regresión de la tienda tras el deploy**: home, carrito, checkout y login a **200**, `www` en 308 al apex, `/productos` de la API a 200 y los productos saliendo en la home. Nada roto.
 
+> ⚠️ **Ojo con `/productos` al comprobar regresiones, que ya me ha confundido una vez**: en la **API** es un listado y da **200**; en la **web** NO EXISTE como índice —solo hay `productos/[slug]`— y da **404, que es lo correcto**. Para comprobar la web hay que pedir `/productos/<slug>` de un producto real. Un 404 ahí no es una regresión.
+
 ### La ventana existió y se cerró sin incidencias
 
 El cambio hacía que **la API fuera más estricta** (el DTO de compras exige `fechaFactura`) **y** que la web mandara un campo nuevo. Con `forbidNonWhitelisted: true`, **los dos sentidos rompían**:
@@ -109,15 +111,59 @@ Tampoco sirve el `buildId`: en App Router **ya no se expone** en el HTML (se int
 
 **Lo que queda de la Capa 2:**
 
-1. **Facturas a clientes** — tabla propia, **serie y numeración correlativa SIN HUECOS**, inmutable, con snapshot de todo (emisor, cliente, líneas, base y cuota por tipo).
-   - ⚠️ **Una secuencia de Postgres NO sirve**: no retrocede al abortar una transacción y deja huecos. Hace falta un contador con `for update` en la misma transacción, la disciplina de bloqueo de la 056.
-   - Una factura emitida **no se edita ni se borra jamás**. Corregir = emitir una **rectificativa**, así que el flujo de reembolsos por artículos (044) tiene que empezar a generar una.
-   - **Decidido: simplificada por defecto** (el ticket, permitido en venta a consumidor por debajo de 400 €, sin NIF ni dirección), con un «quiero factura con mis datos» que emita la completa. Encaja con que `documento_cliente` sea hoy opcional.
-   - ⭐ **Ya tiene casa y ya tiene la mitad del dato**: el módulo `contabilidad` existe, y `pedidos.devengado_el` es la fecha que la factura llevará impresa.
-   - ⚠️ **Y mientras no exista, el informe lo dice en un aviso**: un 303 se soporta con el libro de facturas expedidas, y hoy se liquida desde los pedidos. Mismo IVA, mismos importes, pero quien firme tiene que saberlo.
+1. ~~**Facturas a clientes**~~ → **HECHAS** (071, 072, 073). Ver el bloque de abajo.
 2. ~~**Liquidación del IVA (modelo 303)**~~ → **hecha** (068). Informe por rango de fechas con devengado, rectificado por devoluciones, deducible y la diferencia, más los avisos de lo que NO está contando.
 
-### ⚠️⚠️ SIGUE BLOQUEANDO LAS FACTURAS A CLIENTES: confirmar Verifactu con la gestoría
+## ⭐⭐ HECHO EL 2026-08-13 (cont.): las facturas a clientes — migraciones 071, 072 y 073
+
+Jonathan lo pidió así: «*nos falta el módulo de emitir la factura del pedido del cliente si lo solicita*». Y lo primero que apareció es que **eso es la segunda mitad de la función**: la completa a petición es un **canje** de la simplificada, así que primero toda venta tiene que tener la suya. Decidido con él:
+
+| Decisión | Elegido |
+|---|---|
+| Alcance | **Simplificada automática + canje a completa a petición** |
+| Quién emite | **El staff, desde el panel** (el autoservicio del cliente exigiría un acceso para invitados) |
+| Verifactu | **Con la cadena de huellas desde el día uno**, sin esperar a la gestoría |
+
+### Lo que hay
+
+- **Cada venta devengada emite su simplificada sola** (serie `S`), la completa a petición la **sustituye** (serie `F`), y las rectificativas tendrán la `R`.
+- **Contabilidad → Facturas emitidas** (`/backoffice/contabilidad/facturas`): el libro, el emisor de guardia, «emitir las que faltan», el estado de la cadena y el formulario de la completa.
+- **TI → Ajustes** gana los **datos fiscales del emisor**. ⚠️ **Sin ellos no se emite NADA.**
+- **680 tests** (+21 del dígito de control del NIF). Las tres migraciones ensayadas en transacción revertida contra el remoto antes de aplicar: **11/11, 16/16 y 11/11**.
+
+### ⚠️⚠️ Lo que hay que saber para no romperlo
+
+- **Las líneas van en `jsonb`, NO en una tabla hija** — y eso **contradice lo que este documento decía**. El motivo apareció al escribir la cadena: la huella tiene que cubrir el documento completo, y con una tabla hija el padre se inserta cuando aún no hay líneas que hashear.
+- **La base y la cuota se COPIAN de `pedido_iva`**, jamás se recalculan. La 062 dejó un solo sitio que redondea; recalcular daría una factura que no cuadra con el 303 **sobre el mismo dinero**.
+- **Es un CONSTRAINT TRIGGER DIFERIDO** (`trg_pedido_simplificada`). Tenía que serlo: el trigger de devengo es BEFORE INSERT en `pedidos` y en ese momento no existen ni las líneas ni `pedido_iva`. Diferido hasta el COMMIT, todo está en su sitio y no depende del orden alfabético de los triggers de `pedido_items`.
+- **Sin emisor configurado NO se lanza excepción**: se anota en `factura_eventos` y se devuelve NULL. Corre en la ruta del dinero, y una casilla sin rellenar en Ajustes **no puede tumbar una venta**.
+- **El cerrojo `pg_advisory_xact_lock(10072023)` va ARRIBA**, antes de la idempotencia. La cadena es global y el `for update` del contador es por serie: dos series podrían leer la misma «factura anterior» y **bifurcar la cadena**.
+- ⭐ **`vigente` es lo que evita contar el IVA dos veces.** Cuando una completa sustituye a una simplificada **las dos existen** —una factura emitida no se anula jamás—, y solo cuenta la completa. No es un campo mutable «anulada»: se deduce de que otra factura la señale con `sustituye_a` (vista `libro_facturas_expedidas`).
+- **La limpieza REINICIA los contadores.** Sin eso, la primera factura real sería la `S2026/00043` con cuarenta y dos huecos que no existieron.
+- **Borrar una factura solo se puede antes del arranque fiscal**, y la regla vive en el trigger `trg_factura_inmutable`, no en la limpieza: así ninguna limpieza futura podrá olvidarlo. **Modificar una, jamás.**
+
+### Tres fallos que aparecieron al cruzar piezas, no dentro de ninguna
+
+1. ⚠️⚠️ **La 072 dejó una mina**: `facturas_emitidas.pedido_id` es `ON DELETE RESTRICT`, así que `limpiar_datos_de_prueba` **habría fallado en cuanto existiera una factura**. Confirmado en el ensayo con el error literal del RESTRICT, y arreglado en la 073 antes de que hubiera ninguna.
+2. ⚠️ **Doble documento de la misma venta**: una venta facturada como completa sin haber tenido simplificada —pasa con las anteriores a configurar el emisor— la habría visto `emitir_facturas_pendientes` como «sin simplificada» y le habría emitido una. **El IVA contado dos veces.** El guardia se puso DENTRO del motor, no en cada llamador.
+3. **`text[] || 'NIF'`** reventaba con «malformed array literal»: sin `::text`, Postgres resuelve el operador como `anyarray || anyarray`. La validación que debía **nombrar** lo que falta habría dado un error inútil. Y enseñó algo del test: uno que solo comprueba «rechaza» sin mirar POR QUÉ lo habría dado por bueno.
+
+### La cadena de huellas funciona, y está probado como se prueba de verdad
+
+En el ensayo se **deshabilitó el trigger de inmutabilidad, se manipuló una factura por la puerta de atrás y se volvió a activar**. `verificar_cadena_facturas()` la señaló por su número: `{"rotas": ["S2026/00002"], "intacta": false}`.
+
+### Y un dato que vale más que los tests
+
+La factura del único pedido real sale con **base 4,64 y cuota 0,46** — exactamente lo que el 303 declaró como devengado del 3T. **El documento y la liquidación cuadran al céntimo**, que es justo lo que la regla de copiar el desglose existe para garantizar.
+
+### 🔜 Lo que queda de esto
+
+- **La rectificativa por devolución.** Tiene ya su columna (`refund_id`) y su índice único, pero necesita usar **exactamente** la aritmética del bloque `rectificado` de la 068, o el documento y el 303 dirían cosas distintas. ⚠️ Y tiene que poder emitirse **a máquina**: la vía del webhook corre sin nadie delante.
+- **El aviso `sin_facturas_emitidas` del 303 tiene que convertirse** en «N pedidos devengados sin factura». Si solo desaparece al crear la tabla, desaparece también con la tabla vacía — y eso es tranquilidad falsa.
+- **El PDF.** ⚠️ Terreno nuevo: **no hay ninguna librería de generación de PDF en el monorepo** (las de compra se *suben*, no se generan). Cuando llegue, se genera **al pedirlo desde la fila**, no se almacena: la fila es la verdad y un PDF guardado es el segundo sitio que puede divergir.
+- **El atajo desde la ficha del pedido.** Hoy la completa se emite desde Contabilidad → Facturas eligiendo la venta. Falta el botón en el detalle del pedido, gobernado por `contabilidad:edicion` y **no** por el permiso de pedidos.
+
+### ⚠️⚠️ SIGUE PENDIENTE DE LA GESTORÍA (pero ya no bloquea): Verifactu
 
 El **RD 1007/2023** obliga a que los sistemas de facturación encadenen los registros por hash, no permitan borrado, lleven registro de eventos y pongan un QR en la factura. **Las fechas de entrada en vigor se han movido varias veces y no se dan por sabidas aquí**: hay que preguntarlo.
 
