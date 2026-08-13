@@ -18,6 +18,7 @@ export type StaffModulo =
   | "dashboard"
   | "compras"
   | "clientes"
+  | "contabilidad"
   | "gestion_humana"
   | "ti";
 
@@ -28,6 +29,7 @@ export const STAFF_MODULOS: readonly StaffModulo[] = [
   "dashboard",
   "compras",
   "clientes",
+  "contabilidad",
   "gestion_humana",
   "ti",
 ];
@@ -1157,9 +1159,121 @@ export interface FacturaCompra {
   total_iva: number | null;
   /** Base + IVA (null en compras antiguas) */
   total_con_iva: number | null;
+  /**
+   * Fecha de EXPEDICIÓN de la factura del proveedor (`YYYY-MM-DD`), el dato que
+   * exige el libro registro de facturas recibidas. `null` en las compras
+   * anteriores a la migración 068 — se completa desde la ficha.
+   *
+   * ⚠️ NO decide el trimestre en que se deduce el IVA: eso lo hace `created_at`,
+   * la fecha en que la factura se anotó. Ver la 068.
+   */
+  fecha_factura: string | null;
   creado_por: string | null;
   created_at: string;
   items?: FacturaCompraItem[];
+}
+
+// ============================================================
+// Contabilidad — liquidación del IVA (modelo 303)
+// ============================================================
+
+/** Base imponible y cuota de un tipo de IVA, y cuántos documentos la componen. */
+export interface LiquidacionIvaTramo {
+  /** 4, 10 o 21 */
+  iva_pct: number;
+  base: number;
+  cuota: number;
+  /**
+   * Cuántos documentos suman este tramo: pedidos en el devengado, reembolsos en
+   * el rectificado, facturas en el deducible. Se muestra al lado del importe
+   * porque una cifra sin saber de cuántas operaciones sale no dice gran cosa.
+   */
+  documentos: number;
+}
+
+/**
+ * Cada aviso es algo que el informe NO está contando, o que cuenta con una
+ * salvedad. Se muestran arriba y no al final: son la mitad del valor del
+ * informe. Ver el apartado 6 de la migración 068.
+ */
+export interface LiquidacionIvaAviso {
+  /** Identificador estable del aviso; la pantalla decide el icono con esto */
+  clase: string;
+  gravedad: "aviso" | "grave";
+  titulo: string;
+  detalle: string;
+  /** Cuántos elementos afecta (0 en los avisos que no cuentan nada) */
+  cuantos: number;
+  /** Números de factura o de pedido implicados, para poder ir a mirarlos */
+  referencias: string[];
+}
+
+export interface LiquidacionIvaTotales {
+  devengado_base: number;
+  devengado_cuota: number;
+  /** Lo devuelto en el periodo: se RESTA del devengado */
+  rectificado_base: number;
+  rectificado_cuota: number;
+  /** Devengado − rectificado: lo repercutido de verdad */
+  repercutido_base: number;
+  repercutido_cuota: number;
+  deducible_base: number;
+  deducible_cuota: number;
+  /** Positivo = a ingresar. Negativo = a compensar en el periodo siguiente */
+  resultado: number;
+}
+
+/**
+ * El rango de un trimestre natural, en `YYYY-MM-DD` y ambos extremos inclusive.
+ *
+ * Vive aquí y no en la pantalla porque lo usan los dos lados y porque es lo
+ * único de todo esto que se puede probar sin base de datos. Y son fechas de
+ * CALENDARIO, sin hora: la conversión a instantes la hace `dia_fiscal` en la
+ * base, con la zona de España. Construir aquí un `Date` y serializarlo metería
+ * la zona del navegador de quien mira el informe, que no tiene nada que ver.
+ */
+export function rangoTrimestre(anio: number, trimestre: number): { desde: string; hasta: string } {
+  if (!Number.isInteger(trimestre) || trimestre < 1 || trimestre > 4) {
+    throw new Error(`Trimestre inválido: ${trimestre}`);
+  }
+  const mesInicio = (trimestre - 1) * 3 + 1;
+  const mesFin = mesInicio + 2;
+  // El último día del trimestre: 31 de marzo, 30 de junio, 30 de septiembre y
+  // 31 de diciembre. Ninguno es febrero, así que no hay año bisiesto que mirar.
+  const ultimoDia = mesFin === 3 || mesFin === 12 ? 31 : 30;
+  const dd = (n: number) => String(n).padStart(2, "0");
+  return {
+    desde: `${anio}-${dd(mesInicio)}-01`,
+    hasta: `${anio}-${dd(mesFin)}-${ultimoDia}`,
+  };
+}
+
+/** A qué trimestre natural (1-4) pertenece un mes 1-12. */
+export function trimestreDeMes(mes: number): number {
+  return Math.floor((mes - 1) / 3) + 1;
+}
+
+export interface LiquidacionIva {
+  /** `YYYY-MM-DD`, ambos inclusive */
+  desde: string;
+  hasta: string;
+  /**
+   * La zona con la que se decide a qué día pertenece cada operación. Siempre
+   * `Europe/Madrid`, y se devuelve para que la pantalla lo pueda decir: una
+   * venta de las 00:30 del día 1 caería en el trimestre anterior si se
+   * comparara en UTC.
+   */
+  zona: string;
+  /** `null` = la tienda sigue en modo pruebas y nada de esto se presenta */
+  arranque_fiscal_el: string | null;
+  /** IVA repercutido en las ventas del periodo, por tipo */
+  devengado: LiquidacionIvaTramo[];
+  /** IVA de las devoluciones del periodo, por tipo */
+  rectificado: LiquidacionIvaTramo[];
+  /** IVA soportado en las compras anotadas en el periodo, por tipo */
+  deducible: LiquidacionIvaTramo[];
+  totales: LiquidacionIvaTotales;
+  avisos: LiquidacionIvaAviso[];
 }
 
 export interface ReservaCheckout {

@@ -7,8 +7,9 @@ import { toast } from "sonner";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { formatEUR } from "@lib/utils";
-import { ShoppingBag, FileText } from "lucide-react";
+import { ShoppingBag, FileText, CalendarDays } from "lucide-react";
 import { PageHeader } from "@components/backoffice/PageHeader";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import type { FacturaCompra } from "@valatino/types";
 
 /** Costo unitario con hasta 4 decimales (los importes totales siguen a 2) */
@@ -20,11 +21,38 @@ const formatCosto = (v: number) =>
     maximumFractionDigits: 4,
   }).format(v);
 
+/**
+ * Una fecha `YYYY-MM-DD` a `DD/MM/AAAA`, partiendo la cadena.
+ *
+ * ⚠️ Sin pasar por `Date`: `new Date("2026-08-01")` se interpreta como UTC
+ * medianoche y en España se imprimiría como el 31 de julio. Es un día menos en
+ * un dato que va a un libro oficial.
+ */
+function formatearFechaISO(iso: string): string {
+  const [anio, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${anio}`;
+}
+
+/** Hoy en España, para topar el selector. Ver el mismo helper en /compras/nueva. */
+function hoyEnEspana(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export default function CompraDetallePage() {
   const { id } = useParams<{ id: string }>();
+  const puedeEditar = usePuede("compras", "edicion");
+
   const [compra, setCompra] = useState<FacturaCompra | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [abriendoPdf, setAbriendoPdf] = useState(false);
+  const [editandoFecha, setEditandoFecha] = useState(false);
+  const [fechaBorrador, setFechaBorrador] = useState("");
+  const [guardandoFecha, setGuardandoFecha] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -47,6 +75,25 @@ export default function CompraDetallePage() {
       toast.error(err instanceof ApiError ? err.message : "No se pudo abrir el PDF");
     }
     setAbriendoPdf(false);
+  };
+
+  const guardarFecha = async () => {
+    if (!fechaBorrador) return;
+    setGuardandoFecha(true);
+    try {
+      await apiFetch<void>(`/admin/compras/${id}/fecha-factura`, {
+        method: "PATCH",
+        body: JSON.stringify({ fechaFactura: fechaBorrador }),
+      });
+      // Se refresca desde la API en vez de parchear el estado a mano: así lo que
+      // se ve es lo que quedó guardado, no lo que se envió.
+      setCompra(await apiFetch<FacturaCompra>(`/admin/compras/${id}`));
+      setEditandoFecha(false);
+      toast.success("Fecha de la factura guardada");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo guardar la fecha");
+    }
+    setGuardandoFecha(false);
   };
 
   if (isLoading) {
@@ -93,6 +140,74 @@ export default function CompraDetallePage() {
           {abriendoPdf ? "Abriendo…" : "Ver factura"}
         </Button>
       </PageHeader>
+
+      {/* La fecha de expedición va en su propia tarjeta y no en la rejilla de
+          abajo: es lo ÚNICO editable de una factura registrada (el número es
+          único, el total sale de las líneas y las líneas movieron stock), y
+          mezclarla con los datos de solo lectura no lo diría. */}
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" />
+              Fecha de la factura
+            </p>
+            {compra.fecha_factura ? (
+              <p className="mt-1 font-medium">{formatearFechaISO(compra.fecha_factura)}</p>
+            ) : (
+              <p className="mt-1 text-sm font-medium text-amber-700">
+                Sin fecha — cógela del PDF
+              </p>
+            )}
+            <p className="mt-1.5 max-w-prose text-xs text-muted-foreground">
+              La que puso el proveedor. Es un dato obligatorio del libro de facturas recibidas y{" "}
+              <strong>no</strong> decide en qué trimestre se deduce el IVA: eso lo hace la fecha de
+              registro.
+            </p>
+          </div>
+
+          {/* Lo que no se puede hacer, no se pinta. */}
+          {puedeEditar &&
+            (editandoFecha ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={fechaBorrador}
+                  onChange={(e) => setFechaBorrador(e.target.value)}
+                  max={hoyEnEspana()}
+                  className="h-9 rounded-lg border bg-background px-3 text-sm"
+                  aria-label="Fecha de la factura"
+                />
+                <Button
+                  onClick={() => void guardarFecha()}
+                  disabled={!fechaBorrador || guardandoFecha}
+                  size="sm"
+                >
+                  {guardandoFecha ? "Guardando…" : "Guardar"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditandoFecha(false)}
+                  disabled={guardandoFecha}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFechaBorrador(compra.fecha_factura ?? "");
+                  setEditandoFecha(true);
+                }}
+              >
+                {compra.fecha_factura ? "Corregir" : "Poner fecha"}
+              </Button>
+            ))}
+        </div>
+      </div>
 
       <div className="rounded-xl border bg-card p-6 grid gap-4 sm:grid-cols-4 text-sm">
         <div>

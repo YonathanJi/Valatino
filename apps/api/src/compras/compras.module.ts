@@ -4,9 +4,13 @@ import { ComprasService } from "./compras.service";
 import { ProveedoresController } from "./proveedores.controller";
 import { ProveedoresService } from "./proveedores.service";
 import { AuthModule } from "../auth/auth.module";
+import { ContabilidadModule } from "../contabilidad/contabilidad.module";
 
 @Module({
-  imports: [AuthModule],
+  // ContabilidadModule por la corrección de la fecha de expedición: la acción se
+  // hace desde la ficha de la compra (con su permiso) pero el dato existe para
+  // la contabilidad, y su validación vive con la RPC que lo escribe.
+  imports: [AuthModule, ContabilidadModule],
   controllers: [ComprasController, ProveedoresController],
   providers: [ComprasService, ProveedoresService],
 })

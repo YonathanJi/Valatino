@@ -13,6 +13,7 @@ import { InventarioModule } from "./inventario/inventario.module";
 import { EmailModule } from "./email/email.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { ComprasModule } from "./compras/compras.module";
+import { ContabilidadModule } from "./contabilidad/contabilidad.module";
 import { ClientesModule } from "./clientes/clientes.module";
 import { GestionHumanaModule } from "./gestion-humana/gestion-humana.module";
 import { TiModule } from "./ti/ti.module";
@@ -47,6 +48,7 @@ const WEBHOOKS = [
     EmailModule,
     DashboardModule,
     ComprasModule,
+    ContabilidadModule,
     ClientesModule,
     GestionHumanaModule,
     TiModule,

@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-12
+**Última actualización**: 2026-08-13
 
 ---
 
@@ -50,17 +50,40 @@
 
 ### 🔜 Al volver, empezar por aquí
 
-## ⭐⭐ PRÓXIMA SESIÓN: contabilidad, Capa 2 — facturación a clientes y liquidación del IVA
+## ⚠️ EL PUSH DE LA 068: UN SOLO PUSH, Y LO ÚNICO QUE NO SE TOCA DURANTE ~10 MINUTOS
 
-Lo acordado con Jonathan el 2026-08-12. **Las capas 0 y 1 están hechas y desplegadas** (el dato: `productos.iva_pct`, el snapshot en `pedido_items` y el desglose por tipo en `pedido_iva`), así que el IVA de cada venta ya es calculable y está cuadrado al céntimo. Lo que falta:
+**La 068 ya está aplicada al remoto. El código está commiteado y SIN PUSHEAR** (commit `feat(contabilidad): la liquidación del IVA…`).
+
+El cambio hace que **la API sea más estricta** (el DTO de compras exige ahora `fechaFactura`) **y** que la web mande un campo nuevo. Con `forbidNonWhitelisted: true` en el `ValidationPipe`, **los dos sentidos rompen durante la ventana de despliegue**:
+
+| Estado transitorio | Qué pasa |
+|---|---|
+| Web nueva + API vieja (lo que ocurre: Vercel llega antes) | La web manda `fechaFactura`, el DTO viejo no lo conoce → **400 «property fechaFactura should not exist»** |
+| Web vieja + API nueva | La web no lo manda, el DTO nuevo lo exige → **400** |
+
+Por la tabla de órdenes de más abajo esto es el caso «la API acepta un campo más», cuyo libro dice **dos pushes, API primero**. **Se ha decidido hacer UN push, a conciencia**, y el motivo es que la regla de los dos pushes existe por los **pagos**, donde un 400 es una venta perdida. Aquí no:
+
+- **Afecta a UNA pantalla**: «Compras → Registrar compra». El resto de la tienda —catálogo, carrito, los cuatro medios de pago, el panel— no se entera de nada.
+- Es una operación **manual, rara (unas veces al mes) y que la hace una persona que está mirando**. Falla con un error visible en pantalla y **se reintenta pulsando otra vez** cuando Render acaba. No se pierde dinero ni un pedido.
+- La alternativa de dos pushes obliga a dejar `fechaFactura` como `@IsOptional()` en el primero, y eso **crea un estado intermedio que alguien tiene que acordarse de apretar después**. Un `@IsOptional()` temporal que se queda es justo el tipo de deuda que no se ve.
+
+⚠️ **Así que la única precaución es: NO registrar una compra hasta que Render marque el deploy como terminado** (~5-10 min). Que es lo natural de todas formas, porque lo primero que se va a querer hacer es probar el formulario nuevo.
+
+## ⭐⭐ HECHO EL 2026-08-13: la liquidación del IVA (modelo 303) — migración 068
+
+**El 303 ya se calcula y tiene pantalla propia** (Contabilidad → Liquidación de IVA). Ver la sesión 2026-08-13 más abajo para las cuatro cosas que había que arreglar antes, que no se veían.
+
+**Lo que queda de la Capa 2:**
 
 1. **Facturas a clientes** — tabla propia, **serie y numeración correlativa SIN HUECOS**, inmutable, con snapshot de todo (emisor, cliente, líneas, base y cuota por tipo).
    - ⚠️ **Una secuencia de Postgres NO sirve**: no retrocede al abortar una transacción y deja huecos. Hace falta un contador con `for update` en la misma transacción, la disciplina de bloqueo de la 056.
    - Una factura emitida **no se edita ni se borra jamás**. Corregir = emitir una **rectificativa**, así que el flujo de reembolsos por artículos (044) tiene que empezar a generar una.
    - **Decidido: simplificada por defecto** (el ticket, permitido en venta a consumidor por debajo de 400 €, sin NIF ni dirección), con un «quiero factura con mis datos» que emita la completa. Encaja con que `documento_cliente` sea hoy opcional.
-2. **Liquidación del IVA (modelo 303)** — el libro de **facturas recibidas ya existe** (compras, desde la 029) y el de **expedidas** sale del punto 1. La pantalla es un informe por rango de fechas: devengado por tipo, deducible por tipo, y la diferencia.
+   - ⭐ **Ya tiene casa y ya tiene la mitad del dato**: el módulo `contabilidad` existe, y `pedidos.devengado_el` es la fecha que la factura llevará impresa.
+   - ⚠️ **Y mientras no exista, el informe lo dice en un aviso**: un 303 se soporta con el libro de facturas expedidas, y hoy se liquida desde los pedidos. Mismo IVA, mismos importes, pero quien firme tiene que saberlo.
+2. ~~**Liquidación del IVA (modelo 303)**~~ → **hecha** (068). Informe por rango de fechas con devengado, rectificado por devoluciones, deducible y la diferencia, más los avisos de lo que NO está contando.
 
-### ⚠️⚠️ LO ÚNICO QUE BLOQUEA: confirmar Verifactu con la gestoría
+### ⚠️⚠️ SIGUE BLOQUEANDO LAS FACTURAS A CLIENTES: confirmar Verifactu con la gestoría
 
 El **RD 1007/2023** obliga a que los sistemas de facturación encadenen los registros por hash, no permitan borrado, lleven registro de eventos y pongan un QR en la factura. **Las fechas de entrada en vigor se han movido varias veces y no se dan por sabidas aquí**: hay que preguntarlo.
 
@@ -69,6 +92,12 @@ Importa **antes** de escribir la tabla, no después: encadenar por hash desde el
 **Y el terreno ya está preparado**: el **arranque fiscal** (064) existe, así que la tabla de facturas nace sabiendo que hay un antes y un después. ⚠️ Cuando exista, la limpieza tendrá que borrar facturas **solo en modo pruebas** — tras el arranque ya se niega entera.
 
 ### 🔜 Lo demás, al volver
+
+⚠️⚠️ **Pendiente de Jonathan, y el informe lo pide en pantalla: la FECHA de las dos facturas de compra.** `202521188` y `202521893` no la tienen —no existía la columna cuando se registraron— y es un dato obligatorio del libro registro de facturas recibidas. **Se coge del PDF** (está en el bucket, botón «Ver factura») y se pone en Compras → la factura → «Poner fecha».
+- ⚠️ **NO se han rellenado a dedo con `created_at`, y es deliberado**: sería inventar una fecha que va a un libro oficial, y lo peor de un dato inventado es que parece puesto. Es la lección textual de la 062 con `iva_pct`.
+- Su IVA **sí se está deduciendo** mientras tanto: el trimestre lo decide la fecha de registro, no esta. Lo que falta es el dato del libro.
+
+⚠️ **Y una migración 069 pendiente, de una línea**: cuando el despliegue esté hecho y comprobado que la fecha llega siempre, poner `facturas_compra.fecha_factura` a **NOT NULL** y exigirla en `registrar_factura_compra`. Hoy la base la acepta nula a propósito, solo para no romper la API desplegada durante la ventana (ver el apartado 3 de la 068). **Antes hay que rellenar las dos de arriba**, o el `set not null` no entra.
 
 ⚠️ **Pendiente pequeño de Jonathan**: si la caja de **Quipitos Pops Caja 24** existe de verdad en el almacén, meterla desde Inventario con un ajuste de tipo **«recuento»**. Se quedó a 0 en la limpieza del 12/08 por ser la unidad fantasma sin apunte; ahora sí quedaría registrada.
 
@@ -135,7 +164,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
@@ -196,7 +225,125 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Una sola cuenta**: el súper admin `jonathanduqee+admin@gmail.com` (perfil «Admin Valatino»). Gestión Humana y TI arrancan vacíos; para volver a probar el flujo de asesor hay que rehacerlo (RRHH crea empleado → TI le provisiona cuenta). **Cualquier cliente que entre a partir de ahora es tráfico nuevo.**
   - ⚠️ Las cuentas de prueba **EMP-0018 Jhoanna Mendoza** (DIRCOM) y **EMP-0019 Valentino Jiménez** (ASECOM) **ya no existen**. Sirvieron para validar de punta a punta el flujo RRHH → TI y los niveles de permiso; si este archivo las menciona en las sesiones de abajo, es historia, no estado.
 - **Los 6 cargos ya tienen plantilla de permisos** (sembrada en la 038, editable desde TI → Cargos sin tocar código): GER todo `total` salvo `ti: lectura` · DIRCOM pedidos y clientes `total` · DIROP inventario y compras `total` · DIRADM dashboard y compras `total`, pedidos y clientes `lectura` · COORTH `gestion_humana: total` · ASECOM pedidos `edicion`, clientes y catálogo `lectura`. Son **datos**, no doctrina: ajústalos el primer día. (Jhoanna tiene los suyos retocados a mano respecto a la plantilla, que es justo para lo que está.)
-- Pendientes de fondo: ~~tests (0%)~~ → **632 tests: 349 en la API y 283 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+- Pendientes de fondo: ~~tests (0%)~~ → **659 tests: 368 en la API y 291 en la web** (`pnpm turbo test` cubre los dos). ~~la web sigue sin tests~~ → **la web ya tiene runner** (`apps/web/jest.config.js`), sobre lógica pura de `lib/` y sobre los datos generados de municipios; **los componentes siguen sin cubrir** (haría falta `jsdom` + `@testing-library/react`). ~~CI~~ → **montado el 2026-08-11** (`.github/workflows/ci.yml`). Accesibilidad. ~~Validar los campos de dirección~~ → **hecho el 2026-07-27** (migración 041 + diccionario del INE). El histórico de direcciones para analítica vive en `pedidos.envio_*` (snapshot por pedido), no en `direcciones_envio`, y desde la 040 incluye `envio_telefono`.
+
+---
+
+## Sesión 2026-08-13 — ⭐⭐ La liquidación del IVA (068), y los cuatro agujeros que no se veían
+
+El plan era «una pantalla que resta»: la 062 dejó el IVA de cada venta cuadrado al céntimo y la 029 el soportado de las compras, así que parecía que el 303 era juntar las dos mitades.
+
+**No lo era.** Antes de escribir una línea de la resta se comprobó contra el remoto qué había a cada lado, y salieron cuatro cosas. Ninguna se ve leyendo `pedido_iva`; todas se ven mirando de dónde sale cada número.
+
+### Los cuatro agujeros
+
+| # | Qué faltaba | Por qué rompe el 303 |
+|---|---|---|
+| **1** | `pedido_iva` existe para **TODOS** los pedidos con líneas, incluidos `PENDIENTE_PAGO` y `CANCELADO` | Declararía IVA de ventas que no han ocurrido. Una transferencia sin pagar no ha devengado nada |
+| **2** | No había **fecha de devengo**, solo `created_at` | En tarjeta y Bizum el pedido nace pagado y coincide. En **transferencia** nace pendiente y se cobra días después: el pedido cae en un trimestre y el cobro en el siguiente |
+| **3** | `reembolsar_pedido_total` **no apuntaba líneas** en `reembolso_lineas` | Un reembolso hecho en el panel de Stripe llega por el webhook `charge.refunded`, devuelve el dinero y no deja rastro de **qué artículos**. Sin artículo no hay tipo de IVA, y sin tipo no hay nada que rectificar |
+| **4** | `facturas_compra` no tenía **fecha de la factura**, solo la de registro | El libro registro de facturas recibidas exige la fecha de expedición del proveedor |
+
+Y una **anomalía de negocio** que el informe ahora señala en vez de esconder: `PROCESANDO → CANCELADO` está permitido y **no devuelve el dinero**, así que deja IVA devengado sobre una venta cancelada sin rectificativa. No se ha cambiado la máquina de estados —es una decisión de negocio, no un bug— pero deja de ser invisible.
+
+### ⚠️⚠️ El fallo más fácil de toda la migración, y no está en el dato: LA ZONA HORARIA
+
+Las fechas se guardan en `timestamptz` y la sesión de Supabase va en **UTC**. Comparar un `timestamptz` con una fecha suelta usa la zona de la sesión, así que una venta del **1 de abril a las 00:30 de Madrid** son las **22:30 UTC del 31 de marzo**: caería en el **primer** trimestre en vez del segundo.
+
+Y lo peor es cómo se comporta: el 31 de marzo a las 23:30 de Madrid **sí** cae bien, así que el error solo aparece en las ventas de las **primeras horas del primer día del trimestre**. Es decir, no se nota nunca hasta que se nota — y entonces ya está presentado.
+
+Por eso existe **`dia_fiscal(timestamptz)`**, que convierte a `Europe/Madrid` explícitamente, y **todas** las consultas del informe pasan por ella. Hay un test que lo fija: `dia_fiscal('2026-03-31 22:30:00+00')` tiene que dar `2026-04-01`.
+
+### ⚠️⚠️ Y el peor riesgo del cambio: tocar `reembolsar_pedido_total`, que es la ruta del dinero
+
+Se decidió cerrar el agujero 3 **en la fuente** y no solo avisar en el informe, por lo que dijo la 063 del libro de stock: *«un libro con huecos es peor que no tenerlo, porque parece completo»*. Y no se puede arreglar después: si el dinero salió sin dejar dicho qué volvió, el tipo de IVA de esa devolución no está en ninguna parte.
+
+**La trampa, que es sutil y estuvo a punto de colarse:** las unidades a reponer se calculan restando lo que ya figura en `reembolso_lineas`. Si se insertan las líneas **antes** de reponer, la consulta de reposición las ve como «ya devueltas» y **no repone nada** — un reembolso que devuelve el dinero y no devuelve el stock. Y al revés (reponer y luego insertar consultando otra vez la tabla) tampoco: son dos lecturas que pueden diferir. La única forma correcta es calcular el conjunto **una vez** y usar el mismo para las dos cosas, que es el CTE `pendiente_por_item`.
+
+**Se probó en transacción revertida contra el remoto antes de aplicar, y ahí se vio: sin el CTE el stock subía 0 en vez de 5.** Es exactamente la lección de la madrugada del 12/08 — con el stock de por medio, la prueba en seco no es opcional.
+
+### El ensayo, que es lo que dio confianza para aplicar
+
+Once comprobaciones (A a K) en una sola transacción revertida, con los datos reales del remoto y dos pedidos de ensayo construidos con **dos líneas del mismo producto** (que es la trampa del `update … from`):
+
+| | Prueba | Resultado |
+|---|---|---|
+| A | El dominio acepta `contabilidad` y rechaza un módulo inventado | ✅ |
+| B | El devengo del pedido real sale del evento `PROCESANDO` del historial, al microsegundo | ✅ |
+| C | Un `update … set devengado_el = null` **no** lo borra | ✅ |
+| D | Un pedido nacido `PROCESANDO` devenga en el acto, y su desglose suma el total | ✅ |
+| **E** | **`reembolsar_pedido_total`: el stock sube 5, y las 2 líneas quedan apuntadas con su importe** | ✅ **la trampa** |
+| F | Un segundo reembolso devuelve `false`, no repone dos veces y no duplica líneas | ✅ |
+| **G** | **Parcial por artículos + cierre total: el stock sube 4 (+1, +0, +3) y las 5 unidades quedan apuntadas** | ✅ **la doble reposición** |
+| H | Solo queda **una** versión de cada función (las firmas viejas, muertas) | ✅ |
+| I | La API **ya desplegada** (6 argumentos con nombre) sigue entrando por el `default` → **sin ventana** | ✅ |
+| J | La liquidación: devengado = 10,10 € (los 3 pedidos cobrados), el resultado es la resta, los avisos que tocan y **no** los que no | ✅ |
+| K | `dia_fiscal` convierte a hora española | ✅ |
+
+Y al revertir se comprobó que el stock volvía a 120 exacto, 1 pedido, 1 línea, 2 compras.
+
+### Lo que se aplicó
+
+- **`pedidos.devengado_el`** — la fecha fiscal de la venta. **Escritura única**: si un pedido entregado se reabriera, mover el devengo lo pasaría a otro trimestre y descuadraría un 303 **ya presentado**. El guardia va contra `OLD`, no contra `NEW`. Relleno desde `pedido_eventos` (la 039 registra también el alta, así que el pedido nacido `PROCESANDO` tiene su evento).
+- **`facturas_compra.fecha_factura`** — la de expedición del proveedor. ⚠️ **Son dos fechas distintas y hacen falta las dos**: esta la exige el libro registro, y el trimestre en que se deduce lo decide **`created_at`** (cuándo se anotó). Una factura de diciembre que llega y se anota en enero se deduce en enero; usar la de expedición reabriría trimestres ya presentados cada vez que llega una con retraso. **Hay que confirmárselo a la gestoría**, que es quien presenta.
+- **`reembolsar_pedido_total`** apunta lo que repone, con el `refund_id` de Stripe cuando se conoce. Y `registrar_reembolso_lineas` se lo pasa, así que **un parcial y su cierre salen como UN documento rectificativo**, no como dos — que es lo correcto: un reembolso, una rectificativa.
+- **Módulo `contabilidad`** con `lectura` sembrado en **DIRADM** y **GER**. Vive aparte de Compras y del Dashboard porque el 303 cruza ventas **y** compras (ninguno es su dueño) y porque quien lo presenta no es quien registra facturas de proveedor. Es además la casa de las facturas a clientes.
+  - ⭐ **Y de paso, el CHECK de `modulo` deja de estar copiado.** Estaba en `staff_modulos` **y** en `cargo_modulos` y llevaba **cinco** reescrituras (023, 030, 032, 036 y esta). Ahora es el dominio **`staff_modulo`**: añadir un módulo = tocar un sitio. La 038 ya había diagnosticado el problema —creó el dominio `nivel_permiso` justo por eso— pero dejó `modulo` como estaba.
+- **`liquidacion_iva(desde, hasta)`** — devengado por tipo, rectificado por devoluciones, deducible de compras, la diferencia y **los avisos**.
+
+### ⚠️ NO se creó ningún libro de IVA nuevo, y es deliberado
+
+Las tres fuentes —`pedido_iva`, `reembolso_lineas` y `factura_compra_items`— ya son la verdad de sus hechos. Una cuarta tabla que las copie es un segundo sitio que puede divergir del primero: exactamente lo que la 063 se negó a hacer con el libro de movimientos de stock. **El informe se calcula, no se acumula.**
+
+### ⚠️ La regla de redondeo, un nivel por encima de la 062
+
+**La base del periodo es la SUMA DE LAS BASES DE LOS DOCUMENTOS**, no una base derivada del bruto del periodo. Cada factura declara su propia base y su propia cuota; el 303 suma documentos. Derivar del bruto agregado daría otra base —unos céntimos— que no cuadraría con la suma de las facturas, que es justo lo que comprueba un inspector.
+
+Por eso `pedido_iva` se **suma tal cual** (ya viene redondeado por pedido y por tipo) y las devoluciones se agrupan por **(reembolso, tipo)** antes de derivar. En el ensayo se vio la consecuencia: el rectificado dio 4 documentos y no 5, porque un parcial y su cierre son el mismo reembolso.
+
+Y en las compras la cuota se **multiplica** en vez de derivarse: los costes de la 029 son **sin** IVA, al contrario que los precios de venta, que lo llevan incluido.
+
+### ⚠️⚠️ Los avisos NO son decoración: son la mitad del valor del informe
+
+Un importe solo sirve si se sabe qué **no** está contando, y van arriba, antes de los números. Los siete:
+
+| Aviso | Qué dice |
+|---|---|
+| `sin_facturas_emitidas` | **El de fondo**: hoy se liquida desde los pedidos, y un 303 se soporta con el libro de facturas expedidas (Capa 2). Mismo IVA, mismos importes, pero quien firme tiene que saberlo |
+| `sin_arranque_fiscal` | La tienda sigue en pruebas: estas ventas pueden borrarse y nada de esto se presenta |
+| `periodo_antes_del_arranque` | El periodo empieza antes del arranque fiscal |
+| `compra_sin_fecha_factura` | Falta la fecha de expedición. Su IVA **sí** se deduce; lo que falta es el dato del libro |
+| `compra_sin_iva_por_linea` | Líneas anteriores a la 029: **ese IVA soportado no se está deduciendo**, así que el resultado sale más alto de lo que debería. Este vale dinero de verdad |
+| `compra_descuadre_por_tipo` | La 029 redondeó el IVA una vez sobre la factura entera; el informe lo redondea por tipo. Con varios tipos pueden diferir en céntimos |
+| `cancelado_ya_cobrado_sin_devolucion` | Ventas canceladas después de cobrar y sin devolución: IVA declarado sin rectificativa |
+| `devolucion_reconstruida` | Devoluciones cuyo desglose se **dedujo** (refund_id `retro:…`), no se presenció |
+
+⚠️ Y un detalle que importa: los apuntes reconstruidos se marcan con `retro:<pedido>` y **no** con `total:<pedido>`. Un apunte reconstruido no debe parecer un apunte original.
+
+### Lo que salió del remoto al aplicarlo
+
+**3T de 2026**: devengado 4,64 € + 0,46 € de cuota · rectificado lo mismo (el único pedido está reembolsado, así que **repercutido 0**) · deducible 184,32 € + 25,10 € en tres tipos (4 %, 10 % y 21 %) → **−25,10 €, a compensar**. Con las dos facturas de compra señaladas por falta de fecha, y **sin** descuadre contra el `total_iva` que guardó la 029.
+
+### Un test que fallaba sin que nada estuviera roto
+
+`permisos.dto.spec.ts` usaba literalmente **`"contabilidad"`** como ejemplo de «módulo inventado». El día que el módulo existió de verdad, el test empezó a fallar. Ahora usa `__inventado__`: **un centinela que nadie va a dar de alta**, para que el test compruebe lo que dice comprobar. Vale como regla para el resto.
+
+### Y un fallo mío que el test destapó, que es el que más me gusta de la sesión
+
+La validación del periodo comprobaba las fechas con `Date.parse("2026-02-31T00:00:00Z")` dando por hecho que devolvería `NaN`. **No lo devuelve**: V8 **rueda** el día al 3 de marzo y contesta un número perfectamente válido. Así que un periodo mal teclado se aceptaba en silencio y el informe salía de **otras fechas** — un 303 de un trimestre que nadie pidió, sin ningún aviso.
+
+Lo único que sirve es el **viaje de ida y vuelta**: construir la fecha y comprobar que sus componentes son los que se pasaron. Está en `mediaNocheUtc` con seis casos de test (incluido el 29 de febrero de un año que no es bisiesto).
+
+### Verificado antes de cerrar
+
+- `pnpm turbo type-check` limpio · **659 tests en verde** (368 API + 291 web, +27)
+- La API **arranca de verdad** con `node dist/main`: `ContabilidadModule` inicializado y las dos rutas mapeadas (`GET /admin/contabilidad/iva`, `PATCH /admin/compras/:id/fecha-factura`)
+- El endpoint contesta **401 sin token** — el guard corre antes de la validación, que es el orden correcto
+- Fichero de migración local **sincronizado con lo aplicado** al remoto
+
+### 🔜 Lo que NO está probado en pantalla
+
+**Nada de esta sesión lo ha visto un navegador todavía.** El cálculo está verificado contra datos reales por SQL y la API arranca y mapea, pero la pantalla de Contabilidad, el campo de fecha del formulario de compras y el «Poner fecha» de la ficha están sin pulsar. Y antes hay que decidir el orden del push (arriba).
 
 ---
 

@@ -32,6 +32,12 @@ export class ComprasService {
   async crear(params: {
     pdf: Buffer;
     numeroFactura: string;
+    /**
+     * Fecha de expedición de la factura del proveedor (`YYYY-MM-DD`). Opcional en
+     * la firma solo porque las compras registradas antes de la migración 068 no
+     * la tienen; el formulario la exige y el DTO la valida.
+     */
+    fechaFactura?: string;
     proveedorId?: string;
     notas?: string;
     items: CompraItemInput[];
@@ -70,6 +76,7 @@ export class ComprasService {
         p_proveedor_id: params.proveedorId ?? null,
         p_notas: params.notas ?? null,
         p_creado_por: params.creadoPor,
+        p_fecha_factura: params.fechaFactura ?? null,
       },
     );
 
@@ -105,7 +112,7 @@ export class ComprasService {
     const { data, count, error } = await this.supabase
       .from("facturas_compra")
       .select(
-        "id, numero_factura, proveedor, proveedor_id, notas, pdf_path, total_unidades, total, total_iva, total_con_iva, creado_por, created_at",
+        "id, numero_factura, proveedor, proveedor_id, notas, pdf_path, total_unidades, total, total_iva, total_con_iva, fecha_factura, creado_por, created_at",
         { count: "exact" },
       )
       .order("created_at", { ascending: false })
@@ -129,7 +136,7 @@ export class ComprasService {
       .from("facturas_compra")
       .select(
         `
-        id, numero_factura, proveedor, proveedor_id, notas, pdf_path, total_unidades, total, total_iva, total_con_iva, creado_por, created_at,
+        id, numero_factura, proveedor, proveedor_id, notas, pdf_path, total_unidades, total, total_iva, total_con_iva, fecha_factura, creado_por, created_at,
         items:factura_compra_items ( id, factura_id, producto_id, nombre_producto, cantidad, costo_unitario, iva_pct )
       `,
       )

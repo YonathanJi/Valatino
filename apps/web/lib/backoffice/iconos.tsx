@@ -1,6 +1,7 @@
 import {
   Boxes,
   Briefcase,
+  Calculator,
   Cpu,
   LayoutDashboard,
   Settings,
@@ -24,6 +25,7 @@ export const MODULO_LABELS: Record<StaffModulo, string> = {
   inventario: "Inventario",
   compras: "Compras",
   clientes: "Clientes",
+  contabilidad: "Contabilidad",
   gestion_humana: "Gestión Humana",
   ti: "TI",
 };
@@ -36,6 +38,7 @@ export const MODULO_ICONOS: Record<StaffModulo, LucideIcon> = {
   inventario: Boxes,
   compras: ShoppingBag,
   clientes: UsersRound,
+  contabilidad: Calculator,
   gestion_humana: Briefcase,
   ti: Cpu,
 };
@@ -62,6 +65,7 @@ export const NAV_ICONOS: Record<string, LucideIcon> = {
   compras: ShoppingBag,
   proveedores: Truck,
   clientes: UsersRound,
+  contabilidad: Calculator,
   usuarios: Users,
   cargos: ShieldCheck,
   ajustes: Settings,

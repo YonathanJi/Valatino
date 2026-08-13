@@ -38,9 +38,15 @@ describe("array de permisos", () => {
     ).rejects.toThrow();
   });
 
+  /**
+   * ⚠️ El valor inventado NO puede ser un nombre plausible de módulo. Aquí
+   * decía «contabilidad», y el día que ese módulo existió de verdad (migración
+   * 068) el test empezó a fallar sin que nada estuviera roto. Con un centinela
+   * que nadie va a dar de alta, el test comprueba lo que dice comprobar.
+   */
   it("rechaza un módulo inventado", async () => {
     await expect(
-      validar({ permisos: [{ modulo: "contabilidad", nivel: "lectura" }] }, UpdateModulosDto),
+      validar({ permisos: [{ modulo: "__inventado__", nivel: "lectura" }] }, UpdateModulosDto),
     ).rejects.toThrow();
   });
 

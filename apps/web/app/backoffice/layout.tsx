@@ -27,6 +27,12 @@ const NAV_ITEMS: {
   },
   { modulo: "clientes", href: "/backoffice/clientes", label: "Clientes", iconKey: "clientes" },
   {
+    modulo: "contabilidad",
+    href: "/backoffice/contabilidad",
+    label: "Contabilidad",
+    iconKey: "contabilidad",
+  },
+  {
     modulo: "gestion_humana",
     href: "/backoffice/gestion-humana",
     label: "Gestión Humana",

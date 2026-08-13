@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength } from "class-validator";
 import { z } from "zod";
 import { IVA_PORCENTAJES, type IvaPorcentaje } from "@valatino/types";
 
@@ -21,6 +21,23 @@ export class CrearCompraDto {
   @IsNotEmpty({ message: "El número de la factura es obligatorio" })
   @MaxLength(100)
   numeroFactura!: string;
+
+  /**
+   * Fecha de EXPEDICIÓN de la factura del proveedor, `YYYY-MM-DD`.
+   *
+   * Obligatoria desde la migración 068: es un dato del libro registro de
+   * facturas recibidas. La base la acepta nula a propósito, para no romper la
+   * API desplegada durante la ventana del despliegue (ver el apartado 3 de la
+   * 068); quien la garantiza hoy es este DTO, y la 069 la exigirá también abajo.
+   *
+   * ⚠️ NO es la fecha que decide en qué trimestre se deduce el IVA: eso lo hace
+   * `created_at`, el momento en que la factura queda anotada.
+   */
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: "La fecha de la factura debe ser YYYY-MM-DD",
+  })
+  fechaFactura!: string;
 
   /** UUID del proveedor (resuelto por CIF en el formulario) */
   @IsOptional()

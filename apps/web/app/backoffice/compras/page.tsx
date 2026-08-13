@@ -65,7 +65,10 @@ export default function BackofficeComprasPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left px-4 py-3 font-medium">Fecha</th>
+                  {/* «Registrada» y no «Fecha»: desde la 068 hay DOS fechas —la
+                      de expedición del proveedor y la de registro— y la que
+                      manda para el IVA deducible es esta. */}
+                  <th className="text-left px-4 py-3 font-medium">Registrada</th>
                   <th className="text-left px-4 py-3 font-medium">Nº factura</th>
                   <th className="text-left px-4 py-3 font-medium">Proveedor</th>
                   <th className="text-right px-4 py-3 font-medium">Unidades</th>

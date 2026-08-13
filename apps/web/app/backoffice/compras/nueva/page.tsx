@@ -36,12 +36,31 @@ const LINEA_NUEVA: Linea = { productoId: "", cantidad: 1, costoUnitario: NaN, iv
  */
 const OPCION_PRODUCTO_NUEVO = "__nuevo__";
 
+/**
+ * Hoy en el calendario ESPAÑOL, en `YYYY-MM-DD`, para topar el selector de
+ * fecha. Con la zona explícita y no la del navegador: la API valida contra
+ * Europe/Madrid, y un portátil con la zona mal puesta ofrecería un día que el
+ * servidor va a rechazar sin que se entienda por qué.
+ */
+function hoyEnEspana(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export default function NuevaCompraPage() {
   const router = useRouter();
 
   const [productos, setProductos] = useState<Producto[]>([]);
   const [pdf, setPdf] = useState<File | null>(null);
   const [numeroFactura, setNumeroFactura] = useState("");
+  // Vacía a propósito, sin poner hoy por defecto: la fecha va a un libro
+  // oficial y un valor prerrellenado se acepta sin mirarlo. La de la factura
+  // casi nunca es la de hoy.
+  const [fechaFactura, setFechaFactura] = useState("");
   const [notas, setNotas] = useState("");
   const [lineas, setLineas] = useState<Linea[]>([{ ...LINEA_NUEVA }]);
   const [isSaving, setIsSaving] = useState(false);
@@ -114,18 +133,20 @@ export default function NuevaCompraPage() {
   const puedeEnviar =
     Boolean(pdf) &&
     numeroFactura.trim() !== "" &&
+    fechaFactura !== "" &&
     lineasValidas.length === lineas.length &&
     !isSaving;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pdf || !numeroFactura.trim() || lineasValidas.length === 0) return;
+    if (!pdf || !numeroFactura.trim() || !fechaFactura || lineasValidas.length === 0) return;
 
     setIsSaving(true);
     try {
       const form = new FormData();
       form.append("pdf", pdf);
       form.append("numeroFactura", numeroFactura.trim());
+      form.append("fechaFactura", fechaFactura);
       if (proveedor) form.append("proveedorId", proveedor.id);
       if (notas.trim()) form.append("notas", notas.trim());
       form.append(
@@ -282,19 +303,39 @@ export default function NuevaCompraPage() {
               </p>
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="notas-compra" className="text-sm font-medium">
-                Notas
+              <label htmlFor="fecha-factura" className="text-sm font-medium">
+                Fecha de la factura <span className="text-destructive">*</span>
               </label>
               <input
-                id="notas-compra"
-                type="text"
-                placeholder="Opcional"
-                value={notas}
-                onChange={(e) => setNotas(e.target.value)}
-                maxLength={2000}
-                className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+                id="fecha-factura"
+                type="date"
+                value={fechaFactura}
+                onChange={(e) => setFechaFactura(e.target.value)}
+                // Una factura del futuro es un error de tecleo. El tope está
+                // también en la base, que es la que lo garantiza.
+                max={hoyEnEspana()}
+                required
+                className="w-full rounded-lg border bg-background px-3 py-2 text-sm"
               />
+              <p className="text-xs text-muted-foreground">
+                La que trae el PDF, no la de hoy. Es un dato obligatorio del libro de facturas
+                recibidas.
+              </p>
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="notas-compra" className="text-sm font-medium">
+              Notas
+            </label>
+            <input
+              id="notas-compra"
+              type="text"
+              placeholder="Opcional"
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              maxLength={2000}
+              className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+            />
           </div>
         </div>
 
