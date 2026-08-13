@@ -93,11 +93,19 @@ Importa **antes** de escribir la tabla, no después: encadenar por hash desde el
 
 ### 🔜 Lo demás, al volver
 
-⚠️⚠️ **Pendiente de Jonathan, y el informe lo pide en pantalla: la FECHA de las dos facturas de compra.** `202521188` y `202521893` no la tienen —no existía la columna cuando se registraron— y es un dato obligatorio del libro registro de facturas recibidas. **Se coge del PDF** (está en el bucket, botón «Ver factura») y se pone en Compras → la factura → «Poner fecha».
-- ⚠️ **NO se han rellenado a dedo con `created_at`, y es deliberado**: sería inventar una fecha que va a un libro oficial, y lo peor de un dato inventado es que parece puesto. Es la lección textual de la 062 con `iva_pct`.
-- Su IVA **sí se está deduciendo** mientras tanto: el trimestre lo decide la fecha de registro, no esta. Lo que falta es el dato del libro.
+✅ **LAS FECHAS DE LAS DOS FACTURAS DE COMPRA, PUESTAS** (2026-08-13, Jonathan las dio de sus PDF y se aplicaron por RPC contra el remoto):
 
-⚠️ **Y una migración 069 pendiente, de una línea**: cuando el despliegue esté hecho y comprobado que la fecha llega siempre, poner `facturas_compra.fecha_factura` a **NOT NULL** y exigirla en `registrar_factura_compra`. Hoy la base la acepta nula a propósito, solo para no romper la API desplegada durante la ventana (ver el apartado 3 de la 068). **Antes hay que rellenar las dos de arriba**, o el `set not null` no entra.
+| Factura | Fecha de la factura | Registrada | Total c/IVA |
+|---|---|---|---|
+| `202521188` | **15/07/2026** | 18/07/2026 | 93,64 € |
+| `202521893` | **05/08/2026** | 06/08/2026 | 115,78 € |
+
+- Las dos **anteriores a su registro**, que es lo normal: el proveedor la expide y se anota unos días después.
+- **Las dos caen en el mismo trimestre que su registro**, así que el 303 no se movió: el 3T sigue en **−25,10 €**. Confirma en la práctica lo que dice el diseño — la fecha de expedición es dato del libro, y el trimestre lo decide la de registro.
+- El aviso `compra_sin_fecha_factura` **ya no aparece**. En el 3T quedan solo los dos estructurales: `sin_facturas_emitidas` (Capa 2 pendiente) y `sin_arranque_fiscal` (la tienda sigue en pruebas).
+- ⚠️ **No se rellenaron a dedo con `created_at` en la migración, y fue deliberado**: sería inventar una fecha que va a un libro oficial, y lo peor de un dato inventado es que parece puesto (la lección textual de la 062 con `iva_pct`). Se esperó a tener el dato real. Con `created_at` habrían quedado 18/07 y 06/08, o sea **las dos mal**.
+
+⚠️ **Migración 069 pendiente, de una línea, y ya desbloqueada a medias**: poner `facturas_compra.fecha_factura` a **NOT NULL** y exigirla en `registrar_factura_compra`. Ya no hay ninguna a nulo, así que el `set not null` entra. **Pero hay que esperar al push**: hoy la base la acepta nula a propósito para que la API todavía desplegada (que no manda el campo) siga registrando compras. Aplicarla antes del despliegue convertiría la ventana de 10 minutos en una avería permanente.
 
 ⚠️ **Pendiente pequeño de Jonathan**: si la caja de **Quipitos Pops Caja 24** existe de verdad en el almacén, meterla desde Inventario con un ajuste de tipo **«recuento»**. Se quedó a 0 en la limpieza del 12/08 por ser la unidad fantasma sin apunte; ahora sí quedaría registrada.
 
