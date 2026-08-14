@@ -1491,14 +1491,35 @@ export interface LiquidacionIvaTramo {
  * Cada aviso es algo que el informe NO está contando, o que cuenta con una
  * salvedad. Se muestran arriba y no al final: son la mitad del valor del
  * informe. Ver el apartado 6 de la migración 068.
+ *
+ * ⚠️⚠️ **SI AÑADES UN AVISO, TIENE QUE PODER CALLARSE.** La 068 puso uno
+ * incondicional (`sin_facturas_emitidas`) que decía «todavía no existe la serie
+ * de facturas a clientes»; cuando la 072 la creó, el aviso pasó de incompleto a
+ * **falso**, y siguió apareciendo. Un aviso falso en un informe que se presenta a
+ * Hacienda es peor que no tener aviso: quien lo lea deja de creerse los demás.
+ *
+ * La 075 lo sustituyó por dos que cuentan y se callan solos —`venta_sin_factura`
+ * y `devolucion_sin_rectificativa`—. ⚠️ Y ojo con el arreglo perezoso: borrarlo a
+ * secas habría dejado el informe CALLADO con la tabla de facturas vacía, que es
+ * el mismo fallo con el signo cambiado. Un aviso condicionado a un estado del
+ * mundo, nunca a una fase del desarrollo.
  */
 export interface LiquidacionIvaAviso {
-  /** Identificador estable del aviso; la pantalla decide el icono con esto */
+  /**
+   * Identificador estable del aviso; la pantalla decide el icono con esto, y le
+   * sirve de `key`, así que **no puede repetirse dentro de un informe**.
+   */
   clase: string;
   gravedad: "aviso" | "grave";
   titulo: string;
   detalle: string;
-  /** Cuántos elementos afecta (0 en los avisos que no cuentan nada) */
+  /**
+   * Cuántos elementos afecta (0 en los avisos que no cuentan nada).
+   *
+   * ⚠️ No es siempre `referencias.length`: en `devolucion_sin_rectificativa`
+   * cuenta REEMBOLSOS y las referencias son PEDIDOS, y un pedido admite varias
+   * devoluciones parciales sucesivas, cada una con su rectificativa pendiente.
+   */
   cuantos: number;
   /** Números de factura o de pedido implicados, para poder ir a mirarlos */
   referencias: string[];
