@@ -1166,7 +1166,8 @@ export interface ResultadoLimpieza {
    * ⚠️ Solo puede pasar **en modo pruebas**: el trigger `trg_factura_inmutable`
    * se niega a borrar cualquier factura después del arranque fiscal, y esta
    * limpieza ya se niega a ejecutarse entera. La limpieza también reinicia los
-   * contadores de serie, así que la primera factura real vuelve a ser la 00001.
+   * contadores de serie, así que la primera factura real vuelve a arrancar en el
+   * número inicial — hoy el **100** (`factura_correlativo_inicial()`, 074), no el 1.
    */
   facturas_borradas: number;
   /** Empleados dados de alta probando, con su histórico mensual (migración 067) */
@@ -1237,16 +1238,21 @@ export interface DatosFiscales {
  * las completas compartieran serie con las simplificadas, la que un cliente pide
  * en octubre de una venta de julio recibiría un número de octubre en medio de la
  * línea de julio.
+ *
+ * ⚠️ Y hay una razón más, que apareció al cambiar el formato en la 074: sin serie
+ * propia, **la simplificada y la completa de la misma venta imprimirían el mismo
+ * número**. Además el RD 1619/2012 art. 15.2 exige serie específica para las
+ * rectificativas, así que esa no se puede fundir con ninguna.
+ *
+ * ⚠️⚠️ La serie de cada tipo (`VALS` · `VALF` · `VALR`) y el formato del número
+ * viven SOLO en la BD — `serie_de_tipo()` y `factura_numero()`, migración 074 —
+ * y llegan aquí en cada fila (`FacturaEmitida.serie`, `.numero`). Aquí había un
+ * `FACTURA_SERIES` que los espejaba y **no lo usaba nadie**: un espejo que nadie
+ * consume es un espejo que nadie revisa cuando la BD cambia. Se quitó en la 074.
+ * No lo vuelvas a añadir.
  */
 export const FACTURA_TIPOS = ["simplificada", "completa", "rectificativa"] as const;
 export type FacturaTipo = (typeof FACTURA_TIPOS)[number];
-
-/** Serie de cada tipo. Espejo de `serie_de_tipo()` en la BD. */
-export const FACTURA_SERIES: Record<FacturaTipo, string> = {
-  simplificada: "S",
-  completa: "F",
-  rectificativa: "R",
-};
 
 export const FACTURA_TIPO_LABELS: Record<FacturaTipo, string> = {
   simplificada: "Simplificada",
@@ -1272,10 +1278,24 @@ export interface FacturaDesglose {
 
 export interface FacturaEmitida {
   id: string;
+  /**
+   * El número impreso: serie + ejercicio + 5 dígitos → `VALS202600100`.
+   *
+   * ⚠️ **No se construye aquí ni en la API.** Es una columna generada por la BD a
+   * partir de `factura_numero(serie, ejercicio, correlativo)` (074), que es la
+   * misma función con la que el motor calcula el número **que entra en la
+   * huella**. Antes eran dos expresiones separadas —una para imprimir y otra para
+   * hashear— y el día que hubieran diferido, la cadena de Verifactu habría estado
+   * certificando un número distinto del impreso, sin que nadie lo viera.
+   *
+   * Trátalo como opaco: para filtrar o agrupar están `serie`, `ejercicio` y
+   * `correlativo`, que son las partes de verdad.
+   */
   numero: string;
   tipo: FacturaTipo;
   serie: string;
   ejercicio: number;
+  /** Arranca en 100, no en 1 (`factura_correlativo_inicial()`). */
   correlativo: number;
 
   pedido_id: string;
