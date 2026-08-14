@@ -207,3 +207,148 @@ describe("ContabilidadService — fecha de la factura de compra", () => {
     await expect(promesa).rejects.not.toThrow(/fecha_factura/);
   });
 });
+
+/**
+ * La población de un dato fiscal, contra el diccionario del INE.
+ *
+ * ⚠️⚠️ ESTOS TESTS EXISTEN PORQUE FALTABAN, Y SE NOTÓ EN PRODUCCIÓN. El emisor se
+ * guardó con la población «españa» y salió impreso en la primera factura real
+ * (`Calle del Arco, 9 · 28840 españa`); el receptor de `VALF202600100` quedó como
+ * «Mejorada del campo» mientras el pedido de esa misma venta guardaba la forma
+ * oficial. Las dos rutas hacían `trim()` y nada más.
+ *
+ * Lo que más duele: `municipioCanonico("28001", "españa")` YA devolvía `null` y
+ * estaba probado con 264 tests. La comprobación existía; estas dos rutas no la
+ * llamaban. Un test aquí lo habría cazado antes que un documento contable.
+ */
+describe("ContabilidadService — la población de un dato fiscal", () => {
+  /** Supabase de mentira con `from`, que es lo que usan estas dos rutas. */
+  function crearSupabaseConFrom(filaFactura: unknown = { id: "f1", numero: "VALF202600100" }) {
+    const rpc: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    const updates: Array<Record<string, unknown>> = [];
+
+    const supabase = {
+      rpc: (fn: string, args?: Record<string, unknown>) => {
+        rpc.push({ fn, args: args ?? {} });
+        return Promise.resolve({ data: fn === "emitir_factura_completa" ? "f1" : null, error: null });
+      },
+      from: () => ({
+        update: (payload: Record<string, unknown>) => {
+          updates.push(payload);
+          return { eq: () => Promise.resolve({ error: null }) };
+        },
+        select: () => ({
+          eq: () => ({ maybeSingle: () => Promise.resolve({ data: filaFactura, error: null }) }),
+          maybeSingle: () => Promise.resolve({ data: {}, error: null }),
+        }),
+      }),
+    };
+
+    return { servicio: new ContabilidadService(supabase as unknown as SupabaseClient), rpc, updates };
+  }
+
+  const RECEPTOR = {
+    nif: "12345678Z",
+    nombre: "Cliente",
+    direccion: "Calle Falsa 1",
+    codigo_postal: "28840",
+    ciudad: "Mejorada del Campo",
+  };
+
+  describe("al emitir la factura completa", () => {
+    it("guarda el nombre OFICIAL del municipio, no lo que se tecleó", async () => {
+      const { servicio, rpc } = crearSupabaseConFrom();
+
+      await servicio.emitirFacturaCompleta("p1", { ...RECEPTOR, ciudad: "mejorada  DEL campo" });
+
+      const receptor = rpc[0]!.args["p_receptor"] as Record<string, unknown>;
+      expect(receptor["ciudad"]).toBe("Mejorada del Campo");
+    });
+
+    it("DERIVA la provincia del código postal e ignora la que llegue", async () => {
+      // Es la regla de la 041: la provincia es deducible, y dejar que la escriba
+      // quien rellena el formulario es lo que llenó la columna de «españa».
+      const { servicio, rpc } = crearSupabaseConFrom();
+
+      await servicio.emitirFacturaCompleta("p1", { ...RECEPTOR, provincia: "Barcelona" });
+
+      const receptor = rpc[0]!.args["p_receptor"] as Record<string, unknown>;
+      expect(receptor["provincia"]).toBe("Madrid");
+    });
+
+    it("rechaza «españa» como población, que es el caso que pasó de verdad", async () => {
+      const { servicio, rpc } = crearSupabaseConFrom();
+
+      await expect(
+        servicio.emitirFacturaCompleta("p1", { ...RECEPTOR, ciudad: "españa" }),
+      ).rejects.toThrow(BadRequestException);
+
+      // Y no llega a la base: una factura es inmutable, así que el momento de
+      // pararlo es antes de que exista.
+      expect(rpc).toHaveLength(0);
+    });
+
+    it("dice POR QUÉ lo rechaza, nombrando la provincia del CP", async () => {
+      // Un test que solo comprobara «rechaza» daría por bueno un mensaje inútil.
+      // Es la lección de la 073 con el `text[] || 'NIF'`.
+      const { servicio } = crearSupabaseConFrom();
+
+      await expect(
+        servicio.emitirFacturaCompleta("p1", { ...RECEPTOR, ciudad: "Barcelona" }),
+      ).rejects.toThrow(/no es un municipio de Madrid.*28840/);
+    });
+
+    it("rechaza un municipio que existe pero es de otra provincia", async () => {
+      const { servicio } = crearSupabaseConFrom();
+
+      await expect(
+        servicio.emitirFacturaCompleta("p1", { ...RECEPTOR, codigo_postal: "08001" }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe("al guardar el emisor en TI → Ajustes", () => {
+    const EMISOR = {
+      nif: "Z4194001W",
+      nombre: "Leydy Jhoanna Mendoza Sanchez",
+      direccion: "Calle del Arco, 9",
+      codigoPostal: "28840",
+      ciudad: "Mejorada del Campo",
+    };
+
+    it("rechaza «españa», que es por donde entró el fallo", async () => {
+      const { servicio, updates } = crearSupabaseConFrom();
+
+      await expect(servicio.guardarEmisor({ ...EMISOR, ciudad: "españa" })).rejects.toThrow(
+        BadRequestException,
+      );
+
+      // Nada se guarda: la siguiente factura congelaría este valor en su snapshot.
+      expect(updates).toHaveLength(0);
+    });
+
+    it("canoniza la población y deriva la provincia", async () => {
+      const { servicio, updates } = crearSupabaseConFrom();
+
+      await servicio.guardarEmisor({
+        ...EMISOR,
+        ciudad: "MEJORADA DEL CAMPO",
+        provincia: "Teruel",
+      });
+
+      expect(updates[0]).toMatchObject({
+        emisor_ciudad: "Mejorada del Campo",
+        emisor_provincia: "Madrid",
+        emisor_codigo_postal: "28840",
+      });
+    });
+
+    it("rechaza un código postal que no es de ninguna provincia", async () => {
+      const { servicio } = crearSupabaseConFrom();
+
+      await expect(
+        servicio.guardarEmisor({ ...EMISOR, codigoPostal: "99999" }),
+      ).rejects.toThrow("El código postal no es válido");
+    });
+  });
+});

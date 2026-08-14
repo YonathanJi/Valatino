@@ -8,6 +8,7 @@ import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { useNivel } from "@components/backoffice/PermisosProvider";
+import { CodigoPostalYPoblacion } from "@components/ubicacion/CodigoPostalYPoblacion";
 import { nifValido, normalizarNif } from "@valatino/types";
 import type { AjustesEmisor } from "@valatino/types";
 
@@ -205,44 +206,26 @@ export function EmisorPanel() {
                 />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="emisor-cp">Código postal</Label>
-                  <Input
-                    id="emisor-cp"
-                    value={form.codigoPostal}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        codigoPostal: e.target.value.replace(/\D/g, "").slice(0, 5),
-                      }))
-                    }
-                    placeholder="28001"
-                    className="font-mono"
-                    inputMode="numeric"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="emisor-ciudad">Población</Label>
-                  <Input
-                    id="emisor-ciudad"
-                    value={form.ciudad}
-                    onChange={(e) => setForm((f) => ({ ...f, ciudad: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="emisor-provincia">
-                    Provincia <span className="font-normal text-muted-foreground">(opcional)</span>
-                  </Label>
-                  <Input
-                    id="emisor-provincia"
-                    value={form.provincia}
-                    onChange={(e) => setForm((f) => ({ ...f, provincia: e.target.value }))}
-                  />
-                </div>
-              </div>
+              {/* ⚠️ Aquí había tres campos de texto libre, y por eso el domicilio
+                  fiscal se guardó con la población «españa» y salió impreso en la
+                  primera factura real. Ahora el CP manda: la población sale del
+                  diccionario del INE y la provincia se deduce. Ver la 076. */}
+              <CodigoPostalYPoblacion
+                idPrefijo="emisor"
+                valor={{
+                  codigoPostal: form.codigoPostal,
+                  ciudad: form.ciudad,
+                  provincia: form.provincia,
+                }}
+                onChange={(u) =>
+                  setForm((f) => ({
+                    ...f,
+                    codigoPostal: u.codigoPostal,
+                    ciudad: u.ciudad,
+                    provincia: u.provincia,
+                  }))
+                }
+              />
             </fieldset>
 
             {puedeEditar ? (

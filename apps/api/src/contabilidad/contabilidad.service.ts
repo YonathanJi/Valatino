@@ -8,6 +8,7 @@ import {
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { esMensajeParaElUsuario } from "../common/errores/rpc";
+import { ubicacionParaGuardar } from "../common/datos/ubicacion";
 import { normalizarNif } from "@valatino/types";
 import type {
   AjustesEmisor,
@@ -188,15 +189,27 @@ export class ContabilidadService {
       return t === "" ? null : t;
     };
 
+    /**
+     * ⚠️⚠️ ESTE ES EL SITIO POR DONDE ENTRÓ «españa» COMO POBLACIÓN, y salió
+     * impreso en la primera factura real. Antes esto era `limpio(datos.ciudad)`:
+     * un `trim()` y adentro, mientras la tienda validaba sus direcciones de envío
+     * contra el diccionario del INE desde la 041.
+     *
+     * Un domicilio fiscal no puede validar menos que una etiqueta de envío. Y la
+     * provincia deja de guardarse tal como llega: se DERIVA del código postal,
+     * igual que en las direcciones, así que ya no hay forma de escribirla mal.
+     */
+    const ubicacion = ubicacionParaGuardar(datos.codigoPostal, datos.ciudad);
+
     const { error } = await this.supabase
       .from("ajustes_tienda")
       .update({
         emisor_nif: datos.nif ? normalizarNif(datos.nif) : null,
         emisor_nombre: limpio(datos.nombre),
         emisor_direccion: limpio(datos.direccion),
-        emisor_codigo_postal: limpio(datos.codigoPostal),
-        emisor_ciudad: limpio(datos.ciudad),
-        emisor_provincia: limpio(datos.provincia),
+        emisor_codigo_postal: ubicacion.codigo_postal,
+        emisor_ciudad: ubicacion.ciudad,
+        emisor_provincia: ubicacion.provincia,
         actualizado_por: actorId ?? null,
       })
       .eq("id", true);
@@ -324,15 +337,30 @@ export class ContabilidadService {
     receptor: ReceptorFactura,
     actorId?: string,
   ): Promise<FacturaEmitida> {
+    /**
+     * ⚠️ La población del receptor pasa por el mismo diccionario del INE que una
+     * dirección de envío, y la provincia se DERIVA del CP.
+     *
+     * Antes era texto libre con `trim()`, y por eso `VALF202600100` quedó con
+     * «Mejorada del campo» en minúscula mientras el pedido de esa misma venta
+     * guardaba la forma oficial. Es cosmético hasta que lo miras en un documento
+     * contable inmutable, que es donde acaba.
+     *
+     * ⚠️ Esto NO contradice la regla de la 073 de no sacar los datos del pedido:
+     * el domicilio fiscal sigue siendo el que confirma quien pide la factura. Lo
+     * que cambia es que ese domicilio tiene que existir.
+     */
+    const ubicacion = ubicacionParaGuardar(receptor.codigo_postal, receptor.ciudad);
+
     const { data, error } = await this.supabase.rpc("emitir_factura_completa", {
       p_pedido_id: pedidoId,
       p_receptor: {
         nif: normalizarNif(receptor.nif),
         nombre: receptor.nombre,
         direccion: receptor.direccion,
-        codigo_postal: receptor.codigo_postal,
-        ciudad: receptor.ciudad,
-        provincia: receptor.provincia ?? null,
+        codigo_postal: ubicacion.codigo_postal,
+        ciudad: ubicacion.ciudad,
+        provincia: ubicacion.provincia,
       },
       p_actor_id: actorId ?? null,
     });

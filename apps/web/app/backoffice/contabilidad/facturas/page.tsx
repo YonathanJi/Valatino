@@ -10,6 +10,7 @@ import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { PageHeader } from "@components/backoffice/PageHeader";
 import { usePuede } from "@components/backoffice/PermisosProvider";
+import { CodigoPostalYPoblacion } from "@components/ubicacion/CodigoPostalYPoblacion";
 import { formatEUR } from "@lib/utils";
 import { nifValido, normalizarNif, FACTURA_TIPO_LABELS } from "@valatino/types";
 import type {
@@ -317,41 +318,26 @@ export default function FacturasPage() {
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="r-cp">Código postal</Label>
-                <Input
-                  id="r-cp"
-                  value={receptor.codigoPostal}
-                  onChange={(e) =>
-                    setReceptor((r) => ({
-                      ...r,
-                      codigoPostal: e.target.value.replace(/\D/g, "").slice(0, 5),
-                    }))
-                  }
-                  className="font-mono"
-                  inputMode="numeric"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="r-ciudad">Población</Label>
-                <Input
-                  id="r-ciudad"
-                  value={receptor.ciudad}
-                  onChange={(e) => setReceptor((r) => ({ ...r, ciudad: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="r-provincia">
-                  Provincia <span className="font-normal text-muted-foreground">(opcional)</span>
-                </Label>
-                <Input
-                  id="r-provincia"
-                  value={receptor.provincia}
-                  onChange={(e) => setReceptor((r) => ({ ...r, provincia: e.target.value }))}
-                />
-              </div>
-            </div>
+            {/* ⚠️ Eran tres campos de texto libre, y `VALF202600100` acabó con la
+                población «Mejorada del campo» en minúscula mientras el pedido de
+                esa misma venta guardaba la forma oficial. En un documento que no
+                se puede editar, eso no se arregla después. Ver la 076. */}
+            <CodigoPostalYPoblacion
+              idPrefijo="r"
+              valor={{
+                codigoPostal: receptor.codigoPostal,
+                ciudad: receptor.ciudad,
+                provincia: receptor.provincia,
+              }}
+              onChange={(u) =>
+                setReceptor((r) => ({
+                  ...r,
+                  codigoPostal: u.codigoPostal,
+                  ciudad: u.ciudad,
+                  provincia: u.provincia,
+                }))
+              }
+            />
 
             <div className="flex items-center justify-between gap-3 border-t pt-4">
               <p className="text-xs text-muted-foreground">

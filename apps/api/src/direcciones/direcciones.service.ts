@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Inject,
   Injectable,
   NotFoundException,
@@ -7,8 +6,8 @@ import {
 } from "@nestjs/common";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
-import { normalizarTelefono, provinciaPorCP } from "@valatino/types";
-import { municipioCanonico } from "../common/datos/municipios";
+import { normalizarTelefono } from "@valatino/types";
+import { ubicacionParaGuardar } from "../common/datos/ubicacion";
 import type { CreateDireccionDto, UpdateDireccionDto } from "./dto/direccion.dto";
 
 /**
@@ -24,29 +23,12 @@ function telefonoParaGuardar(valor: string | undefined): string | null {
 }
 
 /**
- * Resuelve la pareja (código postal, municipio) a lo que se va a guardar:
- * el municipio con su nombre oficial del INE y la provincia DERIVADA del CP.
- *
- * La provincia que llegue en el DTO se ignora. Es un dato deducible —los dos
- * primeros dígitos del CP son su código— y dejar que la escriba el cliente es
- * lo que llenó la columna de «españa». Recalcularla aquí, y no solo en el
- * formulario, es lo que hace que no pueda volver a entrar por ninguna vía.
+ * ⚠️ `ubicacionParaGuardar` vivía AQUÍ, suelta, y por eso los datos fiscales
+ * —emisor y receptor de factura— no pasaban por ella: nadie podía importarla.
+ * Se movió a `common/datos/ubicacion.ts` el 2026-08-14, después de que la
+ * primera factura real saliera con la población «españa». Ver el comentario de
+ * ese fichero: la comprobación que lo habría cazado ya existía.
  */
-function ubicacionParaGuardar(codigoPostal: string, ciudad: string) {
-  const provincia = provinciaPorCP(codigoPostal);
-  if (!provincia) {
-    throw new BadRequestException("El código postal no es válido");
-  }
-
-  const municipio = municipioCanonico(codigoPostal, ciudad);
-  if (!municipio) {
-    throw new BadRequestException(
-      `«${ciudad}» no es un municipio de ${provincia}, que es la provincia del código postal ${codigoPostal}`,
-    );
-  }
-
-  return { ciudad: municipio, codigo_postal: codigoPostal.trim(), provincia };
-}
 
 @Injectable()
 export class DireccionesService {
