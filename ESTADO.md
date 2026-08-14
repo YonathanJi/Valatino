@@ -121,12 +121,66 @@ Comprobado también que la limpieza **conserva** los datos fiscales del emisor y
 
 ⭐ **Y de paso confirmó la 075 en un estado que no se había probado**: con la base limpia, el 303 vuelve a **−25,10 €** (solo compras) y el único aviso que queda es `sin_arranque_fiscal`. Los dos nuevos **se callan solos**, que es exactamente para lo que se escribieron.
 
+## ⭐⭐ LA PRIMERA OPERACIÓN COMPLETA CON EL FORMATO NUEVO, Y LOS DOS DEFECTOS QUE DESTAPÓ (2026-08-14, cont. 2)
+
+Jonathan limpió la base y cursó **una compra entera desde la web**. Cursó bien:
+
+| | |
+|---|---|
+| Pedido | `260814015565` · **3,02 €** · bizum · **ENVIADO** |
+| Líneas | Galleta Festival Chocolate 3 × 0,80 · Quipitos Pops 1 × 0,62 |
+| IVA | base **2,75** + cuota **0,27** al 10 % |
+| Simplificada | **`VALS202600100`** — emitida sola **1 s después del cobro** |
+| Completa (canje) | **`VALF202600100`** |
+| Libro | la `VALS` queda **no vigente**, «sustituida por `VALF202600100`» |
+| Cadena · stock · reservas | intacta · **0 descuadres** · **0 colgadas** |
+| Correos | confirmación y «va en camino», los dos registrados |
+| 303 del 3T | **−24,83 €** · y **el único aviso es `sin_arranque_fiscal`** |
+
+⭐ **Ese último dato es la 075 verificada en producción**: con toda venta facturada y sin devoluciones, los dos avisos nuevos **se callan solos**. Y el desglose de la factura es idéntico a `pedido_iva`, o sea la regla de copiar y nunca recalcular funcionando sobre dinero real.
+
+### Pero el documento tenía dos defectos que NADA impedía → migración 076
+
+**1. ⚠️⚠️ Emisor y receptor con el MISMO NIF.** `Z4194001W` en los dos lados y la misma dirección. El nombre cambiaba —«Leydy Jhoanna Mendoza Sanchez» vendiendo a «Yonathan Jimenez Duque»— y **eso es justo lo que lo hace fácil de pasar por alto: el NIF es la identidad, no el nombre**. La 073 validaba que el NIF tuviera *forma* válida, no que fuera de otra persona.
+
+El arreglo va en **dos sitios, y no es duplicar la regla** — es la forma de la 069 con `fecha_factura`:
+- el **CHECK** `facturas_receptor_no_es_el_emisor` es el **suelo**: vale para cualquier vía, incluida una inserción a mano por SQL, y ninguna función futura puede olvidarlo;
+- el **`raise`** en `emitir_factura_completa` es el **mensaje**, porque un CHECK solo dice «violates check constraint».
+
+🔴 **PENDIENTE PEQUEÑO, Y HAY QUE CERRARLO**: el CHECK está **`NOT VALID`**, porque `VALF202600100` viola la regla y un CHECK normal no se podría ni crear. Se eligió eso en vez de borrar la factura de Jonathan sin preguntarle. En cuanto esa factura desaparezca —con `limpiar_datos_de_prueba`, o borrándola a mano mientras no haya arranque fiscal— se cierra con:
+
+```sql
+alter table public.facturas_emitidas validate constraint facturas_receptor_no_es_el_emisor;
+```
+
+**2. ⚠️ La población de un dato fiscal era texto libre, en las DOS rutas.** El emisor de TI → Ajustes hacía `trim()` y adentro; el receptor de la factura, igual. Por eso el domicilio del negocio se guardó como **«españa»** y salió impreso en la primera factura real, y por eso `VALF202600100` quedó con **«Mejorada del campo»** en minúscula mientras el pedido de esa misma venta guardaba la forma oficial.
+
+⚠️⚠️ **Y lo que más escuece: la comprobación que lo habría cazado YA EXISTÍA.** `municipioCanonico("28001", "españa")` devuelve `null`, está probado con 264 tests desde la 041… y estas dos rutas no lo llamaban. **Un documento contable no puede validar menos que una etiqueta de envío.**
+
+⭐ **La causa de fondo, que es la lección reutilizable**: `ubicacionParaGuardar` vivía **suelta dentro de `direcciones.service.ts`**, así que nadie más podía importarla. Ahí está el coste real de encerrar una regla de negocio en una función privada — no es que estuviera mal escrita, es que era **inalcanzable**. Se movió a `apps/api/src/common/datos/ubicacion.ts` y ahora la usan las tres rutas. La provincia deja de guardarse tal como llega: **se deriva del CP** en las tres.
+
+En pantalla, los dos formularios del panel pasan a un componente compartido, `components/ubicacion/CodigoPostalYPoblacion.tsx`, con la regla entera: el CP manda, la población sale de un desplegable **acotado** por CP, hay salida a la provincia entera si la tabla de CP tiene una laguna, y la provincia se muestra **sin poder editarse** (la API la recalcula, y un campo editable cuyo valor se tira es una invitación a pelearse con el formulario).
+
+🔜 **`DireccionForm` (checkout y perfil) sigue con su propia copia de esa lógica, y NO se migró a propósito**: está en la ruta del dinero y la web **no tiene tests de componentes**, así que ese cambio quiere hacerse mirando la pantalla, no de paso. Es el tercer consumidor pendiente.
+
+### ⚠️ El ensayo falló la primera vez, y fue lo más útil de la sesión
+
+`G3` comprobaba que se rechazara el NIF propio. **Rechazó** — pero por el **CHECK**, con el mensaje genérico, porque en ese ensayo se había aplicado el §1 y no el §2. Dos cosas salieron de ahí:
+
+1. **El suelo funciona de verdad**: la RPC no tenía guardia y la fila no entró igualmente.
+2. **Una aserción de «rechaza» habría dado por bueno un mensaje inútil.** Es literalmente la lección que la 073 ya había dejado escrita con el `text[] || 'NIF'`, repitiéndose. Por eso el ensayo **imprime el mensaje**, no solo el resultado.
+
+Repetido con el §2: **6/6**, con el mensaje accionable, cazando el NIF en minúsculas y con espacios alrededor, y con el error de *forma* apareciendo primero — que es el orden correcto, porque teclear mal el NIF es más probable que poner el propio.
+
+**+10 tests** en `contabilidad.service.spec.ts`, que **no cubría ninguna de las dos rutas**. 688 tests, `type-check` y **build de producción** en verde.
+
 ### 🔜 Lo siguiente, por orden
 
-1. **Pushear** (ver el aviso de arriba) y **emitir las que faltan** desde Contabilidad → Facturas: hay **2 ventas devengadas sin factura** y el 303 las está cantando. Saldrán `VALS202600100` y `VALS202600101`.
-   - ⚠️ La completa de `260813018694` **habrá que reemitirla a mano** si se quiere: la que había (`F2026/00001`) se borró con el cambio de formato.
-2. **La rectificativa por devolución** — ya la pide el propio informe.
-3. El PDF, y el botón de emitir desde la ficha del pedido.
+1. ~~Pushear y emitir las que faltan~~ → **hecho**. Jonathan limpió la base y cursó la operación entera; ver el bloque de arriba.
+2. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
+3. **La rectificativa por devolución** — ya la pide el propio informe (`devolucion_sin_rectificativa`).
+4. **Migrar `DireccionForm` al componente compartido de ubicación**, con la pantalla delante: es checkout, o sea la ruta del dinero.
+5. El PDF, y el botón de emitir desde la ficha del pedido.
 
 ## ✅ LA 068 Y LA 069 ESTÁN DESPLEGADAS Y VERIFICADAS EN PRODUCCIÓN (2026-08-13)
 
