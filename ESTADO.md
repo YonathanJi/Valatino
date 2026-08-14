@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-13
+**Última actualización**: 2026-08-14
 
 ---
 
@@ -49,6 +49,72 @@
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
 ### 🔜 Al volver, empezar por aquí
+
+## ⭐⭐ HECHO EL 2026-08-14 (cont.) — el número de factura, y el aviso que mentía (074 y 075)
+
+⚠️⚠️ **LAS DOS MIGRACIONES ESTÁN APLICADAS EN EL REMOTO Y COMMITEADAS, PERO *SIN PUSHEAR*.** Hay que pushear para que el repo y lo desplegado no divergan. **No hay ventana de despliegue que cuidar**, y conviene saber por qué: la API no construye el número (lo lee), y el panel pinta los avisos por lo que llegan sin tener ninguna clase escrita a mano. O sea, el código desplegado hoy ya funciona con la BD nueva. Los cambios de código son un comentario y un símbolo muerto que se quita.
+
+### Lo que se encontró al empezar, y que este documento no decía
+
+Mirar la BD antes de tocarla destapó **tres cosas que faltaban aquí**:
+
+| | |
+|---|---|
+| **Hubo una segunda venta** (`260814010306`) | El trigger le emitió **su simplificada sola** y después se **canjeó a completa**. ⭐ **El canje ha funcionado en producción** y no estaba escrito |
+| **20 productos**, no 13 | Jonathan amplió el catálogo |
+| El 3T está en **−24,64 €**, no en −25,10 | La segunda venta movió el devengado (9,28 base / 0,92 cuota, 2 documentos) |
+
+**La lección**: este fichero se escribe al final de una sesión y la tienda sigue viva entre sesiones. Al reanudar, **preguntarle a la BD antes de creerse el markdown**.
+
+### El número de factura, y el formato triplicado (074)
+
+Jonathan lo pidió así: «*quiero `VAL202600100`, el 2026 es el año en que estemos, y que empiece en 100 para que no inicie en 00001*». Hoy sale **`VALS202600100`**.
+
+⚠️⚠️ **La letra de serie no podía desaparecer, y eso hubo que decírselo antes de tocar nada.** Sin ella, la simplificada y la completa de la **misma venta** imprimirían las dos `VAL202600100`: dos documentos contables con el mismo número. Y el **RD 1619/2012 art. 15.2** exige serie propia para las rectificativas, así que esa no se funde con nada. La letra va dentro del prefijo: **`VALS` · `VALF` · `VALR`**, y él eligió esa opción.
+
+⚠️⚠️ **Y de paso salió un fallo latente que ya estaba ahí**: el formato vivía **triplicado** —la columna generada (072 §3), el motor (072 §7) y su reescritura (073 §3)—. Y no eran tres copias inocentes: **la huella se calcula del número que arma el motor, y el que se imprime sale de la columna generada.** Mientras coincidan no pasa nada; el día que difirieran, la cadena de Verifactu estaría **certificando un número distinto del impreso**, y nadie lo habría visto porque las tres expresiones son correctas por separado. Ahora hay **una** función, `factura_numero()`, y las tres la llaman.
+
+**Arrancar en 100 es legal**: la ley exige numeración **correlativa y sin huecos**, no que empiece en uno. Una serie que empieza en el 100 no tiene huecos — no existió ninguna del 1 al 99. Vive en `factura_correlativo_inicial()`, y así **la limpieza de pruebas lo hereda gratis**: borra los contadores y el motor los recrea con ese valor.
+
+⭐ **Por qué se borraron las tres facturas en vez de renumerarlas**: una factura emitida **no se modifica** (`trg_factura_inmutable`), y aunque se saltara el trigger, **el número entra en la huella** — cambiarlo obliga a recalcular la cadena entera. Borrar es lo único que se puede hacer **hoy**, porque el trigger solo lo permite **antes del arranque fiscal**. Si alguien reaplicara la 074 con la tienda ya arrancada, **se abortaría sola**: eso es la red, no un descuido. Los pedidos, el stock y las cuentas **no se tocaron** — esto no fue la limpieza.
+
+- ✅ `SET EXPRESSION` sobre la columna generada funciona porque el remoto es **PostgreSQL 17.6**. En 15 habría que tirar la columna y recrearla, y eso arrastra la vista `libro_facturas_expedidas`, que la referencia vía `f.*`. **Se comprobó la versión antes de escribir la migración.**
+- ✅ **Y una columna generada SÍ acepta una función propia** marcada `immutable`. Era la parte que podía no funcionar, y se ensayó primero.
+- Se quitó **`FACTURA_SERIES`** de `@valatino/types`: espejaba `serie_de_tipo()` y **no lo usaba nadie**. Un espejo que nadie consume es un espejo que nadie revisa cuando la BD cambia.
+
+**Ensayo en transacción revertida, 15/15**: el formato, las tres series, los contadores, «emitir las que faltan» (`VALS202600100` y `VALS202600101`), el canje (`VALF202600100` sustituyendo a `VALS202600101`), la cadena intacta y la sustituida fuera del libro.
+
+### El aviso del 303 que había pasado de incompleto a FALSO (075)
+
+La 068 puso un aviso **incondicional** que decía «todavía no existe la serie de facturas a clientes». Desde la 072 **existe**. Un aviso incompleto es mejorable; **un aviso falso en un informe que se presenta a Hacienda es peor que no tener aviso**, porque quien lo lea deja de creerse los demás.
+
+⭐⭐ **Y la trampa de arreglarlo mal era borrarlo a secas**: con la tabla de facturas vacía el informe se habría quedado **callado**, y callar cuando no hay ni una factura para ventas que sí declaran su IVA es **tranquilidad falsa** — el mismo fallo con el signo cambiado. Así que se convirtió en dos avisos que **cuentan y se callan solos**:
+
+| Aviso | Qué dice | Gravedad |
+|---|---|---|
+| `venta_sin_factura` | «N venta(s) devengadas sin factura», con los números de pedido | grave |
+| `devolucion_sin_rectificativa` | «N devolución(es) sin factura rectificativa» | aviso |
+
+⚠️⚠️ **El predicado de `venta_sin_factura` es EL MISMO que usa `emitir_facturas_pendientes`, y tiene que serlo**: si el aviso contara una cosa y el botón «emitir las que faltan» emitiera otra, el panel se contradiría a sí mismo y nadie podría saber cuál de los dos miente.
+
+⚠️ **No se mira `vigente`, a propósito**: una simplificada sustituida no cuenta en el libro, pero su venta **sí** tiene documento (la completa que la sustituyó). Filtrar por vigencia haría que **cada canje inventara una venta sin facturar**.
+
+El segundo aviso saca de este markdown algo que solo vivía aquí: que el libro y el 303 discrepan mientras no haya rectificativa. **La diferencia entre «lo sabemos» y «lo sabe quien firma»** es justo lo que estos avisos existen para cubrir.
+
+**Verificado contra el remoto con línea base tomada ANTES de aplicar, 13/13.** El más importante:
+
+- **D1 · los importes NO se han movido** — comparación `jsonb` del bloque `totales` entero, no campo a campo.
+- **E3 · ⭐ emitiendo las que faltan, el aviso se calla solo.** Es la propiedad que distingue esto de haber borrado el aviso.
+- **E5 · facturar no mueve el resultado** (−24,64): vuelve a demostrar que la liquidación va por `devengado_el` y es independiente de la facturación.
+
+⚠️ **Regla para lo que venga, y está escrita en el tipo `LiquidacionIvaAviso`**: un aviso se condiciona a **un estado del mundo**, nunca a una fase del desarrollo. Si se condiciona a «esto todavía no existe», el día que exista el aviso miente y nadie se acuerda de él.
+
+### 🔜 Lo siguiente, por orden
+
+1. **Pushear** (ver el aviso de arriba) y **emitir las que faltan** desde Contabilidad → Facturas: hay **2 ventas devengadas sin factura** y el 303 las está cantando. Saldrán `VALS202600100` y `VALS202600101`.
+   - ⚠️ La completa de `260813018694` **habrá que reemitirla a mano** si se quiere: la que había (`F2026/00001`) se borró con el cambio de formato.
+2. **La rectificativa por devolución** — ya la pide el propio informe.
+3. El PDF, y el botón de emitir desde la ficha del pedido.
 
 ## ✅ LA 068 Y LA 069 ESTÁN DESPLEGADAS Y VERIFICADAS EN PRODUCCIÓN (2026-08-13)
 
@@ -176,19 +242,11 @@ Tres cosas quedaron demostradas **en producción**, no en un ensayo:
 
 Y el guardia de idempotencia asimétrica (073) **se probó solo el primer día**: como la venta ya tiene completa, «emitir las que faltan» no le añade una simplificada. Sin él habría creado una de más y **el IVA estaría dos veces en el libro**.
 
-### 🔴 PENDIENTE DE DECISIÓN DE JONATHAN: la población dice «españa»
+### ✅ RESUELTO EL 2026-08-14 (cont.): la población, y el número de factura que quiso Jonathan
 
-El domicilio fiscal quedó impreso como **`Calle del Arco, 9 · 28840 españa (Madrid)`**. El campo de población lleva el país. El **28840 es Mejorada del Campo** — el mismo CP y la misma población que el envío de ese pedido.
+La población decía «españa» (`Calle del Arco, 9 · 28840 españa (Madrid)`). **Corregido a `Mejorada del Campo`** en la 074 §7 — y no de memoria: sale de `porCP['28840']` del diccionario del INE del propio repo, la misma fuente que valida las direcciones de envío desde la 041. Un dato fiscal no se rellena a ojo (la lección de la 069 con `fecha_factura`).
 
-⚠️ **Ya está congelado en el snapshot de `F2026/00001` y corregir Ajustes NO arregla esa factura**: una factura emitida no se edita.
-
-✅ **Todavía tiene arreglo porque NO se ha marcado el arranque fiscal.** Es exactamente para lo que existe ese interruptor. Lo propuesto y **no ejecutado, a la espera de que él lo diga**:
-
-1. corregir la población en TI → Ajustes,
-2. borrar `F2026/00001` y dejar `factura_contadores` (`F`, 2026) en `siguiente = 1`,
-3. reemitir → vuelve a salir `F2026/00001`, **sin hueco en la serie**.
-
-⚠️ Borrar sin reiniciar el contador dejaría la siguiente en `F2026/00002` y un hueco donde no hubo factura.
+Jonathan aprovechó para cambiar **el formato del número**, y de eso salió la sesión entera: ver «**El número de factura, y el formato triplicado**» más abajo. Resumen: las facturas de prueba se borraron, el formato es ahora **`VALS202600100`** y arranca en **100**.
 
 ### ⚠️ Se facturó un pedido REEMBOLSADO, y el libro y el 303 discrepan
 
@@ -201,8 +259,9 @@ Los dos tienen razón por separado y no cuadran entre sí. **Se sabe por qué y 
 
 ### 🔜 Lo que queda de esto
 
-1. 🔴 **El aviso `sin_facturas_emitidas` del 303 ya MIENTE.** Sigue diciendo «todavía no existe la serie de facturas a clientes (pendiente de confirmar Verifactu)», y existe. Pasó de incompleto a **falso**, así que va primero. Tiene que convertirse en «N ventas devengadas sin factura» — si solo se borrara, desaparecería también con la tabla vacía, que es tranquilidad falsa.
+1. ~~🔴 **El aviso `sin_facturas_emitidas` del 303 ya MIENTE.**~~ → **ARREGLADO en la 075** (2026-08-14). Ver la sesión de abajo. Ahora son dos avisos que cuentan y **se callan solos**: `venta_sin_factura` y `devolucion_sin_rectificativa`.
 2. **La rectificativa por devolución.** Tiene ya su columna (`refund_id`) y su índice único, pero necesita usar **exactamente** la aritmética del bloque `rectificado` de la 068, o el documento y el 303 dirían cosas distintas. ⚠️ Y tiene que poder emitirse **a máquina**: la vía del webhook corre sin nadie delante.
+   - ⭐ **Y ya hay quien lo pida**: el aviso `devolucion_sin_rectificativa` de la 075 lo declara en el propio informe («1 devolución(es) sin factura rectificativa»), así que la discrepancia entre el libro y el 303 ya no vive solo en este markdown. **Se callará solo** el día que la rectificativa exista.
 3. **El PDF.** ⚠️ Terreno nuevo: **no hay ninguna librería de generación de PDF en el monorepo** (las de compra se *suben*, no se generan). Cuando llegue, se genera **al pedirlo desde la fila**, no se almacena: la fila es la verdad y un PDF guardado es el segundo sitio que puede divergir.
 4. **El atajo desde la ficha del pedido.** Hoy la completa se emite desde Contabilidad → Facturas eligiendo la venta. Falta el botón en el detalle del pedido, gobernado por `contabilidad:edicion` y **no** por el permiso de pedidos.
 
@@ -302,7 +361,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **070** (los documentos DISTINTOS de cada bloque de la liquidación; solo lectura). Antes la **069** (`fecha_factura` a NOT NULL, aplicada **después** de verificar el deploy por HTTP). Antes la **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **075** (los dos avisos condicionales del 303, en vez del incondicional que había pasado a ser falso; solo lectura). Antes la **074** (el número `VALS202600100`: `factura_numero()` como única definición del formato, `factura_correlativo_inicial()` = 100, las series con prefijo `VAL`, y la población del emisor corregida). Antes las **071, 072 y 073** (los datos fiscales del emisor · el libro de facturas emitidas con su cadena de huellas y el trigger diferido de la simplificada · la completa a petición y la mina del `ON DELETE RESTRICT`; ver la sesión 2026-08-13 cont.). Antes la **070** (los documentos DISTINTOS de cada bloque de la liquidación; solo lectura). Antes la **069** (`fecha_factura` a NOT NULL, aplicada **después** de verificar el deploy por HTTP). Antes la **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
