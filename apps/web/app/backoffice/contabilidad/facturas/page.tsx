@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { AlertTriangle, Check, FileText, ShieldCheck, ShieldAlert } from "lucide-react";
-import { apiFetch, ApiError } from "@lib/api/client";
+import { apiFetch, apiFetchBlob, ApiError } from "@lib/api/client";
 import { Button } from "@components/ui/button";
 import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
@@ -113,6 +113,30 @@ export default function FacturasPage() {
     () => facturables.find((p) => p.pedido_id === pedidoId) ?? null,
     [facturables, pedidoId],
   );
+
+  /**
+   * Abre el PDF de una factura en una pestaña nueva.
+   *
+   * ⚠️ Se pide con la sesión y se envuelve en un `blob:`: la API se autentica con
+   * el Bearer de Supabase, así que un `<a href>` al endpoint daría un 401. Y la
+   * URL se revoca con retraso, no justo después de `open`, porque revocarla de
+   * inmediato deja la pestaña nueva sin nada que cargar en algunos navegadores.
+   */
+  const [pdfAbriendo, setPdfAbriendo] = useState<string | null>(null);
+  const abrirPdf = async (facturaId: string) => {
+    if (pdfAbriendo) return;
+    setPdfAbriendo(facturaId);
+    try {
+      const blob = await apiFetchBlob(`/admin/contabilidad/facturas/${facturaId}/pdf`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo abrir el PDF");
+    } finally {
+      setPdfAbriendo(null);
+    }
+  };
 
   // Cuántas ventas devengadas no tienen NINGÚN documento. Es el número que el
   // aviso del 303 dará por su cuenta cuando exista; aquí se deduce de la lista.
@@ -418,7 +442,18 @@ export default function FacturasPage() {
                     className={`border-b last:border-0 ${f.vigente ? "" : "text-muted-foreground"}`}
                   >
                     <td className="p-3 font-mono">
-                      {f.numero}
+                      {/* Se pincha y se abre el PDF, igual que en la ficha del
+                          pedido. No es un `<a href>` porque la API se autentica
+                          con el Bearer de Supabase y un enlace pelado daría 401
+                          (ver `apiFetchBlob`). */}
+                      <button
+                        type="button"
+                        onClick={() => void abrirPdf(f.id)}
+                        disabled={pdfAbriendo === f.id}
+                        className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+                      >
+                        {f.numero}
+                      </button>
                       {/* Una sustituida no se tacha ni se esconde: existe, se
                           emitió y está en el libro. Lo que cambia es que NO cuenta. */}
                       {!f.vigente && (

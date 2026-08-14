@@ -1,4 +1,17 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import type { Response } from "express";
 import { ContabilidadService } from "./contabilidad.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
@@ -98,5 +111,50 @@ export class ContabilidadController {
   @HttpCode(HttpStatus.OK)
   emitirPendientes(@CurrentUser() user: JwtPayload) {
     return this.contabilidadService.emitirFacturasPendientes(user.sub);
+  }
+
+  /**
+   * El PDF de una factura, **generado al pedirlo y nunca almacenado**: la fila es
+   * la verdad, y un fichero guardado sería un segundo sitio que puede divergir.
+   *
+   * `lectura` y no `edicion`: ver un documento no lo cambia, y quien consulta el
+   * libro tiene que poder abrir lo que hay en él.
+   *
+   * ⚠️ `inline` y no `attachment`, para que se abra en el navegador al pinchar el
+   * número en vez de caer en la carpeta de descargas. Quien lo quiera guardar lo
+   * hace desde el visor, que es donde lo va a buscar.
+   */
+  @Get("facturas/:id/pdf")
+  async pdf(@Param("id", ParseUUIDPipe) id: string, @Res() res: Response) {
+    const { pdf, nombre } = await this.contabilidadService.facturaPdf(id);
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${nombre}"`,
+      "Content-Length": String(pdf.length),
+      // ⚠️ Sin caché, y no por paranoia: el PDF se genera de la fila, así que si
+      // algún día un dato del snapshot cambiara —o se corrigiera el formato del
+      // número, como pasó en la 074— una copia cacheada en un proxy seguiría
+      // sirviendo el documento viejo sin que nadie lo supiera.
+      "Cache-Control": "no-store",
+    });
+    res.end(pdf);
+  }
+
+  /**
+   * Manda la factura al cliente con el PDF adjunto, y lo anota en el libro.
+   *
+   * `edicion` como emitir: no destruye nada, pero **sale de la casa** — es la
+   * única acción de contabilidad que pone un documento en manos de un tercero.
+   *
+   * ⚠️ Devuelve 200 y NO es idempotente a propósito: reenviar está permitido
+   * porque la gente pierde correos, y cada envío deja su evento `enviada`. Lo que
+   * no puede pasar es que un reenvío ocurra sin rastro.
+   */
+  @Post("facturas/:id/enviar")
+  @Nivel("edicion")
+  @HttpCode(HttpStatus.OK)
+  enviar(@Param("id", ParseUUIDPipe) id: string, @CurrentUser() user: JwtPayload) {
+    return this.contabilidadService.enviarFacturaAlCliente(id, user.sub);
   }
 }

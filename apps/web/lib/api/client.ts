@@ -30,6 +30,31 @@ export class ApiError extends Error {
  * - Normaliza los errores ({ statusCode, message }) a ApiError.
  */
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await peticion(path, options);
+
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+/**
+ * Lo mismo, pero devolviendo el cuerpo en binario. Para el PDF de una factura.
+ *
+ * ⚠️⚠️ HACE FALTA UNA VARIANTE Y NO SIRVE UN `<a href>` PELADO, y el motivo está
+ * dos funciones más arriba: la API se autentica con el **Bearer** de la sesión de
+ * Supabase, y un enlace normal no manda cabeceras. Un `<a>` al endpoint del PDF
+ * daría un 401 — o peor, la pantalla de login en una pestaña nueva.
+ *
+ * Así que se pide con la sesión, se envuelve en un `blob:` y se abre eso. Quien lo
+ * llame debe **revocar la URL** cuando termine (`URL.revokeObjectURL`), o cada
+ * factura consultada se queda en memoria hasta recargar la página.
+ */
+export async function apiFetchBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const res = await peticion(path, options);
+  return res.blob();
+}
+
+/** La parte común: sesión, cabeceras y el mapeo de errores a `ApiError`. */
+async function peticion(path: string, options: RequestInit): Promise<Response> {
   const supabase = createSupabaseBrowserClient();
   const {
     data: { session },
@@ -63,6 +88,5 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     throw new ApiError(res.status, message);
   }
 
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return res;
 }

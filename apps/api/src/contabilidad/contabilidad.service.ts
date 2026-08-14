@@ -9,6 +9,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { esMensajeParaElUsuario } from "../common/errores/rpc";
 import { ubicacionParaGuardar } from "../common/datos/ubicacion";
+import { FacturaPdfService } from "./factura-pdf.service";
+import { EmailService } from "../email/email.service";
 import { normalizarNif } from "@valatino/types";
 import type {
   AjustesEmisor,
@@ -76,7 +78,11 @@ function mediaNocheUtc(iso: string): number | null {
 export class ContabilidadService {
   private readonly logger = new Logger(ContabilidadService.name);
 
-  constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
+  constructor(
+    @Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly pdf: FacturaPdfService,
+    private readonly email: EmailService,
+  ) {}
 
   /**
    * Modelo 303 del periodo: devengado, rectificado por devoluciones, deducible y
@@ -384,6 +390,105 @@ export class ContabilidadService {
     }
 
     return this.factura(data as string);
+  }
+
+  /**
+   * Manda la factura al cliente por correo, con el PDF adjunto, y **lo anota**.
+   *
+   * ⚠️⚠️ SOLO SE MANDA SI ES VIGENTE, y ese guardia va aquí y no solo en el botón:
+   * una simplificada **canjeada** por una completa sigue existiendo —no se anula
+   * jamás— pero el documento válido de esa venta es la completa. Mandarle al
+   * cliente la sustituida le pone en la mano un papel que el libro ya no cuenta, y
+   * él no tiene forma de saberlo. Ocultar el botón no basta: la ruta seguiría
+   * abierta (la lección del 2026-07-27 con los botones deshabilitados).
+   *
+   * ⚠️ REENVIAR SÍ SE PERMITE. La gente pierde correos, y negarlo obligaría a
+   * emitir un documento nuevo para resolver un problema de buzón. Lo que no se
+   * permite es que un reenvío pase sin rastro: **cada envío deja su evento**, así
+   * que el libro responde «¿se le mandó, cuándo y a quién» — y encaja con el
+   * registro de eventos que Verifactu exige.
+   */
+  async enviarFacturaAlCliente(
+    facturaId: string,
+    actorId?: string,
+  ): Promise<{ numero: string; email: string; cuando: string }> {
+    const factura = await this.factura(facturaId);
+
+    // `vigente` y el correo del cliente no están en la factura: uno lo calcula la
+    // vista y el otro vive en el pedido. Se piden juntos para no hacer dos viajes.
+    const [{ data: enLibro }, { data: pedido }] = await Promise.all([
+      this.supabase
+        .from("libro_facturas_expedidas")
+        .select("vigente, sustituida_por")
+        .eq("id", facturaId)
+        .maybeSingle(),
+      this.supabase
+        .from("pedidos")
+        .select("email_cliente, numero_pedido")
+        .eq("id", factura.pedido_id)
+        .maybeSingle(),
+    ]);
+
+    const vigencia = (enLibro ?? {}) as { vigente?: boolean; sustituida_por?: string | null };
+    if (vigencia.vigente === false) {
+      throw new BadRequestException(
+        `La factura ${factura.numero} fue sustituida por ${vigencia.sustituida_por ?? "otra"}: ` +
+          "manda esa, que es la que cuenta en el libro.",
+      );
+    }
+
+    const email = ((pedido ?? {}) as { email_cliente?: string | null }).email_cliente?.trim();
+    if (!email) {
+      // Pasa con los pedidos de invitado antiguos. Se dice, en vez de fallar con
+      // un error de SMTP que no explica nada.
+      throw new BadRequestException(
+        `El pedido de la factura ${factura.numero} no tiene correo del cliente al que mandarla.`,
+      );
+    }
+
+    const pdf = await this.pdf.generar(factura);
+
+    // ⚠️ El correo va ANTES del evento, a propósito: un evento «enviada» de un
+    // correo que no salió es peor que no tener evento, porque nadie volvería a
+    // intentarlo. Si esto lanza, no se anota nada.
+    await this.email.enviarFactura({
+      email,
+      numero: factura.numero,
+      tipo: factura.tipo,
+      total: factura.total,
+      numeroPedido: ((pedido ?? {}) as { numero_pedido?: string | null }).numero_pedido ?? null,
+      pdf,
+      nombreArchivo: this.pdf.nombreArchivo(factura),
+    });
+
+    const cuando = new Date().toISOString();
+    const { error } = await this.supabase.from("factura_eventos").insert({
+      factura_id: facturaId,
+      evento: "enviada",
+      detalle: { email, numero: factura.numero },
+      actor_id: actorId ?? null,
+    });
+
+    if (error) {
+      // El correo YA salió, así que esto no puede fallar la petición: quien pulsó
+      // vería un error sobre algo que sí ocurrió, y reenviaría. Se registra alto
+      // porque deja el libro sin el rastro de una entrega real.
+      this.logger.error(
+        `La factura ${factura.numero} se envió a ${email} pero no se pudo anotar el evento: ${error.message}`,
+      );
+    }
+
+    this.logger.warn(
+      `Factura ${factura.numero} enviada a ${email}${actorId ? ` por ${actorId}` : ""}`,
+    );
+
+    return { numero: factura.numero, email, cuando };
+  }
+
+  /** El PDF de una factura, generado al pedirlo y nunca almacenado. */
+  async facturaPdf(id: string): Promise<{ pdf: Buffer; nombre: string }> {
+    const factura = await this.factura(id);
+    return { pdf: await this.pdf.generar(factura), nombre: this.pdf.nombreArchivo(factura) };
   }
 
   /** Una factura por su id, ya emitida. */

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { createTransport, type Transporter } from "nodemailer";
 import { renderConfirmacionPedido, type DatosEmailPedido } from "./templates/confirmacion-pedido";
 import {
@@ -6,6 +6,7 @@ import {
   type DatosEmailTransferencia,
 } from "./templates/instrucciones-transferencia";
 import { renderCambioEstado, type DatosEmailEstado } from "./templates/estado-pedido";
+import { renderFacturaEmitida, type DatosEmailFactura } from "./templates/factura-emitida";
 import { EventosPedidoService } from "../eventos/eventos-pedido.service";
 
 @Injectable()
@@ -115,6 +116,54 @@ export class EmailService {
     if (await this.enviar({ to: datos.email, subject: render.asunto, html: render.html })) {
       await this.anotar(datos.pedidoId, render.asunto);
     }
+  }
+
+  /**
+   * La factura al cliente, con el PDF adjunto.
+   *
+   * ⚠️⚠️ ES EL ÚNICO CORREO DE LA TIENDA QUE **LANZA** SI FALLA, y la diferencia
+   * es deliberada. Todos los demás salen solos detrás de algo que ya ocurrió —un
+   * cobro, un cambio de estado— y ahí tragarse el fallo es lo correcto: un SMTP
+   * caído no puede tumbar una venta (`enviar()` devuelve `false` y sigue).
+   *
+   * Este lo dispara una persona pulsando «Enviar al cliente» y esperando la
+   * respuesta. Devolver `false` en silencio pintaría un «enviada» sobre un correo
+   * que no salió, y nadie volvería a intentarlo — que es exactamente el fallo que
+   * la 044 dejó documentado con el reembolso que se anunciaba sin cobrarse.
+   */
+  async enviarFactura(datos: DatosEmailFactura): Promise<void> {
+    const { asunto, html } = renderFacturaEmitida(datos);
+
+    if (!this.transporter) {
+      throw new ServiceUnavailableException(
+        "El correo no está configurado en este entorno, así que la factura no se ha enviado.",
+      );
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: this.fromEmail,
+        ...(this.replyTo ? { replyTo: this.replyTo } : {}),
+        to: datos.email,
+        subject: asunto,
+        html,
+        // ⚠️ `contentType` explícito: sin él, algunos clientes se guían por la
+        // extensión y un adjunto sin tipo acaba como `application/octet-stream`,
+        // que el móvil ofrece «descargar» en vez de abrir.
+        attachments: [
+          { filename: datos.nombreArchivo, content: datos.pdf, contentType: "application/pdf" },
+        ],
+      });
+    } catch (err) {
+      this.logger.error(
+        `Error SMTP enviando la factura ${datos.numero} a ${datos.email}: ${(err as Error).message}`,
+      );
+      throw new ServiceUnavailableException(
+        `No se pudo enviar la factura ${datos.numero}: el correo no salió. Vuelve a intentarlo.`,
+      );
+    }
+
+    this.logger.log(`Factura ${datos.numero} enviada a ${datos.email}`);
   }
 
   /**

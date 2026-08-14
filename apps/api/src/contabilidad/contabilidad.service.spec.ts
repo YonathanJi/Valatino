@@ -1,6 +1,8 @@
 import { BadRequestException, UnprocessableEntityException } from "@nestjs/common";
 import { ContabilidadService } from "./contabilidad.service";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { FacturaPdfService } from "./factura-pdf.service";
+import type { EmailService } from "../email/email.service";
 
 interface RespuestaRpc {
   data?: unknown;
@@ -23,9 +25,26 @@ function crearSupabase(respuesta: RespuestaRpc = { data: {}, error: null }) {
   return { supabase: supabase as unknown as SupabaseClient, llamadas };
 }
 
+/**
+ * El PDF y el correo son dobles inertes en estos tests: ninguna de las rutas que
+ * aquí se comprueban los toca. Los que sí prueban el envío los sustituyen por
+ * espías propios (ver el describe del final).
+ */
+const PDF_INERTE = {
+  generar: async () => Buffer.from("%PDF-falso"),
+  nombreArchivo: () => "falsa.pdf",
+} as unknown as FacturaPdfService;
+
+const EMAIL_INERTE = {
+  enviarFactura: async () => undefined,
+} as unknown as EmailService;
+
 function crearServicio(respuesta?: RespuestaRpc) {
   const { supabase, llamadas } = crearSupabase(respuesta);
-  return { servicio: new ContabilidadService(supabase), llamadas };
+  return {
+    servicio: new ContabilidadService(supabase, PDF_INERTE, EMAIL_INERTE),
+    llamadas,
+  };
 }
 
 describe("ContabilidadService — liquidación de IVA", () => {
@@ -244,7 +263,7 @@ describe("ContabilidadService — la población de un dato fiscal", () => {
       }),
     };
 
-    return { servicio: new ContabilidadService(supabase as unknown as SupabaseClient), rpc, updates };
+    return { servicio: new ContabilidadService(supabase as unknown as SupabaseClient, PDF_INERTE, EMAIL_INERTE), rpc, updates };
   }
 
   const RECEPTOR = {

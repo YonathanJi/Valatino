@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { apiFetch, ApiError } from "@lib/api/client";
+import { apiFetch, apiFetchBlob, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { HistorialPedido } from "@components/backoffice/HistorialPedido";
@@ -373,32 +373,9 @@ function FacturasDeLaVenta({
           solo pasa con las anteriores a configurar los datos fiscales del negocio.
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3">
           {facturas.map((f) => (
-            <li
-              key={f.id}
-              className={
-                f.vigente
-                  ? "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm"
-                  : "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-muted-foreground"
-              }
-            >
-              <span className="flex flex-wrap items-baseline gap-x-2">
-                <span className="font-mono font-medium">{f.numero}</span>
-                <span className="text-xs">{FACTURA_TIPO_LABELS[f.tipo]}</span>
-                {/* Una sustituida no se tacha: sigue existiendo y no se anula
-                    jamás. Se dice qué la sustituyó, que es el dato útil. */}
-                {!f.vigente && f.sustituida_por && (
-                  <span className="text-xs">
-                    · sustituida por{" "}
-                    <span className="font-mono">{f.sustituida_por}</span>
-                  </span>
-                )}
-              </span>
-              <span className="text-xs">
-                {fechaCorta(f.fecha_expedicion)} · {formatEUR(Number(f.total))}
-              </span>
-            </li>
+            <FilaFactura key={f.id} factura={f} puedeEnviar={puedeEmitir} />
           ))}
         </ul>
       )}
@@ -412,6 +389,113 @@ function FacturasDeLaVenta({
         </Link>
       )}
     </section>
+  );
+}
+
+/**
+ * Una factura: se pincha y se ve el PDF, y se le manda al cliente.
+ *
+ * ⚠️ El PDF **se abre en una pestaña nueva y no se descarga**. La API lo sirve
+ * `inline`, y quien quiera guardarlo lo hace desde el visor — que es donde va a
+ * buscar el botón. Forzar la descarga deja el fichero en una carpeta que nadie
+ * mira y obliga a abrirlo a mano para comprobar que es el correcto.
+ */
+function FilaFactura({ factura, puedeEnviar }: { factura: FacturaDeLaVenta; puedeEnviar: boolean }) {
+  const [abriendo, setAbriendo] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+
+  const verPdf = async () => {
+    if (abriendo) return;
+    setAbriendo(true);
+    try {
+      const blob = await apiFetchBlob(`/admin/contabilidad/facturas/${factura.id}/pdf`);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      /**
+       * ⚠️ La URL se revoca con retraso y NO justo después de `open`: revocarla
+       * de inmediato deja a la pestaña nueva sin nada que cargar en algunos
+       * navegadores. Y hay que revocarla, o cada factura consultada se queda en
+       * memoria hasta recargar la página.
+       */
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo abrir el PDF");
+    } finally {
+      setAbriendo(false);
+    }
+  };
+
+  const enviar = async () => {
+    if (enviando) return;
+    setEnviando(true);
+    try {
+      const r = await apiFetch<{ numero: string; email: string }>(
+        `/admin/contabilidad/facturas/${factura.id}/enviar`,
+        { method: "POST" },
+      );
+      // Se dice A QUIÉN se mandó, no solo «enviada»: el correo sale del pedido y
+      // quien pulsa no lo tiene delante. Si se fue a la dirección equivocada,
+      // este aviso es el único momento en que se puede notar.
+      toast.success(`Factura ${r.numero} enviada a ${r.email}`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "No se pudo enviar la factura");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <li className={factura.vigente ? "text-sm" : "text-sm text-muted-foreground"}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <button
+            type="button"
+            onClick={() => void verPdf()}
+            disabled={abriendo}
+            className="font-mono font-medium underline underline-offset-2 hover:no-underline disabled:opacity-60"
+          >
+            {factura.numero}
+          </button>
+          <span className="text-xs">{FACTURA_TIPO_LABELS[factura.tipo]}</span>
+          {/* Una sustituida no se tacha: sigue existiendo y no se anula jamás.
+              Se dice qué la sustituyó, que es el dato útil. */}
+          {!factura.vigente && factura.sustituida_por && (
+            <span className="text-xs">
+              · sustituida por <span className="font-mono">{factura.sustituida_por}</span>
+            </span>
+          )}
+        </span>
+        <span className="text-xs">
+          {fechaCorta(factura.fecha_expedicion)} · {formatEUR(Number(factura.total))}
+        </span>
+      </div>
+
+      {/**
+       * ⚠️⚠️ ENVIAR SOLO SI ES VIGENTE. Una simplificada canjeada sigue existiendo
+       * pero el documento válido de esa venta es la completa; mandar la sustituida
+       * le pone al cliente en la mano un papel que el libro ya no cuenta, y él no
+       * tiene forma de saberlo. El servidor lo rechaza también —ocultar el botón
+       * no cierra la ruta— pero aquí se DICE por qué en vez de dejar un hueco.
+       */}
+      {puedeEnviar && (
+        <div className="mt-1">
+          {factura.vigente ? (
+            <button
+              type="button"
+              onClick={() => void enviar()}
+              disabled={enviando}
+              className="text-xs underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            >
+              {enviando ? "Enviando…" : "Enviar al cliente por correo"}
+            </button>
+          ) : (
+            <span className="text-xs">
+              No se envía: la que cuenta es {factura.sustituida_por ?? "la que la sustituyó"}.
+            </span>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
