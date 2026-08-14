@@ -109,6 +109,18 @@ El segundo aviso saca de este markdown algo que solo vivía aquí: que el libro 
 
 ⚠️ **Regla para lo que venga, y está escrita en el tipo `LiquidacionIvaAviso`**: un aviso se condiciona a **un estado del mundo**, nunca a una fase del desarrollo. Si se condiciona a «esto todavía no existe», el día que exista el aviso miente y nadie se acuerda de él.
 
+### ✅ LA LIMPIEZA SOBREVIVE AL CANJE, y el motivo hay que apuntarlo
+
+Antes de decirle a Jonathan que podía limpiar sin riesgo, se **ejecutó** contra el remoto en transacción revertida, y con el estado en que él quedará: **2 ventas con simplificada y una canjeada a completa**, o sea con `sustituye_a` poblado. Resultado: **3 facturas y 2 pedidos borrados, 0 descuadres de stock**.
+
+⚠️⚠️ **Y funciona por un motivo frágil que no estaba escrito en ninguna parte.** `facturas_emitidas.sustituye_a` (y `rectifica_a`) se referencian **a la propia tabla con `ON DELETE RESTRICT`**, y en Postgres `RESTRICT` **no se puede diferir**: se comprueba a lo largo de la sentencia, no al final de la transacción. Lo que salva a la limpieza es que borra **todas las facturas en UNA SOLA sentencia** (`delete from facturas_emitidas where id is not null`), así que cuando se comprueba la simplificada, la completa que la señalaba ya no está.
+
+**Si alguien trocea ese DELETE** —por lotes, por serie, por ejercicio, «para que sea más seguro»— **la limpieza se rompe con el error del RESTRICT** en cuanto exista un canje. Es la hermana no detectada de la mina que arregló la 073 con `pedido_id`. No hay que arreglar nada hoy: hay que **no trocear ese DELETE**.
+
+Comprobado también que la limpieza **conserva** los datos fiscales del emisor y el IBAN (no hay que volver a teclearlos), los 20 productos con sus fotos, las 2 facturas de compra con sus 23 líneas, el proveedor y los 6 cargos con sus plantillas — y que la numeración vuelve a arrancar en **`VALS202600100`**.
+
+⭐ **Y de paso confirmó la 075 en un estado que no se había probado**: con la base limpia, el 303 vuelve a **−25,10 €** (solo compras) y el único aviso que queda es `sin_arranque_fiscal`. Los dos nuevos **se callan solos**, que es exactamente para lo que se escribieron.
+
 ### 🔜 Lo siguiente, por orden
 
 1. **Pushear** (ver el aviso de arriba) y **emitir las que faltan** desde Contabilidad → Facturas: hay **2 ventas devengadas sin factura** y el 303 las está cantando. Saldrán `VALS202600100` y `VALS202600101`.
