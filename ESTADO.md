@@ -174,13 +174,54 @@ Repetido con el §2: **6/6**, con el mensaje accionable, cazando el NIF en minú
 
 **+10 tests** en `contabilidad.service.spec.ts`, que **no cubría ninguna de las dos rutas**. 688 tests, `type-check` y **build de producción** en verde.
 
+## ⭐ HECHO EL 2026-08-14 (cont. 3) — pedido ↔ factura, los dos sentidos
+
+Jonathan lo pidió como dos cosas («accesos directos entre pedidos y facturas» y «que aparezca la simplificada en el pedido como consulta») y **son la misma pieza**. **Sin migración**: el dato ya existía.
+
+- **La ficha del pedido** gana el bloque «Facturas de esta venta»: número, tipo, fecha e importe, y el canje contado como es — **una simplificada sustituida no se tacha**, porque sigue existiendo y no se anula jamás; se dice **quién la sustituyó**, que es el dato útil.
+- Se lee de la **vista** `libro_facturas_expedidas`, no de la tabla, así que `vigente` **viene calculado**. Deducirlo en la ficha sería una segunda copia de la regla de la 073 §5 — la que evita contar el IVA dos veces.
+- **El camino de vuelta**: la columna de pedido del libro enlaza a la ficha.
+
+### ⚠️⚠️ NO HAY FORMULARIO FISCAL EN LA FICHA, y es deliberado
+
+El botón lleva a **Contabilidad → Facturas con la venta ya elegida** (`?pedido=<uuid>`) en vez de repetir ahí los cinco campos del receptor. Duplicarlo significaría duplicar **el aviso del emisor, la validación del NIF y el desplegable de población acotado por CP** — y esta misma sesión costó dos migraciones justamente porque la misma regla vivía en varios sitios y una se quedó atrás. Sigue siendo un atajo: un clic y el formulario ya sabe de qué venta hablas.
+
+Si algún día se quiere emitir sin salir del pedido, **lo que hay que mover es el formulario a un componente compartido**, no copiarlo.
+
+### Tres detalles que no se ven pero evitan una pantalla rota
+
+1. ⚠️ **Los dos atajos se aplican UNA sola vez.** Sin eso, cada refresco de la lista —Realtime en pedidos, recargar facturables al emitir— volvería a seleccionar o a reabrir, **deshaciendo lo que la persona acabara de hacer**, incluido el `setPedidoId("")` de después de emitir.
+2. ⚠️ **Si el objetivo no está en la lista, se dice por qué**: ya tiene su completa, o el pedido es más viejo que los últimos 100 cargados. Un formulario en blanco sin explicación parece una pantalla perdida, no un enlace caducado.
+3. ⚠️ **Un fallo al leer las facturas no tumba la ficha**: se registra y se sigue con la lista vacía, que la pantalla ya sabe pintar. Los artículos y el historial son lo que alguien vino a ver.
+
+### ⚠️⚠️ El receptor NO se manda, y el `select` explícito no es la única defensa
+
+El endpoint del detalle lo sirve **`pedidos:lectura`**, que tiene todo el equipo, y el `receptor` de una factura son **el NIF y el domicilio fiscal del cliente**. El `select` pide siete columnas — pero además **las filas se mapean campo a campo, no con un `as`**: un `select` es fácil de cambiar a `*` sin pensarlo, y con el mapeo ese descuido no filtra nada. **Es la diferencia entre confiar en que nadie toque una cadena y que no importe si la tocan.**
+
+Emitir exige **`contabilidad:edicion`**, no el permiso de pedidos: quien mueve estados no tiene por qué poder emitir un documento fiscal.
+
+### De paso: `Pedido` gana `devengado_el`
+
+Existía en la BD desde la 068 y no estaba en el tipo. **Es el único signo de «esta venta existe fiscalmente», y no se deduce del estado**: un pedido tiene fecha de devengo si y solo si el cobro ocurrió, así que los `PENDIENTE_PAGO` y los cancelados antes de cobrar quedan fuera solos. Cualquier lista de estados escrita aparte sería una segunda regla que algún día discrepe.
+
+### 🔜 Y la decisión ya tomada sobre el PDF, para no volver a discutirla
+
+Jonathan confirmó que **la factura hay que poder enviársela al cliente por correo**. Eso decide la vía: **se genera en el servidor** (`pdfkit` o `pdf-lib` en la API), no con los estilos de impresión del navegador. La vía sin librería era más barata y con maqueta en CSS, pero **el servidor no tendría fichero** y no se podría adjuntar nunca sin rehacerlo.
+
+⚠️ Descartado **Chromium/puppeteer**: en el plan gratuito de Render es mala idea por memoria y arranque en frío.
+
+⚠️ **Verifactu exige un QR en la factura** y sigue pendiente de la gestoría: al maquetar, dejarle el hueco.
+
+⚠️ **No hay ninguna librería de PDF en el monorepo** (las de compra se *suben*, no se generan), así que es la primera dependencia de este tipo. Y cuando llegue: **se genera al pedirlo, no se almacena** — la fila es la verdad y un PDF guardado es el segundo sitio que puede divergir.
+
 ### 🔜 Lo siguiente, por orden
 
 1. ~~Pushear y emitir las que faltan~~ → **hecho**. Jonathan limpió la base y cursó la operación entera; ver el bloque de arriba.
-2. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
-3. **La rectificativa por devolución** — ya la pide el propio informe (`devolucion_sin_rectificativa`).
-4. **Migrar `DireccionForm` al componente compartido de ubicación**, con la pantalla delante: es checkout, o sea la ruta del dinero.
-5. El PDF, y el botón de emitir desde la ficha del pedido.
+2. 🔴 **Mirar en pantalla el bloque de facturas de la ficha y los dos atajos.** Es lo único de la cont. 3 sin comprobar con un navegador: la consulta está verificada contra el remoto y el build es limpio, pero **nadie ha visto renderizado** ni el bloque ni el `?pedido=` de ida y vuelta. Entrar por Pedidos → pinchar `260814015565`, y desde el libro pinchar el número de pedido.
+3. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
+4. **La rectificativa por devolución** — ya la pide el propio informe (`devolucion_sin_rectificativa`).
+5. **El PDF**, con la vía ya decidida (servidor, ver arriba).
+6. **Migrar `DireccionForm` al componente compartido de ubicación**, con la pantalla delante: es checkout, o sea la ruta del dinero.
 
 ## ✅ LA 068 Y LA 069 ESTÁN DESPLEGADAS Y VERIFICADAS EN PRODUCCIÓN (2026-08-13)
 
