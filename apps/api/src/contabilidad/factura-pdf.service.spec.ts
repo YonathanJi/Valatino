@@ -1,5 +1,52 @@
+import { inflateSync } from "zlib";
 import { FacturaPdfService } from "./factura-pdf.service";
 import type { FacturaEmitida } from "@valatino/types";
+
+/**
+ * El texto que un PDF de pdfkit lleva DENTRO, descomprimiendo sus flujos.
+ *
+ * ⚠️⚠️ EXISTE PORQUE `expect(pdf.length).toBeGreaterThan(1000)` NO PRUEBA NADA de
+ * lo que importa. Un PDF puede ser perfectamente válido y no llevar impresa la
+ * línea que la ley exige. Con esto se puede afirmar sobre el contenido.
+ *
+ * pdfkit escribe el texto como arrays `TJ` de cadenas `<hex>` —con kerning entre
+ * glifos— y en WinAnsi, así que cada byte es un carácter. Los acentos y el «€»
+ * (0x80 en WinAnsi) salen con otro punto de código que en Unicode; para lo que se
+ * comprueba aquí da igual, pero **no busques «€» con esto**.
+ */
+function textoDe(pdf: Buffer): string {
+  const trozos: string[] = [];
+  let i = 0;
+
+  while (true) {
+    const inicio = pdf.indexOf("stream", i);
+    if (inicio < 0) break;
+    let a = inicio + 6;
+    if (pdf[a] === 13) a++;
+    if (pdf[a] === 10) a++;
+    const fin = pdf.indexOf("endstream", a);
+    if (fin < 0) break;
+
+    try {
+      const contenido = inflateSync(pdf.subarray(a, fin)).toString("latin1");
+      for (const bloque of contenido.match(/\[[^\]]*\]\s*TJ/g) ?? []) {
+        let texto = "";
+        for (const hex of bloque.match(/<([0-9a-fA-F]*)>/g) ?? []) {
+          const bytes = hex.slice(1, -1);
+          for (let k = 0; k + 1 < bytes.length; k += 2) {
+            texto += String.fromCharCode(parseInt(bytes.substr(k, 2), 16));
+          }
+        }
+        if (texto.trim()) trozos.push(texto);
+      }
+    } catch {
+      // No era un flujo comprimido (una fuente, por ejemplo).
+    }
+    i = fin + 9;
+  }
+
+  return trozos.join("\n");
+}
 
 /**
  * La factura REAL del 2026-08-14, copiada de la fila del remoto.
@@ -155,6 +202,74 @@ describe("FacturaPdfService", () => {
     } as unknown as FacturaEmitida);
 
     expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  });
+
+  /**
+   * La rectificativa (077). Es el tercer tipo de documento y el único con
+   * importes NEGATIVOS: el libro suma las vigentes para dar el repercutido del
+   * 303, así que una devolución tiene que restar.
+   */
+  describe("rectificativa", () => {
+    const RECTIFICATIVA = {
+      ...FACTURA_REAL,
+      numero: "VALR202600100",
+      tipo: "rectificativa",
+      serie: "VALR",
+      sustituye_a: null,
+      rectifica_a: "ee94ebcd-b89d-41ed-9e2e-a042cd2d0b9f",
+      rectifica_a_numero: "VALF202600100",
+      refund_id: "re_1Tw2mH",
+      // La devolución ocurrió DESPUÉS de la venta, así que las dos fechas difieren
+      // y el documento tiene que llevar las dos.
+      fecha_operacion: "2026-09-02",
+      fecha_expedicion: "2026-09-02",
+      lineas: [
+        {
+          nombre: "Galleta Festival Sabor Chocolate",
+          importe: -2.4,
+          iva_pct: 10,
+          cantidad: 3,
+          precio_unitario: 0.8,
+        },
+      ],
+      desglose: [{ base: -2.18, cuota: -0.22, iva_pct: 10 }],
+      base_total: -2.18,
+      cuota_total: -0.22,
+      total: -2.4,
+    } as unknown as FacturaEmitida;
+
+    it("se genera con importes negativos sin romperse", async () => {
+      const pdf = await servicio.generar(RECTIFICATIVA);
+
+      expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+      expect(pdf.length).toBeGreaterThan(1000);
+    });
+
+    /**
+     * ⚠️⚠️ Sin esta línea el documento NO ES VÁLIDO: el RD 1619/2012 art. 15 exige
+     * que una rectificativa identifique la factura rectificada. Se comprueba en el
+     * texto de dentro del PDF, no en el objeto — lo que importa es que se imprima.
+     */
+    it("imprime a QUÉ factura rectifica, que la ley exige", async () => {
+      const pdf = await servicio.generar(RECTIFICATIVA);
+
+      expect(textoDe(pdf)).toContain("Rectifica a la factura VALF202600100");
+    });
+
+    it("si le falta el número de la rectificada, lo dice en vez de callarlo", async () => {
+      // Pasa si alguien lee de la tabla en vez de la vista: `rectifica_a` es un
+      // uuid y no se puede imprimir. Una rectificativa muda parecería correcta.
+      const pdf = await servicio.generar({
+        ...RECTIFICATIVA,
+        rectifica_a_numero: null,
+      } as unknown as FacturaEmitida);
+
+      expect(textoDe(pdf)).toContain("indicada en el libro registro");
+    });
+
+    it("el nombre del archivo sale de su serie", () => {
+      expect(servicio.nombreArchivo(RECTIFICATIVA)).toBe("VALR202600100.pdf");
+    });
   });
 
   it("el nombre del archivo es el número de la factura", () => {

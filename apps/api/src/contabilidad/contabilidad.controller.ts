@@ -106,11 +106,26 @@ export class ContabilidadController {
    * devengan sin poder facturarse. No es una tarea de rutina — si hace falta a
    * menudo, el trigger no está emitiendo y eso es un fallo.
    */
+  /**
+   * Pone al día lo que falte: las simplificadas de las ventas sin documento **y**
+   * las rectificativas de las devoluciones sin él.
+   *
+   * ⚠️ Las dos en la misma ruta a propósito. Son la misma pregunta desde el punto
+   * de vista de quien la pulsa —«¿falta algo por emitir?»— y separarlas obligaría
+   * a acordarse de darle a dos botones para que el 303 se callara del todo. Los
+   * dos recuentos se devuelven aparte para que la pantalla pueda decir qué salió.
+   *
+   * ⚠️ Y el orden importa: primero las simplificadas. Una rectificativa necesita
+   * una factura vigente a la que rectificar, así que emitir la venta primero es lo
+   * que permite que su devolución se rectifique en la misma pasada.
+   */
   @Post("facturas/pendientes")
   @Nivel("edicion")
   @HttpCode(HttpStatus.OK)
-  emitirPendientes(@CurrentUser() user: JwtPayload) {
-    return this.contabilidadService.emitirFacturasPendientes(user.sub);
+  async emitirPendientes(@CurrentUser() user: JwtPayload) {
+    const ventas = await this.contabilidadService.emitirFacturasPendientes(user.sub);
+    const rectificativas = await this.contabilidadService.emitirRectificativasPendientes(user.sub);
+    return { ...ventas, rectificativas };
   }
 
   /**

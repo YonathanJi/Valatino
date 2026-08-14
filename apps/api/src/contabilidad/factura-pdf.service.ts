@@ -148,14 +148,25 @@ export class FacturaPdfService {
       });
     }
 
-    // Rectificativa: a qué documento corrige. Lo exige el RD 1619/2012 art. 15, y
-    // sin esta línea una rectificativa no es válida.
+    /**
+     * ⚠️⚠️ RECTIFICATIVA: A QUÉ DOCUMENTO CORRIGE. **El RD 1619/2012 art. 15 exige
+     * identificar la factura rectificada**, así que sin esta línea el documento no
+     * es válido — no es un adorno informativo.
+     *
+     * El número lo resuelve la vista `libro_facturas_expedidas` (077): en la tabla
+     * `rectifica_a` es un uuid, que no se puede imprimir. Si llegara sin número
+     * —porque alguien pasó una fila de la tabla en vez de la vista— se dice, en
+     * vez de imprimir una rectificativa muda que parecería correcta.
+     */
     if (f.tipo === "rectificativa") {
+      const rectificada = (f as { rectifica_a_numero?: string | null }).rectifica_a_numero;
       doc.font("Helvetica-Bold").fillColor("#000");
-      doc.text("Rectifica a la factura indicada en el libro registro", {
-        width: ANCHO,
-        align: "right",
-      });
+      doc.text(
+        rectificada
+          ? `Rectifica a la factura ${rectificada}`
+          : "Rectifica a la factura indicada en el libro registro",
+        { width: ANCHO, align: "right" },
+      );
     }
 
     doc.moveDown(1.5);

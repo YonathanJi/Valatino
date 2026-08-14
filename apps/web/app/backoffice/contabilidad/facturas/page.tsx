@@ -188,11 +188,20 @@ export default function FacturasPage() {
         "/admin/contabilidad/facturas/pendientes",
         { method: "POST" },
       );
+      // Las rectificativas se cuentan aparte: normalmente son 0 porque el trigger
+      // de la 077 las emite solas, así que si salen >0 es una recuperación y
+      // merece decirse en vez de sumarse al montón.
+      const rect = r.rectificativas?.emitidas ?? 0;
+      const partes = [
+        r.emitidas > 0 ? `${r.emitidas} factura(s) de venta` : null,
+        rect > 0 ? `${rect} rectificativa(s)` : null,
+      ].filter(Boolean);
+
       toast.success(
-        r.emitidas === 0
-          ? "No había ninguna venta sin factura"
-          : `${r.emitidas} factura(s) emitida(s)` +
-              (r.saltadas > 0 ? `, ${r.saltadas} sin poder emitir` : ""),
+        partes.length === 0
+          ? "No faltaba ninguna factura"
+          : `Emitidas: ${partes.join(" y ")}` +
+              (r.saltadas > 0 ? `. ${r.saltadas} sin poder emitir` : ""),
       );
       await cargar();
     } catch (err) {

@@ -1397,6 +1397,15 @@ export interface FacturaDelLibro extends FacturaEmitida {
   vigente: boolean;
   /** Número de la que la sustituyó, si dejó de ser vigente. */
   sustituida_por: string | null;
+  /**
+   * Número de la factura que ESTA rectifica. Solo en las rectificativas.
+   *
+   * ⚠️ Lo resuelve la vista (077) y no la API: `rectifica_a` es un uuid, y el
+   * RD 1619/2012 art. 15 exige que la rectificativa **identifique la factura
+   * rectificada** — o sea que ese número tiene que salir impreso. Cruzarlo en cada
+   * consumidor sería repetir el mismo join en la API, en la pantalla y en el PDF.
+   */
+  rectifica_a_numero: string | null;
 }
 
 /** Lo que devuelve ponerse al día con las ventas ya devengadas. */
@@ -1404,6 +1413,15 @@ export interface ResultadoEmitirPendientes {
   emitidas: number;
   /** Sin emitir por falta de desglose. Si sale >0, hay algo que mirar. */
   saltadas: number;
+  /**
+   * Las rectificativas de devoluciones que tampoco tenían documento (077).
+   *
+   * ⚠️ Normalmente `{emitidas: 0}`, y eso es lo correcto: el trigger diferido las
+   * emite solas al apuntar la devolución. Si sale >0, alguna no pudo emitirse en
+   * su momento —el emisor sin configurar, o un `rectificativa_fallida`— y esta
+   * pasada la ha recuperado.
+   */
+  rectificativas?: { emitidas: number; saltadas: number };
 }
 
 /** El resultado de recalcular la cadena de huellas de punta a punta. */

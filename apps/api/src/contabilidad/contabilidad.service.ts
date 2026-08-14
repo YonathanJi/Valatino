@@ -412,30 +412,22 @@ export class ContabilidadService {
     facturaId: string,
     actorId?: string,
   ): Promise<{ numero: string; email: string; cuando: string }> {
+    // `factura()` lee de la vista, así que `vigente` viene ya calculado — antes
+    // esto hacía una consulta aparte solo para eso.
     const factura = await this.factura(facturaId);
 
-    // `vigente` y el correo del cliente no están en la factura: uno lo calcula la
-    // vista y el otro vive en el pedido. Se piden juntos para no hacer dos viajes.
-    const [{ data: enLibro }, { data: pedido }] = await Promise.all([
-      this.supabase
-        .from("libro_facturas_expedidas")
-        .select("vigente, sustituida_por")
-        .eq("id", facturaId)
-        .maybeSingle(),
-      this.supabase
-        .from("pedidos")
-        .select("email_cliente, numero_pedido")
-        .eq("id", factura.pedido_id)
-        .maybeSingle(),
-    ]);
-
-    const vigencia = (enLibro ?? {}) as { vigente?: boolean; sustituida_por?: string | null };
-    if (vigencia.vigente === false) {
+    if (!factura.vigente) {
       throw new BadRequestException(
-        `La factura ${factura.numero} fue sustituida por ${vigencia.sustituida_por ?? "otra"}: ` +
+        `La factura ${factura.numero} fue sustituida por ${factura.sustituida_por ?? "otra"}: ` +
           "manda esa, que es la que cuenta en el libro.",
       );
     }
+
+    const { data: pedido } = await this.supabase
+      .from("pedidos")
+      .select("email_cliente, numero_pedido")
+      .eq("id", factura.pedido_id)
+      .maybeSingle();
 
     const email = ((pedido ?? {}) as { email_cliente?: string | null }).email_cliente?.trim();
     if (!email) {
@@ -489,6 +481,31 @@ export class ContabilidadService {
     return { numero: factura.numero, email, cuando };
   }
 
+  /**
+   * Emite las rectificativas de las devoluciones que no la tienen.
+   *
+   * ⚠️ Normalmente NO hace nada, y eso es lo correcto: el trigger diferido de la
+   * 077 las emite solas. Esto es la vía de recuperación para cuando no pudo —el
+   * emisor sin configurar cuando se devolvió, o un fallo que quedó anotado como
+   * `rectificativa_fallida`—. Sin ella, el 303 diría qué falta y la única forma de
+   * arreglarlo sería entrar a la base a mano.
+   */
+  async emitirRectificativasPendientes(actorId?: string): Promise<ResultadoEmitirPendientes> {
+    const { data, error } = await this.supabase.rpc("emitir_rectificativas_pendientes", {
+      p_actor_id: actorId ?? null,
+    });
+
+    if (error) {
+      this.logger.error(`No se pudieron emitir las rectificativas pendientes: ${error.message}`);
+      if (!esMensajeParaElUsuario(error)) {
+        throw new UnprocessableEntityException("No se pudieron emitir las rectificativas");
+      }
+      throw new BadRequestException(error.message);
+    }
+
+    return (data ?? { emitidas: 0, saltadas: 0 }) as ResultadoEmitirPendientes;
+  }
+
   /** El PDF de una factura, generado al pedirlo y nunca almacenado. */
   async facturaPdf(id: string): Promise<{ pdf: Buffer; nombre: string }> {
     const factura = await this.factura(id);
@@ -496,9 +513,18 @@ export class ContabilidadService {
   }
 
   /** Una factura por su id, ya emitida. */
-  async factura(id: string): Promise<FacturaEmitida> {
+  /**
+   * Una factura por su id, ya emitida.
+   *
+   * ⚠️ Se lee de la VISTA y no de la tabla, y eso da tres cosas calculadas que
+   * ninguna consumidora debería recalcular: `vigente`, `sustituida_por` y
+   * `rectifica_a_numero`. La última la NECESITA el PDF: el RD 1619/2012 art. 15
+   * exige que una rectificativa identifique la factura que rectifica, y en la
+   * tabla eso es un uuid que no se puede imprimir.
+   */
+  async factura(id: string): Promise<FacturaDelLibro> {
     const { data, error } = await this.supabase
-      .from("facturas_emitidas")
+      .from("libro_facturas_expedidas")
       .select("*")
       .eq("id", id)
       .maybeSingle();
@@ -508,7 +534,7 @@ export class ContabilidadService {
       throw new UnprocessableEntityException("No se pudo leer la factura");
     }
 
-    return data as FacturaEmitida;
+    return data as FacturaDelLibro;
   }
 
   /**
