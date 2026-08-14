@@ -48,7 +48,42 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-14
+
+**Todo está commiteado y pusheado** (`8d24ef5`), árbol limpio, 0 sin pushear. **713 tests**, `type-check` y los dos builds en verde.
+
+⭐ **La Capa 2 de contabilidad quedó CERRADA hoy**: simplificada automática, completa a petición, **rectificativa por devolución**, el 303, el libro con su cadena de huellas, y el PDF de los tres tipos con envío al cliente por correo.
+
+**Estado del remoto, comprobado al cerrar** (no de memoria):
+
+| | |
+|---|---|
+| Pedidos · devoluciones | **1 · 0** |
+| Facturas | `VALS202600100` · `VALF202600100` (la S sustituida por la F) |
+| Contadores | `VALS→101` `VALF→101` · la serie `VALR` aún sin estrenar |
+| Cadena de huellas | **intacta** |
+| 3T | **−24,83 €** · único aviso: `sin_arranque_fiscal` |
+| Arranque fiscal | **sin marcar** — la ventana para rehacer cosas sigue abierta |
+| Rastros de los ensayos | **0** — todo se revirtió |
+
+⚠️ **Y la regla de siempre, que hoy volvió a salir cara**: este fichero se escribe al final de la sesión y la tienda sigue viva entre sesiones. **Preguntarle a la BD antes de creerse el markdown.**
+
+#### Lo primero, y es de Jonathan: tres cosas en pantalla
+
+Nada de lo de hoy se ha visto con un navegador. Por orden:
+
+1. **Pinchar el botón `PDF`** de una factura en la ficha del pedido → debe abrirse en una pestaña.
+2. **Pulsar `Enviar`** en `VALF202600100` → debe llegar el correo con el adjunto, y el envío aparecer **en el historial del pedido con tu nombre**.
+3. **Devolver el pedido** desde el panel → la **rectificativa `VALR202600100` debe aparecer sola** en la ficha, en negativo, y el aviso del 303 seguir callado.
+
+#### Y después, la cola
+
+1. 🔴 **Cerrar el `NOT VALID`** del CHECK de la 076 cuando `VALF202600100` desaparezca (la línea exacta está en la sección de la 076).
+2. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`.
+3. ⚠️⚠️ **Verifactu con la gestoría.** Ya no es código: el **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. La cadena está y **se puede recalcular antes del arranque fiscal**.
+4. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
+5. La cola de fondo: tests de componentes de la web, accesibilidad, la CSP a obligatoria, y el paso a Stripe `live`.
+
 
 ## ⭐⭐ HECHO EL 2026-08-14 (cont.) — el número de factura, y el aviso que mentía (074 y 075)
 
