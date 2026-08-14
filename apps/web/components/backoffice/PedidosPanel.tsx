@@ -89,6 +89,39 @@ export function PedidosPanel() {
   }, [supabase]);
 
   /**
+   * El atajo desde el libro de facturas: `?pedido=<numero_pedido>` abre su ficha.
+   *
+   * ⚠️ Por número de pedido y NO por uuid: es lo que lleva la fila del libro y lo
+   * que se lee en todo el panel. Un uuid en la barra de direcciones no le dice
+   * nada a nadie.
+   *
+   * ⚠️ Una sola vez (`atajoAplicado`), o la ficha se reabriría cada vez que
+   * Realtime refresca la lista — y con ella cada vez que alguien cambia un estado
+   * desde otro sitio. Cerrarla y que volviera a saltar sería exasperante.
+   *
+   * ⚠️ Y si no está en la lista se DICE por qué: se cargan los últimos 100, así
+   * que una factura de hace meses apunta a un pedido que no está aquí. Abrir nada
+   * en silencio parecería que el enlace está roto.
+   */
+  const [atajoAplicado, setAtajoAplicado] = useState(false);
+  useEffect(() => {
+    if (atajoAplicado || isLoading) return;
+
+    const numero = new URLSearchParams(window.location.search).get("pedido");
+    if (!numero) return;
+
+    setAtajoAplicado(true);
+    const encontrado = pedidos.find((p) => p.numero_pedido === numero);
+    if (encontrado) {
+      setViendo(encontrado);
+    } else {
+      toast.info(
+        `El pedido ${numero} no está entre los últimos cargados. Búscalo en la lista.`,
+      );
+    }
+  }, [atajoAplicado, isLoading, pedidos]);
+
+  /**
    * Devuelve si el cambio se guardó. El aviso se emite aquí, ya conocido el
    * resultado: antes el selector cantaba éxito sin esperar la llamada y este
    * catch se tragaba el error, así que un 403 se anunciaba como guardado.

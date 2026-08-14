@@ -15,6 +15,7 @@ import type {
   PaginatedResponse,
   Pedido,
   ArticuloDevuelto,
+  FacturaDeLaVenta,
   HitoPedido,
   PedidoClienteDetalle,
   PedidoDeCliente,
@@ -424,8 +425,13 @@ export class PedidosService {
       pedido_iva?: unknown[];
     };
 
-    const [{ data: eventos, error: errorEventos }, reembolsados, calificacion, reembolsoLineas] =
-      await Promise.all([
+    const [
+      { data: eventos, error: errorEventos },
+      reembolsados,
+      calificacion,
+      reembolsoLineas,
+      facturas,
+    ] = await Promise.all([
         this.supabase
           .from("pedido_eventos")
           .select("*")
@@ -439,9 +445,38 @@ export class PedidosService {
         // Qué artículos se han devuelto ya. Lo usa la ficha para marcarlos y el
         // modal de reembolso para no volver a ofrecer lo que ya no queda.
         this.reembolsos.lineasDevueltas(pedidoId),
+        /**
+         * Las facturas de esta venta, para poder consultarlas donde se mira el
+         * pedido en vez de ir a buscarlas al libro.
+         *
+         * ⚠️ Se lee de la VISTA `libro_facturas_expedidas` y no de la tabla, y
+         * eso es lo que trae `vigente` calculado: una simplificada canjeada sigue
+         * existiendo pero no cuenta, y deducirlo aquí sería una segunda copia de
+         * la regla de la 073 §5 — la que evita contar el IVA dos veces.
+         *
+         * ⚠️⚠️ Y el `select` es EXPLÍCITO, no `*`: un `*` traería el `receptor`,
+         * o sea el NIF y el domicilio fiscal del cliente, a un endpoint que ve
+         * todo el equipo con `pedidos:lectura`. Ese dato es de contabilidad y
+         * tiene su pantalla con su permiso. Ver `FacturaDeLaVenta`.
+         */
+        this.supabase
+          .from("libro_facturas_expedidas")
+          .select("id, numero, tipo, fecha_expedicion, total, vigente, sustituida_por")
+          .eq("pedido_id", pedidoId)
+          .order("orden", { ascending: true }),
       ]);
 
     if (errorEventos) throw new InternalServerErrorException("No se pudo cargar el historial");
+
+    // ⚠️ Un fallo al leer las facturas NO tumba la ficha: es información de
+    // consulta, y el resto —artículos, historial, devoluciones— es lo que alguien
+    // vino a ver. Se registra y se sigue con la lista vacía, que la pantalla ya
+    // sabe pintar (las ventas anteriores al emisor no tienen ninguna).
+    if (facturas.error) {
+      this.logger.error(
+        `No se pudieron leer las facturas del pedido ${pedidoId}: ${facturas.error.message}`,
+      );
+    }
 
     return {
       pedido: { ...pedido, total_reembolsado: reembolsados.get(pedidoId) ?? 0 } as Pedido,
@@ -454,6 +489,27 @@ export class PedidosService {
       eventos: (eventos ?? []) as PedidoEvento[],
       calificacion,
       reembolso_lineas: reembolsoLineas,
+      /**
+       * ⚠️⚠️ SE MAPEA CAMPO A CAMPO, no con un `as`. El `select` de arriba ya pide
+       * solo estas siete columnas, pero un `select` es fácil de cambiar a `*` sin
+       * pensar —y entonces el NIF y el domicilio fiscal del cliente saldrían por
+       * un endpoint que ve todo el equipo con `pedidos:lectura`—. Con el mapeo,
+       * ese descuido no filtra nada: lo que no está aquí no sale.
+       *
+       * Es la diferencia entre confiar en que nadie toque una cadena y que no
+       * importe si la tocan.
+       */
+      facturas: ((facturas.data ?? []) as Record<string, unknown>[]).map(
+        (f): FacturaDeLaVenta => ({
+          id: f["id"] as string,
+          numero: f["numero"] as string,
+          tipo: f["tipo"] as FacturaDeLaVenta["tipo"],
+          fecha_expedicion: f["fecha_expedicion"] as string,
+          total: Number(f["total"]),
+          vigente: f["vigente"] as boolean,
+          sustituida_por: (f["sustituida_por"] as string | null) ?? null,
+        }),
+      ),
     };
   }
 

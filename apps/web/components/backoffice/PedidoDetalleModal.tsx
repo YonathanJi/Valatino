@@ -1,18 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { HistorialPedido } from "@components/backoffice/HistorialPedido";
+import { usePuede } from "@components/backoffice/PermisosProvider";
 import {
   ESFUERZO_LABELS,
+  FACTURA_TIPO_LABELS,
   SATISFACCION_LABELS,
   formatearTelefono,
   type SatisfaccionCompra,
 } from "@valatino/types";
-import type { PedidoDetalle } from "@valatino/types";
+import type { FacturaDeLaVenta, PedidoDetalle } from "@valatino/types";
 
 const CARAS_SATISFACCION: Record<SatisfaccionCompra, string> = {
   1: "😞",
@@ -295,6 +298,12 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
               )}
             </section>
 
+            <FacturasDeLaVenta
+              facturas={detalle.facturas ?? []}
+              pedidoId={detalle.pedido.id}
+              devengado={!!detalle.pedido.devengado_el}
+            />
+
             <section className="rounded-lg border p-4">
               <h3 className="mb-1 text-sm font-medium">Historial</h3>
               <p className="mb-4 text-xs text-muted-foreground">
@@ -307,4 +316,114 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
       </div>
     </div>
   );
+}
+
+/**
+ * Las facturas de esta venta, aquí y de consulta.
+ *
+ * ⚠️⚠️ NO HAY FORMULARIO FISCAL EN ESTA PANTALLA, Y ES DELIBERADO. El botón lleva
+ * a Contabilidad → Facturas con la venta ya elegida, en vez de repetir aquí los
+ * cinco campos del receptor. Duplicar ese formulario significaría duplicar el
+ * aviso del emisor, la validación del NIF y el desplegable de población acotado
+ * por CP — y esta misma sesión (2026-08-14) costó dos migraciones justamente
+ * porque la misma regla vivía en varios sitios y uno se quedó atrás.
+ *
+ * Sigue siendo un atajo: un clic desde el pedido y el formulario ya sabe de qué
+ * venta hablas.
+ *
+ * ⚠️ Y lo que se muestra es número, tipo, fecha e importe. **No el receptor**: son
+ * los datos fiscales del cliente y esta ficha la ve todo el equipo con
+ * `pedidos:lectura`. La API tampoco los manda (ver `FacturaDeLaVenta`).
+ */
+function FacturasDeLaVenta({
+  facturas,
+  pedidoId,
+  devengado,
+}: {
+  facturas: FacturaDeLaVenta[];
+  pedidoId: string;
+  devengado: boolean;
+}) {
+  // Emitir es de contabilidad, NO del permiso de pedidos: quien mueve estados no
+  // tiene por qué poder emitir un documento fiscal.
+  const puedeEmitir = usePuede("contabilidad", "edicion");
+  const yaTieneCompleta = facturas.some((f) => f.tipo === "completa");
+
+  // Una venta sin devengar no tiene hecho económico que facturar, así que aquí no
+  // hay nada que decir todavía — ni un vacío que parezca un fallo.
+  if (!devengado) return null;
+
+  return (
+    <section className="rounded-lg border p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">Facturas de esta venta</h3>
+        {puedeEmitir && !yaTieneCompleta && (
+          <Link
+            href={`/backoffice/contabilidad/facturas?pedido=${pedidoId}`}
+            className="text-xs font-medium underline underline-offset-2 hover:no-underline"
+          >
+            Emitir factura completa →
+          </Link>
+        )}
+      </div>
+
+      {facturas.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Todavía no tiene ninguna. Cada venta emite su factura simplificada sola, así que esto
+          solo pasa con las anteriores a configurar los datos fiscales del negocio.
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {facturas.map((f) => (
+            <li
+              key={f.id}
+              className={
+                f.vigente
+                  ? "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm"
+                  : "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm text-muted-foreground"
+              }
+            >
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono font-medium">{f.numero}</span>
+                <span className="text-xs">{FACTURA_TIPO_LABELS[f.tipo]}</span>
+                {/* Una sustituida no se tacha: sigue existiendo y no se anula
+                    jamás. Se dice qué la sustituyó, que es el dato útil. */}
+                {!f.vigente && f.sustituida_por && (
+                  <span className="text-xs">
+                    · sustituida por{" "}
+                    <span className="font-mono">{f.sustituida_por}</span>
+                  </span>
+                )}
+              </span>
+              <span className="text-xs">
+                {fechaCorta(f.fecha_expedicion)} · {formatEUR(Number(f.total))}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {facturas.length > 0 && puedeEmitir && (
+        <Link
+          href="/backoffice/contabilidad/facturas"
+          className="mt-3 inline-block text-xs text-muted-foreground underline underline-offset-2 hover:no-underline"
+        >
+          Ver el libro de facturas emitidas
+        </Link>
+      )}
+    </section>
+  );
+}
+
+/**
+ * `2026-08-14` → `14/08/2026`, partiendo la cadena.
+ *
+ * ⚠️ NO con `new Date(iso)`: un `YYYY-MM-DD` se lee como medianoche UTC y en
+ * España eso cae el día anterior por la noche. La ficha de compras ya tropezó con
+ * esto —una factura del 1 de agosto se imprimía como 31 de julio— y la pantalla
+ * de facturas lleva la misma nota.
+ */
+function fechaCorta(iso: string): string {
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a}`;
 }

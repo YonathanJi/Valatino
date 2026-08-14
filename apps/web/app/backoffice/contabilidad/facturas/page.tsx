@@ -81,6 +81,34 @@ export default function FacturasPage() {
     void cargar();
   }, [cargar]);
 
+  /**
+   * El atajo desde la ficha del pedido: `?pedido=<uuid>` deja la venta elegida.
+   *
+   * ⚠️ Se aplica UNA sola vez, con `aplicado`, y hace falta: sin eso, cada vez que
+   * se recargasen los facturables —que pasa al emitir— el efecto volvería a
+   * seleccionar la venta del enlace y **desharía lo que la persona acabara de
+   * hacer**, incluido el `setPedidoId("")` de después de emitir.
+   *
+   * ⚠️ Y si el pedido NO está entre los facturables se dice, en vez de dejar el
+   * desplegable en blanco: la causa normal es que ya tiene su factura completa
+   * —alguien pulsó el enlace dos veces, o desde una ficha vieja— y un formulario
+   * vacío sin explicación parece que la pantalla se ha perdido.
+   */
+  const [atajoAplicado, setAtajoAplicado] = useState(false);
+  useEffect(() => {
+    if (atajoAplicado || cargando) return;
+
+    const delEnlace = new URLSearchParams(window.location.search).get("pedido");
+    if (!delEnlace) return;
+
+    setAtajoAplicado(true);
+    if (facturables.some((p) => p.pedido_id === delEnlace)) {
+      setPedidoId(delEnlace);
+    } else {
+      toast.info("Esa venta ya no está pendiente de factura completa: mírala en el libro.");
+    }
+  }, [atajoAplicado, cargando, facturables]);
+
   const elegido = useMemo(
     () => facturables.find((p) => p.pedido_id === pedidoId) ?? null,
     [facturables, pedidoId],
@@ -414,7 +442,21 @@ export default function FacturasPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="p-3 font-mono text-xs">{f.numero_pedido ?? "—"}</td>
+                    {/* El otro extremo del atajo: del libro a la venta. Va por
+                        `numero_pedido` y no por el uuid porque es lo que hay en
+                        la fila y lo que se lee en el resto del panel. */}
+                    <td className="p-3 font-mono text-xs">
+                      {f.numero_pedido ? (
+                        <Link
+                          href={`/backoffice/pedidos?pedido=${f.numero_pedido}`}
+                          className="underline underline-offset-2 hover:no-underline"
+                        >
+                          {f.numero_pedido}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="p-3 text-right">{formatEUR(f.base_total)}</td>
                     <td className="p-3 text-right">{formatEUR(f.cuota_total)}</td>
                     <td className="p-3 text-right font-medium">{formatEUR(f.total)}</td>

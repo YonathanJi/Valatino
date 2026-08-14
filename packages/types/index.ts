@@ -591,6 +591,21 @@ export interface Pedido {
   envio_telefono: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Cuándo se devengó el IVA de esta venta, o `null` si todavía no ha ocurrido
+   * (migración 068).
+   *
+   * ⚠️⚠️ **ES EL ÚNICO SIGNO DE «ESTA VENTA EXISTE FISCALMENTE», y no se deduce
+   * del estado.** Un pedido tiene fecha de devengo si y solo si el cobro ocurrió,
+   * así que los `PENDIENTE_PAGO` y los cancelados antes de cobrar quedan fuera
+   * solos — sin que nadie tenga que enumerar qué estados cuentan. Por eso el 303
+   * liquida por esta columna y no por `created_at` ni por `estado`, y por eso la
+   * ficha del pedido decide con ella si tiene sentido hablar de facturas.
+   *
+   * Si necesitas saber si algo es facturable, mira esto. Cualquier lista de
+   * estados que escribas aparte será una segunda regla que algún día discrepe.
+   */
+  devengado_el?: string | null;
   pedido_items?: PedidoItem[];
   /**
    * Importe ya devuelto al cliente, acumulado. Lo calcula la API a partir de
@@ -681,6 +696,44 @@ export interface PedidoDetalle {
    * (antes de la 044 no había otra forma).
    */
   reembolso_lineas: ReembolsoLinea[];
+  /**
+   * Las facturas de esta venta, para consultarlas donde se mira el pedido.
+   *
+   * Normalmente una simplificada; dos si el cliente pidió la completa (entonces
+   * la simplificada llega con `vigente: false`). Vacío en las ventas anteriores a
+   * configurar el emisor, y eso **no es un error**: lo cuenta el aviso
+   * `venta_sin_factura` del 303.
+   */
+  facturas: FacturaDeLaVenta[];
+}
+
+/**
+ * Una factura vista desde el pedido: lo justo para consultarla y saber si cuenta.
+ *
+ * ⚠️⚠️ **NO LLEVA `receptor` A PROPÓSITO, Y ESO NO ES UN OLVIDO.** Este detalle lo
+ * sirve `/admin/pedidos/:id` con `pedidos:lectura`, que tiene todo el equipo — y
+ * el receptor son los datos FISCALES del cliente (su NIF y su domicilio), que son
+ * de contabilidad. El número, el tipo y el importe son hechos del pedido y no
+ * añaden nada que quien ve la ficha no viera ya; el NIF sí.
+ *
+ * Quien necesite el documento entero va a Contabilidad → Facturas, que exige su
+ * permiso. Si algún día hace falta el receptor aquí, el sitio de decidirlo es el
+ * permiso, no este tipo.
+ */
+export interface FacturaDeLaVenta {
+  id: string;
+  numero: string;
+  tipo: FacturaTipo;
+  fecha_expedicion: string;
+  total: number;
+  /**
+   * Si cuenta en el libro. Una simplificada canjeada por una completa sigue
+   * existiendo —una factura emitida no se anula jamás— pero deja de ser vigente,
+   * o el IVA de esa venta estaría dos veces (ver la 073 §5).
+   */
+  vigente: boolean;
+  /** El número de la que la sustituyó, cuando `vigente` es `false`. */
+  sustituida_por: string | null;
 }
 
 // ============================================================
