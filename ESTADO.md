@@ -204,7 +204,55 @@ Emitir exige **`contabilidad:edicion`**, no el permiso de pedidos: quien mueve e
 
 Existía en la BD desde la 068 y no estaba en el tipo. **Es el único signo de «esta venta existe fiscalmente», y no se deduce del estado**: un pedido tiene fecha de devengo si y solo si el cobro ocurrió, así que los `PENDIENTE_PAGO` y los cancelados antes de cobrar quedan fuera solos. Cualquier lista de estados escrita aparte sería una segunda regla que algún día discrepe.
 
-### 🔜 Y la decisión ya tomada sobre el PDF, para no volver a discutirla
+## ⭐⭐ HECHO EL 2026-08-14 (cont. 4) — la factura en PDF, y el botón de mandársela al cliente
+
+Lo que Jonathan pidió: *«que cuando ingrese al pedido, y en la parte de la factura ya sea simplificada o final se pueda dar click y muestre el PDF y un botón enviar al cliente»*. Está.
+
+⚠️⚠️ **SIN PROBAR EN PANTALLA NI EN UNA BANDEJA DE ENTRADA.** Ver «lo que falta» abajo.
+
+### Y una corrección de criterio, porque el argumento era mío y era flojo
+
+Al proponer «las tres, en ese orden» se dejó el PDF para el final con el argumento de que así sabría maquetar los tres tipos de documento. **Mirando qué necesita el PDF de verdad, ese argumento no aguanta**: imprime `base_total`, `cuota_total` y `desglose` **tal como están en la fila**, y no le importa cómo se calcularon. Añadir la rectificativa después es una variante de cabecera y una línea de referencia — no rehacer la maqueta. Por eso el PDF fue primero.
+
+### `pdfkit`, y por qué no hay ninguna tipografía empotrada
+
+- **`pdfkit` y no `pdf-lib`**: el segundo está pensado para *modificar* PDF; el primero para *generarlos*.
+- ⭐ **Las Helvetica de serie usan WinAnsi, que ya cubre acentos, «ñ» y «€»**, así que **no se empotra ningún TTF** y el despliegue de Render no carga cientos de KB. **Comprobado en el PDF generado**: `<31352c31322080>` es «15,12» seguido de `0x80`, que en WinAnsi **es el €**.
+- Las métricas `.afm` de pdfkit viven en `node_modules` y el runtime las resuelve desde ahí; Render las instala. Comprobado.
+
+### Las decisiones que hay que respetar si se toca esto
+
+1. ⚠️⚠️ **El PDF se genera al pedirlo y NUNCA se almacena.** No es por ahorrar espacio: la fila está encadenada por huella y es inmutable, y un PDF guardado sería un **segundo sitio que puede divergir**. El día que divergieran, nadie sabría cuál de los dos enseñar a Hacienda.
+2. ⚠️⚠️ **`enviarFactura` es el ÚNICO correo de la tienda que LANZA si falla.** Todos los demás salen detrás de algo que ya ocurrió, y ahí tragarse el fallo es correcto —un SMTP caído no puede tumbar una venta—. Este lo dispara una persona esperando la respuesta: devolver `false` en silencio pintaría un «enviada» sobre un correo que no salió, **y nadie volvería a intentarlo**.
+3. ⚠️⚠️ **Solo se manda si la factura es `vigente`, y el guardia está en el SERVIDOR**, no solo en el botón. Una simplificada canjeada sigue existiendo, pero el documento válido es la completa: mandar la sustituida le pone al cliente en la mano un papel que el libro ya no cuenta, y él no tiene forma de saberlo.
+4. **Reenviar sí se permite** —la gente pierde correos— **pero cada envío deja su evento `enviada`** en `factura_eventos`, con a quién y cuándo. Así el libro responde «¿se le mandó?». **No hizo falta migración**: `evento` es texto libre.
+5. **El PDF va ADJUNTO, no enlazado.** Un enlace exigiría una URL pública a un documento con el NIF y el domicilio del cliente dentro: o un token que mantener —y que caduca justo cuando alguien busca su factura de hace un año— o algo al alcance de quien adivine la dirección.
+6. **`apiFetchBlob` en la web, y hace falta**: la API se autentica con el **Bearer** de Supabase, así que un `<a href>` al endpoint del PDF daría **401** — o peor, la pantalla de login en una pestaña nueva. Se extrajo la parte común (sesión, cabeceras, mapeo de errores) en vez de duplicarla.
+
+### ⚠️ Un fallo real que cazó el test, y una corrección a quien lo escribió
+
+El formateador de importes hacía `Math.round((abs(n) - entero) * 100)`. Con `0.999` eso da `entero = 0` y `centimos = 100`, y el `padStart(2, "0")` no recorta nada: imprimía **«0,100 €»**, tres decimales en un documento fiscal. Arreglado pasando a **céntimos enteros antes de partir**.
+
+Y de paso el test **corrigió la expectativa de quien lo escribió**: se esperaba que `2.675` diera `2,68` y da `2,67`. Es lo correcto —el double de ese literal es `2.67499…`— y además no es alcanzable, porque todo lo que llega viene de columnas `numeric(12,2)`.
+
+### Cómo se verificó, que no fue «es un PDF válido»
+
+Se generó con datos reales y **se leyó el texto de dentro** descomprimiendo los flujos. Eso comprobó lo que un `expect(pdf.length > 1000)` no ve:
+
+- **las dos fechas salen solo cuando difieren** — la completa lleva expedición 14/08 y operación 13/08; la simplificada, una sola;
+- **la simplificada DICE por qué no lleva destinatario** en vez de dejar media página en blanco que parece un fallo de maqueta;
+- el desglose por tipo cuadra, y las dos filas de total solo aparecen con más de un tipo;
+- la huella de 64 caracteres **cabe en el pie** sin desbordar.
+
+**16 tests** del generador (incluido el caso `receptor: null`, que es el que tumbaría **toda** factura automática) y **704 en total** (413 API + 291 web).
+
+### 🔜 Lo que falta de esto, y es de Jonathan
+
+1. 🔴 **Pinchar una factura y ver el PDF en el navegador.** Nadie lo ha hecho.
+2. 🔴 **Mandarse una factura a uno mismo y abrir el adjunto en una bandeja de entrada real.** Es lo único que prueba que SendGrid entrega el adjunto y que el visor del móvil lo abre en vez de ofrecer «descargar».
+3. ⚠️ **El `Reply-To` sigue siendo un gmail** porque `valatino.es` no tiene MX. En un correo de factura queda raro; no bloquea.
+
+### 🔜 La decisión sobre el PDF, ya ejecutada
 
 Jonathan confirmó que **la factura hay que poder enviársela al cliente por correo**. Eso decide la vía: **se genera en el servidor** (`pdfkit` o `pdf-lib` en la API), no con los estilos de impresión del navegador. La vía sin librería era más barata y con maqueta en CSS, pero **el servidor no tendría fichero** y no se podría adjuntar nunca sin rehacerlo.
 
@@ -218,10 +266,12 @@ Jonathan confirmó que **la factura hay que poder enviársela al cliente por cor
 
 1. ~~Pushear y emitir las que faltan~~ → **hecho**. Jonathan limpió la base y cursó la operación entera; ver el bloque de arriba.
 2. 🔴 **Mirar en pantalla el bloque de facturas de la ficha y los dos atajos.** Es lo único de la cont. 3 sin comprobar con un navegador: la consulta está verificada contra el remoto y el build es limpio, pero **nadie ha visto renderizado** ni el bloque ni el `?pedido=` de ida y vuelta. Entrar por Pedidos → pinchar `260814015565`, y desde el libro pinchar el número de pedido.
-3. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
-4. **La rectificativa por devolución** — ya la pide el propio informe (`devolucion_sin_rectificativa`).
-5. **El PDF**, con la vía ya decidida (servidor, ver arriba).
+3. 🔴 **Ver el PDF en el navegador y mandarse una factura a uno mismo** (cont. 4).
+4. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
+5. ⭐ **LA RECTIFICATIVA POR DEVOLUCIÓN — y ahora corre más prisa que antes.** El 303 ya la pide solo (`devolucion_sin_rectificativa`), pero **el botón de «enviar al cliente» es lo que la vuelve urgente**: hasta ahora el desacuerdo entre el libro y la liquidación era interno y estaba documentado. En cuanto se le manda la factura al cliente, ese desacuerdo es **un papel en manos de alguien que nada corrige**. En pruebas es teórico; **antes de que haya clientes de verdad tiene que existir**.
+   - Cuando llegue: la maqueta del PDF necesita **una variante de cabecera y la línea «rectifica a X»**, no más. El sitio está marcado en `factura-pdf.service.ts`.
 6. **Migrar `DireccionForm` al componente compartido de ubicación**, con la pantalla delante: es checkout, o sea la ruta del dinero.
+7. ~~El PDF~~ → **hecho** (cont. 4).
 
 ## ✅ LA 068 Y LA 069 ESTÁN DESPLEGADAS Y VERIFICADAS EN PRODUCCIÓN (2026-08-13)
 
