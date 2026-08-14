@@ -30,6 +30,32 @@ export class FacturaPdfService {
   private static readonly ANCHO = 595.28 - 50 * 2;
 
   /**
+   * El naranja de la marca. Es el `--primary` de la tienda —`hsl(24 95% 53%)`—
+   * pasado a hex, así que el documento y la web dicen el mismo color.
+   *
+   * ⚠️ Escrito a mano y no importado del CSS a propósito: `globals.css` es de la
+   * web y la API no lo lee. Si algún día cambia la marca, este es el sitio.
+   */
+  private static readonly MARCA = "#F97316";
+  private static readonly GRIS = "#555";
+  private static readonly GRIS_CLARO = "#888";
+
+  /**
+   * 🔜 EL LOGO. Hoy no hay ninguno en el repo, así que la cabecera lleva el
+   * nombre en grande. Cuando llegue el fichero:
+   *
+   *   1. **PNG o JPEG**, no SVG — pdfkit no lee SVG sin una librería más.
+   *      Con ~500 px de ancho sobra: aquí se dibuja a 120 pt.
+   *   2. va en `apps/api/src/assets/logo.png`, y hay que **crear
+   *      `nest-cli.json`** declarando `assets` para que `nest build` lo copie a
+   *      `dist` — sin eso funciona en local y **falla en Render**, que es el peor
+   *      sitio donde descubrirlo.
+   *   3. se dibuja aquí, en `cabecera()`, con `doc.image(ruta, MARGEN, MARGEN,
+   *      { width: 120 })`, y el nombre del emisor baja debajo.
+   */
+
+
+  /**
    * Devuelve el PDF completo en memoria.
    *
    * ⚠️ Se acumula en un Buffer en vez de devolver el stream de pdfkit, y hace
@@ -75,23 +101,34 @@ export class FacturaPdfService {
   // ── Bloques ────────────────────────────────────────────────────────────────
 
   private cabecera(doc: PDFKit.PDFDocument, f: FacturaEmitida) {
-    const { MARGEN, ANCHO } = FacturaPdfService;
+    const { MARGEN, ANCHO, MARCA, GRIS } = FacturaPdfService;
 
-    doc.font("Helvetica-Bold").fontSize(18).text(f.emisor.nombre, MARGEN, MARGEN);
-    doc.font("Helvetica").fontSize(9).fillColor("#444");
+    // Franja de marca arriba. Es lo que hace que el documento se reconozca de un
+    // vistazo antes de leer nada — y lo único decorativo de toda la página.
+    doc.rect(MARGEN, MARGEN - 18, ANCHO, 3).fill(MARCA);
+    doc.fillColor("#000");
+
+    doc.font("Helvetica-Bold").fontSize(19).text(f.emisor.nombre, MARGEN, MARGEN);
+    doc.font("Helvetica").fontSize(9).fillColor(GRIS);
     doc.text(this.domicilio(f.emisor), { width: ANCHO * 0.55 });
     doc.text(`NIF ${f.emisor.nif}`);
 
     // El identificativo del documento, arriba a la derecha: es lo primero que
-    // busca quien recibe una factura.
-    doc.font("Helvetica-Bold").fontSize(13).fillColor("#000");
-    doc.text(FACTURA_TIPO_LABELS[f.tipo].toUpperCase(), MARGEN, MARGEN, {
+    // busca quien recibe una factura. El tipo va en el color de marca y el número
+    // en negro y grande — el tipo clasifica, el número identifica.
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(MARCA);
+    doc.text(FACTURA_TIPO_LABELS[f.tipo].toUpperCase(), MARGEN, MARGEN + 1, {
       width: ANCHO,
       align: "right",
+      characterSpacing: 1.2,
     });
-    doc.font("Helvetica-Bold").fontSize(15).text(f.numero, { width: ANCHO, align: "right" });
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(16)
+      .fillColor("#000")
+      .text(f.numero, { width: ANCHO, align: "right" });
 
-    doc.font("Helvetica").fontSize(9).fillColor("#444");
+    doc.font("Helvetica").fontSize(9).fillColor(GRIS);
     doc.text(`Fecha de expedición: ${this.fecha(f.fecha_expedicion)}`, {
       width: ANCHO,
       align: "right",
@@ -223,16 +260,16 @@ export class FacturaPdfService {
   }
 
   private totales(doc: PDFKit.PDFDocument, f: FacturaEmitida) {
-    const { MARGEN, ANCHO } = FacturaPdfService;
+    const { MARGEN, ANCHO, MARCA, GRIS } = FacturaPdfService;
     const anchoBloque = 250;
     const x = MARGEN + ANCHO - anchoBloque;
     const anchoEtiqueta = anchoBloque - 90;
 
-    const fila = (etiqueta: string, valor: string, negrita = false) => {
+    const fila = (etiqueta: string, valor: string) => {
       const y = doc.y;
-      doc.font(negrita ? "Helvetica-Bold" : "Helvetica").fontSize(9);
+      doc.font("Helvetica").fontSize(9).fillColor(GRIS);
       doc.text(etiqueta, x, y, { width: anchoEtiqueta, align: "right" });
-      doc.text(valor, x + anchoEtiqueta, y, { width: 90, align: "right" });
+      doc.fillColor("#000").text(valor, x + anchoEtiqueta, y, { width: 90, align: "right" });
       doc.moveDown(0.3);
     };
 
@@ -248,15 +285,33 @@ export class FacturaPdfService {
       fila("Total cuota IVA", this.euros(f.cuota_total));
     }
 
-    doc.moveDown(0.2);
-    fila("TOTAL", this.euros(f.total), true);
-    doc.moveDown(1);
+    /**
+     * El TOTAL sobre una banda de marca. Es la cifra que se busca al abrir una
+     * factura, así que es lo único con fondo de toda la página — destacar dos
+     * cosas es no destacar ninguna.
+     */
+    doc.moveDown(0.35);
+    const yBanda = doc.y;
+    doc.rect(x, yBanda - 3, anchoBloque, 22).fill(MARCA);
+
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#fff");
+    doc.text("TOTAL", x + 10, yBanda + 3, { width: anchoEtiqueta - 10, align: "right" });
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(11)
+      .text(this.euros(f.total), x + anchoEtiqueta, yBanda + 2.5, { width: 88, align: "right" });
+
+    doc.fillColor("#000");
+    doc.y = yBanda + 22;
+    doc.moveDown(1.2);
   }
 
   private pie(doc: PDFKit.PDFDocument, f: FacturaEmitida) {
-    const { MARGEN, ANCHO } = FacturaPdfService;
+    const { MARGEN, ANCHO, GRIS_CLARO } = FacturaPdfService;
 
-    doc.font("Helvetica").fontSize(7.5).fillColor("#666");
+    this.regla(doc);
+    doc.moveDown(0.6);
+    doc.font("Helvetica").fontSize(7.5).fillColor(GRIS_CLARO);
 
     if (f.numero_pedido) {
       doc.text(`Pedido ${f.numero_pedido}`, MARGEN, doc.y, { width: ANCHO });

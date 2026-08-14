@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { FilePlus2, FileText, Send } from "lucide-react";
 import { apiFetch, apiFetchBlob, ApiError } from "@lib/api/client";
 import { formatEUR } from "@lib/utils";
+import { Button } from "@components/ui/button";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
 import { HistorialPedido } from "@components/backoffice/HistorialPedido";
 import { usePuede } from "@components/backoffice/PermisosProvider";
@@ -358,12 +360,12 @@ function FacturasDeLaVenta({
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">Facturas de esta venta</h3>
         {puedeEmitir && !yaTieneCompleta && (
-          <Link
-            href={`/backoffice/contabilidad/facturas?pedido=${pedidoId}`}
-            className="text-xs font-medium underline underline-offset-2 hover:no-underline"
-          >
-            Emitir factura completa →
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/backoffice/contabilidad/facturas?pedido=${pedidoId}`}>
+              <FilePlus2 className="mr-1.5 h-3.5 w-3.5" />
+              Emitir completa
+            </Link>
+          </Button>
         )}
       </div>
 
@@ -373,20 +375,11 @@ function FacturasDeLaVenta({
           solo pasa con las anteriores a configurar los datos fiscales del negocio.
         </p>
       ) : (
-        <ul className="space-y-3">
+        <ul className="space-y-2">
           {facturas.map((f) => (
             <FilaFactura key={f.id} factura={f} puedeEnviar={puedeEmitir} />
           ))}
         </ul>
-      )}
-
-      {facturas.length > 0 && puedeEmitir && (
-        <Link
-          href="/backoffice/contabilidad/facturas"
-          className="mt-3 inline-block text-xs text-muted-foreground underline underline-offset-2 hover:no-underline"
-        >
-          Ver el libro de facturas emitidas
-        </Link>
       )}
     </section>
   );
@@ -445,56 +438,73 @@ function FilaFactura({ factura, puedeEnviar }: { factura: FacturaDeLaVenta; pued
   };
 
   return (
-    <li className={factura.vigente ? "text-sm" : "text-sm text-muted-foreground"}>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="flex flex-wrap items-baseline gap-x-2">
-          <button
-            type="button"
-            onClick={() => void verPdf()}
-            disabled={abriendo}
-            className="font-mono font-medium underline underline-offset-2 hover:no-underline disabled:opacity-60"
-          >
-            {factura.numero}
-          </button>
-          <span className="text-xs">{FACTURA_TIPO_LABELS[factura.tipo]}</span>
-          {/* Una sustituida no se tacha: sigue existiendo y no se anula jamás.
-              Se dice qué la sustituyó, que es el dato útil. */}
-          {!factura.vigente && factura.sustituida_por && (
-            <span className="text-xs">
-              · sustituida por <span className="font-mono">{factura.sustituida_por}</span>
-            </span>
-          )}
-        </span>
-        <span className="text-xs">
-          {fechaCorta(factura.fecha_expedicion)} · {formatEUR(Number(factura.total))}
-        </span>
-      </div>
-
-      {/**
-       * ⚠️⚠️ ENVIAR SOLO SI ES VIGENTE. Una simplificada canjeada sigue existiendo
-       * pero el documento válido de esa venta es la completa; mandar la sustituida
-       * le pone al cliente en la mano un papel que el libro ya no cuenta, y él no
-       * tiene forma de saberlo. El servidor lo rechaza también —ocultar el botón
-       * no cierra la ruta— pero aquí se DICE por qué en vez de dejar un hueco.
-       */}
-      {puedeEnviar && (
-        <div className="mt-1">
-          {factura.vigente ? (
-            <button
-              type="button"
-              onClick={() => void enviar()}
-              disabled={enviando}
-              className="text-xs underline underline-offset-2 hover:no-underline disabled:opacity-60"
+    <li
+      className={
+        factura.vigente
+          ? "rounded-lg border bg-card p-3"
+          : // La sustituida se apaga pero NO se esconde ni se tacha: existe, se
+            // emitió y está en el libro. Lo que cambia es que ya no cuenta.
+            "rounded-lg border border-dashed bg-muted/30 p-3"
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* El número es TEXTO, no un control: se copia para buscarlo o
+                dictarlo por teléfono, y un botón no se selecciona bien. La acción
+                vive en el botón de al lado. */}
+            <span className="font-mono text-sm font-semibold">{factura.numero}</span>
+            <span
+              className={
+                factura.vigente
+                  ? "rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                  : "rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+              }
             >
-              {enviando ? "Enviando…" : "Enviar al cliente por correo"}
-            </button>
-          ) : (
-            <span className="text-xs">
-              No se envía: la que cuenta es {factura.sustituida_por ?? "la que la sustituyó"}.
+              {FACTURA_TIPO_LABELS[factura.tipo]}
             </span>
-          )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {fechaCorta(factura.fecha_expedicion)} · {formatEUR(Number(factura.total))}
+            {!factura.vigente && factura.sustituida_por && (
+              <>
+                {" · sustituida por "}
+                <span className="font-mono">{factura.sustituida_por}</span>
+              </>
+            )}
+          </p>
         </div>
-      )}
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => void verPdf()} disabled={abriendo}>
+            <FileText className="mr-1.5 h-3.5 w-3.5" />
+            {abriendo ? "Abriendo…" : "PDF"}
+          </Button>
+
+          {/**
+           * ⚠️⚠️ ENVIAR SOLO SI ES VIGENTE. Una simplificada canjeada sigue
+           * existiendo, pero el documento válido de esa venta es la completa;
+           * mandar la sustituida le pone al cliente en la mano un papel que el
+           * libro ya no cuenta, y él no tiene forma de saberlo. El servidor lo
+           * rechaza también —ocultar el botón no cierra la ruta—, y aquí se dice
+           * por qué al pasar el ratón en vez de dejar un hueco sin explicar.
+           */}
+          {puedeEnviar &&
+            (factura.vigente ? (
+              <Button variant="outline" size="sm" onClick={() => void enviar()} disabled={enviando}>
+                <Send className="mr-1.5 h-3.5 w-3.5" />
+                {enviando ? "Enviando…" : "Enviar"}
+              </Button>
+            ) : (
+              <span
+                className="text-[11px] text-muted-foreground"
+                title={`No se envía: la que cuenta es ${factura.sustituida_por ?? "la que la sustituyó"}.`}
+              >
+                No se envía
+              </span>
+            ))}
+        </div>
+      </div>
     </li>
   );
 }

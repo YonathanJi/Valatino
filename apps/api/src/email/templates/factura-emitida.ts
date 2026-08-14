@@ -7,6 +7,13 @@ export interface DatosEmailFactura {
   tipo: FacturaTipo;
   total: number;
   numeroPedido: string | null;
+  /** Para anotar el envío en la línea de tiempo del pedido. */
+  pedidoId: string;
+  /**
+   * Quién pulsó «Enviar». El historial del pedido lo muestra: es lo que
+   * distingue «se mandó» de «alguien decidió mandarlo».
+   */
+  actorId?: string;
   /** El PDF ya generado. Se adjunta; no se enlaza. */
   pdf: Buffer;
   nombreArchivo: string;

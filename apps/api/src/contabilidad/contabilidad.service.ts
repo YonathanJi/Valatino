@@ -457,6 +457,10 @@ export class ContabilidadService {
       tipo: factura.tipo,
       total: factura.total,
       numeroPedido: ((pedido ?? {}) as { numero_pedido?: string | null }).numero_pedido ?? null,
+      // Para que el envío salga en la línea de tiempo del pedido, y con el nombre
+      // de quien lo mandó.
+      pedidoId: factura.pedido_id,
+      actorId,
       pdf,
       nombreArchivo: this.pdf.nombreArchivo(factura),
     });

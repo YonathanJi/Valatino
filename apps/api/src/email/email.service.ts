@@ -134,6 +134,7 @@ export class EmailService {
   async enviarFactura(datos: DatosEmailFactura): Promise<void> {
     const { asunto, html } = renderFacturaEmitida(datos);
 
+
     if (!this.transporter) {
       throw new ServiceUnavailableException(
         "El correo no está configurado en este entorno, así que la factura no se ha enviado.",
@@ -164,15 +165,34 @@ export class EmailService {
     }
 
     this.logger.log(`Factura ${datos.numero} enviada a ${datos.email}`);
+
+    // ⚠️ Y a la LÍNEA DE TIEMPO DEL PEDIDO, no solo al registro de la factura.
+    // Son dos apuntes que responden a preguntas distintas y los dos hacen falta:
+    // `factura_eventos` es el rastro del DOCUMENTO (lo que pide Verifactu), y el
+    // historial del pedido es donde alguien mira «¿qué le hemos mandado a este
+    // cliente?». Sin esto, el envío existía en la base y no se veía en ningún
+    // sitio donde alguien fuera a buscarlo.
+    await this.anotar(datos.pedidoId, `Factura ${datos.numero}`, datos.actorId);
   }
 
   /**
    * Deja el correo en la línea de tiempo del pedido. Solo se llama cuando el
    * envío ha salido bien: anunciar en el historial un correo que nunca llegó
    * sería peor que no anotarlo, porque nadie iría a comprobarlo.
+   *
+   * ⚠️ `actorId` es opcional porque casi todos estos correos los manda el
+   * sistema detrás de un cobro o un cambio de estado. El de la factura lo pulsa
+   * una persona, y entonces el historial tiene que decir **quién** — es lo que
+   * distingue «se mandó» de «alguien decidió mandarlo». `registrar` pone el
+   * origen `panel` en cuanto hay actor, así que aquí no hay que repetirlo.
    */
-  private async anotar(pedidoId: string, asunto: string): Promise<void> {
-    await this.eventos.registrar({ pedidoId, tipo: "email", detalle: asunto, origen: "sistema" });
+  private async anotar(pedidoId: string, asunto: string, actorId?: string): Promise<void> {
+    await this.eventos.registrar({
+      pedidoId,
+      tipo: "email",
+      detalle: asunto,
+      ...(actorId ? { actorId } : { origen: "sistema" }),
+    });
   }
 
   private importeVisible(n: number): string {
