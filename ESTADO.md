@@ -50,7 +50,9 @@
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-08-15
 
-**Todo está commiteado y pusheado** (`a8d66d6`), árbol limpio, 0 sin pushear. **728 tests** (430 API + 298 web), `type-check` y los dos builds en verde.
+**Todo está commiteado y pusheado** (`e41439f`), árbol limpio, 0 sin pushear. **757 tests** (430 API + 327 web), `type-check` y los dos builds en verde.
+
+⭐ **La tarde fue de tienda de cara al cliente** (seis cambios, todos desplegados y probados por Jonathan en el móvil): la tira de miniaturas de sabores/formatos, el carrito sobre la foto, y la barra que se esconde al bajar. Ver «La tienda del cliente» más abajo.
 
 ⭐⭐ **HOY LA CAPA 2 SE PROBÓ CON DINERO REAL DE PUNTA A PUNTA, Y ADEMÁS SE LIMPIÓ LA BASE.** La operación entera —compra, simplificada sola, canje a completa, PDF, envío por correo, dos devoluciones parciales con su rectificativa automática— cursó sobre el pedido `260815017972` y **volvió a cero exacto**.
 
@@ -81,6 +83,67 @@ Por primera vez en varias sesiones, todo lo construido se ha visto funcionando e
 3. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
 4. **Higiene de producción, que lleva pendiente desde el 05/08**: revocar los **cinco secretos** y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt` (la `sb_secret_…` salta el RLS), y quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`.
 5. La cola de fondo: tests de componentes de la web, accesibilidad, la CSP a obligatoria, y el paso a Stripe `live`.
+
+#### 🔴 Y lo que se destapó al mirar la tienda como tienda (2026-08-15)
+
+Comprobado en el código, no supuesto. Por orden de lo que cuesta dinero:
+
+1. 🔴🔴 **NO EXISTE EL COSTE DE ENVÍO. En ningún sitio.** No hay columna, ni campo en el checkout, ni línea en la factura: `recalcular_iva_pedido` **aborta** si el desglose no suma exactamente `pedidos.total`, y ese total es la suma de los artículos. O sea que **hoy se envía gratis a toda España**, y se venden Quipitos de 0,62 €. No es trabajo de pantalla: toca `pedido_iva`, las líneas de la factura y el 303, así que hay que diseñarlo antes del arranque fiscal.
+2. 🔴 **Compartir un enlace de la tienda no enseña nada.** No hay `metadataBase` ni `openGraph` ni imagen de portada: en WhatsApp —que es por donde se va a compartir— sale un enlace pelado, que parece spam. Es barato y se nota el mismo día.
+3. **No hay `sitemap.ts`, ni `robots.ts`, ni datos estructurados** (`Product` con precio y disponibilidad). Google no tiene por dónde entrar al catálogo ni con qué pintar el resultado enriquecido.
+4. **El catálogo no escala**: sin buscador, sin filtro por categoría y sin paginación — un `limit=50` fijo y todo en una rejilla. Con 20 productos funciona; con 100 se rompe, y no avisa.
+5. **Sin analítica y sin banner de cookies.** No se sabe qué se mira ni de dónde viene la gente; y en cuanto se ponga analítica, en España el banner deja de ser opcional.
+6. **Sin reseñas de producto.** `pedido_calificaciones` mide la experiencia de COMPRA, que es otra cosa y no se enseña en la ficha.
+
+
+## ⭐⭐ HECHO EL 2026-08-15 (cont.) — La tienda del cliente
+
+Seis cambios, **todos desplegados y probados por Jonathan en el móvil**. Ninguno tocó la BD ni la API salvo una columna más en un `select`: el modelo ya estaba.
+
+### La tira de miniaturas de las presentaciones
+
+Lo pidió con una captura de New Balance. Allí cambia el color; aquí el **sabor** o el **formato**, que es lo que ya declaraban `familia`, `variante` y `variante_tipo` desde la 057. Lo que había era una línea de texto (`Chocolate · Fresa · …`) y pasa a ser la tira pinchable.
+
+⚠️ **Elegir una miniatura NO navega, cambia la tarjeta**: foto, precio y nombre. Se eligió frente a que cada miniatura fuera un enlace porque comparar cuatro sabores no puede costar cuatro idas y venidas — en móvil es donde se abandona.
+
+**Las decisiones viven en `vistaDeFamilia()`, no en el JSX**, porque la web no tiene tests de componentes y una regla escrita en el render es una regla sin red:
+
+- **Arranca en FAMILIA, no en una variante**: la tarjeta abre como siempre (foto de familia, «Desde X») y solo se concreta al elegir.
+- ⚠️ **El enlace va a la ELEGIDA.** Si llevara a la representante, elegir fresa y entrar abriría chocolate, y el cliente no tiene forma de saber que no le hicieron caso.
+- ⚠️ **Con una elegida manda SU stock** aunque queden hermanas: decir «disponible» porque queda otro sabor manda a alguien a la ficha a encontrarse el botón apagado.
+- **Sin foto propia cae al placeholder y no a la de familia**: enseñarla haría creer que esa es su foto.
+
+⭐ **Un test corrigió el diseño de quien lo escribió**: el resumen salía solo con varias facturas *vigentes*, y con una simplificada canjeada hay **dos filas en pantalla y una sola cuenta** — el caso donde más falta hace.
+
+### El carrito sobre la foto, y lo que costó afinarlo
+
+Empezó como «quitar +Carrito y poner una bolsa», y acabó en el icono `ShoppingCart` **de la barra de arriba**: eran dos dibujos para la misma idea en la misma pantalla. El componente se llama `BotonCarrito` — se renombró con el icono, o habría mentido el mismo día.
+
+- ⚠️⚠️ **Es HERMANO del `<Link>`, nunca hijo.** Un `<button>` dentro de un `<a>` es HTML inválido y el clic haría **las dos cosas**: añadir Y navegar.
+- ⚠️ **En móvil se arrincona y encoge el DIBUJO, no el botón.** El cuadro de 40 px que se toca con el dedo no se reduce: encogerlo para ganar seis píxeles sería pagar el arreglo justo donde el botón se usa peor.
+- **Vive en un solo componente** y lo usan las dos tarjetas. Gracias a eso el ajuste del móvil se hizo en un sitio. Copiarlo habría dejado dos botones que se parecen hasta que alguien arregle uno — el patrón de la 074.
+- ⭐ **En la tarjeta de familia aparece SOLO al elegir.** Antes de elegir no se sabe qué añadir; después, la ambigüedad desaparece. Lo levantó Jonathan probando: la condición no era «esta tarjeta no puede», era «todavía no».
+- **Fuera «Elegir sabor»**: las miniaturas ya son el selector y la foto y el título ya entran. Y eso cerró solo la rejilla, que se leía en dos idiomas.
+
+### La barra que se esconde al bajar
+
+Suena a una línea y no lo es. Las reglas están en `decidirOculta`, pura y con un test cada una:
+
+- **Arriba del todo no se esconde nunca**: si no, el primer golpe de rueda se lleva la cabecera y en una página corta no hay scroll de vuelta con el que recuperarla.
+- **Umbral de 8 px**: el trackpad y la inercia del móvil emiten decenas de eventos de uno o dos píxeles que cambian de signo. Y en el temblor **se conserva** el estado — mostrarla ahí haría que reapareciera sola cada vez que el dedo se para.
+- ⚠️⚠️ **El rebote de iOS da `scrollY` NEGATIVO.** Al estirar la página hacia abajo estando arriba, la vuelta de −60 a 0 se lee como «bajando» y la barra se escondía **justo con el gesto que pedía verla**.
+
+Del cableado: listener `passive` (sin eso el scroll se siente pegajoso en móvil) y lectura dentro de `requestAnimationFrame` (leer `scrollY` fuerza recálculo de maqueta y el evento se dispara decenas de veces por fotograma). Se esconde con `translate` y **no** dejando de pintarla: al ser `sticky` ya ocupa su hueco, y sacarla del flujo haría saltar el contenido 64 px. No se esconde con el menú abierto, y `focus-within` la devuelve para quien navega con el tabulador.
+
+### ⭐⭐ Y el fallo que destapó probarla, que es el más instructivo del día
+
+Con la barra escondida, tocabas el carrito de una tarjeta y **no pasaba nada visible**. El toast se va en dos segundos y **la prueba de que el pedido creció es el contador del carrito** — que estaba justo en lo que acabábamos de esconder. **El efecto se había comido la confirmación de la única acción que da dinero.**
+
+La solución **vigila el CONTADOR, no avisa desde el botón**, y esa es la decisión que importa: vale para la tarjeta, para la ficha y para el camino que se añada mañana, sin que ninguno tenga que acordarse de que existe una barra que puede estar escondida. Dos reglas, con tests: la **primera lectura no cuenta** (es la carga del carrito, no una compra: quien vuelve con tres cosas dentro pasa de nada a 3 al hidratar) y **solo cuando sube**.
+
+### ⚠️ Lo que la sesión dejó sin cubrir, y hay que saberlo
+
+**La web sigue sin tests de componentes.** Todo lo de hoy se probó con funciones puras (`vistaDeFamilia`, `decidirOculta`, `debeRevelar`) y **con el dedo de Jonathan**. Lo que ninguna de las dos cosas cubre es la unión: que el botón esté donde se cree, que el `aria-pressed` cambie, que el `translate` se aplique. Es la deuda que más ha crecido hoy.
 
 
 ## ⭐⭐ HECHO EL 2026-08-15 — el céntimo, la pregunta de «cuál es la factura final», y la base limpia
