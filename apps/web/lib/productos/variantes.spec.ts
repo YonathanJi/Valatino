@@ -4,8 +4,11 @@ import {
   etiquetaFormato,
   etiquetaVariantes,
   hermanosDeVariante,
+  IMAGEN_PLACEHOLDER,
+  miniaturaDe,
   partirEtiquetaFormato,
   tieneVariante,
+  vistaDeFamilia,
 } from "./variantes";
 
 /**
@@ -217,5 +220,132 @@ describe("hermanosDeVariante", () => {
   it("no devuelve nada para un producto suelto", () => {
     const solo = prod("Bon Bon Bum");
     expect(hermanosDeVariante(solo, [solo, prod("Nucita")])).toEqual([]);
+  });
+});
+
+/**
+ * Lo que enseña la tarjeta del catálogo según lo que el cliente haya elegido en
+ * la tira de miniaturas. Vive en una función pura precisamente para poder
+ * probarlo: la web no tiene tests de componentes, así que lo que se quede en el
+ * JSX se queda sin red.
+ */
+describe("vistaDeFamilia", () => {
+  /** Una familia de sabores con foto propia cada una, y foto de familia. */
+  function galletas() {
+    const choco = conVariante("Galleta Festival Sabor Chocolate", "Galleta Festival", "Chocolate", "sabor", {
+      precio: 0.8,
+      imagenes: ["/choco.jpg", "/familia.jpg"],
+      slug: "galleta-chocolate",
+    });
+    const fresa = conVariante("Galleta Festival Sabor Fresa", "Galleta Festival", "Fresa", "sabor", {
+      precio: 0.9,
+      imagenes: ["/fresa.jpg"],
+      slug: "galleta-fresa",
+    });
+    const grupo = agruparPorVariante([choco, fresa])[0]!;
+    if (grupo.clase !== "grupo") throw new Error("debería agrupar");
+    return { grupo: grupo.grupo, choco, fresa };
+  }
+
+  describe("mientras no hay ninguna elegida", () => {
+    it("manda la foto de familia y el precio es un «desde»", () => {
+      const { grupo } = galletas();
+      const v = vistaDeFamilia(grupo, null);
+
+      // `imagenes[1]` de cualquier hermana: la convención que ya existía.
+      expect(v.imagen).toBe("/familia.jpg");
+      expect(v.precio).toBe(0.8);
+      expect(v.esDesde).toBe(true);
+      expect(v.alt).toBe("Galleta Festival");
+    });
+
+    it("el subtítulo enumera las presentaciones", () => {
+      const { grupo } = galletas();
+      expect(vistaDeFamilia(grupo, null).subtitulo).toBe("Chocolate · Fresa");
+    });
+
+    it("con un solo precio no dice «desde»", () => {
+      const { grupo, fresa } = galletas();
+      fresa.precio = 0.8;
+      expect(vistaDeFamilia(grupo, null).esDesde).toBe(false);
+    });
+  });
+
+  describe("con una elegida", () => {
+    it("manda SU foto, SU precio y SU nombre", () => {
+      const { grupo, fresa } = galletas();
+      const v = vistaDeFamilia(grupo, fresa.id);
+
+      expect(v.imagen).toBe("/fresa.jpg");
+      expect(v.precio).toBe(0.9);
+      expect(v.esDesde).toBe(false);
+      expect(v.subtitulo).toBe("Fresa");
+      expect(v.alt).toBe("Galleta Festival · Fresa");
+    });
+
+    /**
+     * ⚠️ El enlace es a la ELEGIDA, no a la representante. Si llevara siempre a
+     * la misma, elegir fresa y entrar te abriría chocolate — y el cliente no
+     * tiene forma de saber que el catálogo no le hizo caso.
+     */
+    it("el enlace lleva a la ficha de la elegida", () => {
+      const { grupo, fresa } = galletas();
+      expect(vistaDeFamilia(grupo, fresa.id).href).toBe("/productos/galleta-fresa");
+    });
+
+    it("sin foto propia cae al placeholder, no a la de familia", () => {
+      const { grupo, fresa } = galletas();
+      fresa.imagenes = [];
+      // Enseñar la foto de familia haría creer que esa ES la foto de la fresa.
+      expect(vistaDeFamilia(grupo, fresa.id).imagen).toBe(IMAGEN_PLACEHOLDER);
+    });
+  });
+
+  describe("el agotado", () => {
+    it("la familia solo está agotada si lo están todas", () => {
+      const { grupo, choco } = galletas();
+      choco.stock_disponible = 0;
+
+      expect(vistaDeFamilia(grupo, null).agotado).toBe(false);
+    });
+
+    /**
+     * ⚠️ Y con una elegida manda la suya AUNQUE haya hermanas disponibles. Si la
+     * tarjeta dijera «disponible» porque queda otro sabor, el cliente entraría a
+     * la ficha a encontrarse el botón apagado.
+     */
+    it("con una elegida manda el stock de esa", () => {
+      const { grupo, fresa } = galletas();
+      fresa.stock_disponible = 0;
+
+      expect(vistaDeFamilia(grupo, fresa.id).agotado).toBe(true);
+    });
+
+    it("sin elegida, la foto y el enlace son de la primera CON stock", () => {
+      const { grupo, choco } = galletas();
+      choco.stock_disponible = 0;
+      choco.imagenes = ["/choco.jpg"]; // se queda sin foto de familia
+
+      const v = vistaDeFamilia(grupo, null);
+      expect(v.imagen).toBe("/fresa.jpg");
+      expect(v.href).toBe("/productos/galleta-fresa");
+    });
+  });
+
+  it("un id que no es de la familia se ignora, no rompe la tarjeta", () => {
+    const { grupo } = galletas();
+    expect(vistaDeFamilia(grupo, "p-inventado").subtitulo).toBe("Chocolate · Fresa");
+  });
+});
+
+describe("miniaturaDe", () => {
+  it("es la primera foto de la presentación", () => {
+    const p = conVariante("X", "F", "C/U", "formato", { imagenes: ["/a.jpg", "/b.jpg"] });
+    expect(miniaturaDe(p)).toBe("/a.jpg");
+  });
+
+  it("sin fotos, el placeholder: la tira no puede tener un hueco", () => {
+    const p = conVariante("X", "F", "C/U", "formato", { imagenes: [] });
+    expect(miniaturaDe(p)).toBe(IMAGEN_PLACEHOLDER);
   });
 });

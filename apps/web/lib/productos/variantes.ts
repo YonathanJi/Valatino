@@ -177,6 +177,88 @@ export function agruparPorVariante(productos: Producto[]): ItemCatalogo[] {
   );
 }
 
+/** Cuando un producto no tiene foto. Mismo fichero que usan las dos tarjetas. */
+export const IMAGEN_PLACEHOLDER = "/placeholder.png";
+
+/**
+ * La miniatura de una presentación: su propia foto.
+ *
+ * Pide un `Producto` y no una `ProductoConVariante` porque solo mira `imagenes`:
+ * exigir el tipo estrecho obligaba a castear en cada llamada sin ganar nada.
+ */
+export function miniaturaDe(p: Producto): string {
+  return p.imagenes[0] ?? IMAGEN_PLACEHOLDER;
+}
+
+/**
+ * Lo que enseña la tarjeta de una familia, según la presentación que el cliente
+ * haya elegido en la tira de miniaturas.
+ *
+ * ⚠️ **Vive aquí y no en el componente a propósito.** La web no tiene tests de
+ * componentes, así que una regla metida en el JSX es una regla sin red. Aquí son
+ * cuatro decisiones —qué foto, qué precio, a dónde se va y si está agotado— y
+ * cada una tiene su prueba.
+ *
+ * ⭐ **El estado inicial NO es «la primera variante», es la familia entera**, y eso
+ * es deliberado: la tarjeta sigue abriendo con la foto de familia y el «Desde
+ * X €» que ya tenía, y solo se convierte en una presentación concreta cuando
+ * alguien la elige. Arrancar con una elegida cambiaría el catálogo de hoy sin
+ * que nadie lo hubiera pedido, y además dejaría la foto de familia sin usar.
+ */
+export interface VistaDeFamilia {
+  /** La foto grande. */
+  imagen: string;
+  /** Su texto alternativo, que cambia con lo elegido. */
+  alt: string;
+  /** A dónde llevan la foto y el nombre. */
+  href: string;
+  precio: number;
+  /** `true` si el precio es un «desde» y no el de una presentación concreta. */
+  esDesde: boolean;
+  /** Bajo el título: la elegida, o la lista entera mientras no haya ninguna. */
+  subtitulo: string;
+  /** Si lo que se está enseñando ahora mismo no se puede comprar. */
+  agotado: boolean;
+}
+
+export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null): VistaDeFamilia {
+  const { familia, productos } = grupo;
+
+  const elegida = productos.find((p) => p.id === elegidaId) ?? null;
+  // La representante es la primera CON STOCK: enseñar de entrada una agotada
+  // teniendo hermanas disponibles es mandar a la gente a una puerta cerrada.
+  const representante = productos.find((p) => p.stock_disponible > 0) ?? productos[0]!;
+  const visible = elegida ?? representante;
+
+  // La foto de familia es `imagenes[1]` de cualquier hermana (convención previa
+  // a esto). Manda mientras no haya elegida; en cuanto la hay, manda la suya.
+  const imagenFamilia = productos.map((p) => p.imagenes[1]).find(Boolean);
+  const imagen = elegida
+    ? (elegida.imagenes[0] ?? IMAGEN_PLACEHOLDER)
+    : (imagenFamilia ?? representante.imagenes[0] ?? IMAGEN_PLACEHOLDER);
+
+  const precios = productos.map((p) => Number(p.precio));
+  const precioMin = Math.min(...precios);
+
+  return {
+    imagen,
+    alt: elegida ? `${familia} · ${elegida.variante}` : familia,
+    href: `/productos/${visible.slug ?? visible.id}`,
+    precio: elegida ? Number(elegida.precio) : precioMin,
+    esDesde: !elegida && Math.max(...precios) !== precioMin,
+    /**
+     * ⚠️ El nombre de la elegida NO es decorativo, y es lo que compensa haber
+     * puesto foto también en los formatos: dos fotos de «C/U» y «Caja 24» son
+     * casi idénticas en 40 px, así que sin este texto la tarjeta no diría qué
+     * has elegido. En sabores la foto ya distingue y el texto solo confirma.
+     */
+    subtitulo: elegida ? elegida.variante : productos.map((p) => p.variante).join(" · "),
+    // Sin elegida, la tarjeta habla de la familia: solo está agotada si lo están
+    // TODAS. Con elegida, manda su stock aunque haya hermanas disponibles.
+    agotado: elegida ? elegida.stock_disponible <= 0 : !productos.some((p) => p.stock_disponible > 0),
+  };
+}
+
 /** Hermanas de la misma familia (incluida ella), o [] si no aplica. */
 export function hermanosDeVariante(producto: Producto, todos: Producto[]): ProductoConVariante[] {
   if (!tieneVariante(producto)) return [];
