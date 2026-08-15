@@ -86,9 +86,28 @@ export function ProductoCard({ producto }: ProductoCardProps) {
             disabled={isLoading || anadiendo}
             aria-label={`Añadir ${producto.nombre} al carrito`}
             title="Añadir al carrito"
-            className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-md transition-all hover:bg-primary/90 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            /**
+             * Sin fondo: solo el icono. El cuadro de 40 px sigue estando aunque
+             * no se vea, porque es el área que se toca con el dedo — un icono de
+             * 20 px suelto es un blanco imposible en un móvil.
+             *
+             * ⚠️ `text-foreground` y NO `text-primary`, aunque en el storefront
+             * los dos den el mismo negro: la paleta `.theme-cliente` es de grises
+             * pero la de `:root` tiene el primary NARANJA, así que esta tarjeta
+             * pintada fuera del área de cliente sacaría una bolsa naranja.
+             */
+            className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-transform hover:scale-110 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            <ShoppingBag className="h-4 w-4" aria-hidden="true" />
+            {/**
+             * ⚠️ El halo blanco es lo único que queda del fondo, y hace falta: un
+             * icono negro suelto sobre la foto de un producto oscuro desaparece.
+             * En las fotos claras no se nota; en una oscura es lo que salva el
+             * botón. Es un `drop-shadow` sobre el trazo, no un recuadro.
+             */}
+            <ShoppingBag
+              className="h-5 w-5 [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
+              aria-hidden="true"
+            />
           </button>
         )}
       </div>
