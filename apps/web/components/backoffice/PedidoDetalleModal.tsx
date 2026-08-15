@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { FilePlus2, FileText, Send } from "lucide-react";
 import { apiFetch, apiFetchBlob, ApiError } from "@lib/api/client";
+import { resumenDeLaVenta } from "@lib/contabilidad/facturas-venta";
 import { formatEUR } from "@lib/utils";
 import { Button } from "@components/ui/button";
 import { EstadoBadge } from "@components/backoffice/EstadoBadge";
@@ -350,6 +351,7 @@ function FacturasDeLaVenta({
   // tiene por qué poder emitir un documento fiscal.
   const puedeEmitir = usePuede("contabilidad", "edicion");
   const yaTieneCompleta = facturas.some((f) => f.tipo === "completa");
+  const resumen = resumenDeLaVenta(facturas);
 
   // Una venta sin devengar no tiene hecho económico que facturar, así que aquí no
   // hay nada que decir todavía — ni un vacío que parezca un fallo.
@@ -375,11 +377,47 @@ function FacturasDeLaVenta({
           solo pasa con las anteriores a configurar los datos fiscales del negocio.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {facturas.map((f) => (
-            <FilaFactura key={f.id} factura={f} puedeEnviar={puedeEmitir} />
-          ))}
-        </ul>
+        <>
+          <ul className="space-y-2">
+            {facturas.map((f) => (
+              <FilaFactura key={f.id} factura={f} puedeEnviar={puedeEmitir} />
+            ))}
+          </ul>
+
+          {/**
+           * ⚠️⚠️ EL NETO, Y POR QUÉ NO BASTABA CON LA LISTA. La pregunta que se
+           * hace quien mira esto es «¿cuál es la factura final?», y la respuesta
+           * es que no existe: una factura emitida no se modifica jamás, así que
+           * una devolución no reescribe la completa, emite una rectificativa en
+           * negativo. El estado fiscal de la venta es la SUMA de los documentos
+           * — y la suma es justo la parte que una persona hace mal de cabeza.
+           *
+           * Por eso el bloque explica además la regla: sin ella, ver la completa
+           * intacta por 3,02 € después de haber devuelto los 3,02 € parece un
+           * fallo del programa.
+           */}
+          {resumen.hayQueResumir && (
+            <div className="mt-3 rounded-md bg-muted/40 px-3 py-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <span className="text-xs text-muted-foreground">
+                  Facturado {formatEUR(resumen.facturado)}
+                  {resumen.rectificado !== 0 && (
+                    <> · rectificado {formatEUR(resumen.rectificado)}</>
+                  )}
+                </span>
+                <span className="text-xs font-medium">
+                  Neto <span className="ml-1 font-mono text-sm">{formatEUR(resumen.neto)}</span>
+                </span>
+              </div>
+              {resumen.rectificado !== 0 && (
+                <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+                  Una factura emitida no se modifica: la devolución se documenta con una
+                  rectificativa en negativo, y lo que la venta sostiene hoy es el neto.
+                </p>
+              )}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
@@ -437,14 +475,24 @@ function FilaFactura({ factura, puedeEnviar }: { factura: FacturaDeLaVenta; pued
     }
   };
 
+  /**
+   * ⚠️ La rectificativa va SANGRADA, no en la misma columna que las demás. Las
+   * facturas llegan por `orden`, o sea que una rectificativa siempre viene
+   * detrás de la que corrige; el sangrado convierte esa adyacencia en algo que
+   * se ve. Suelta en la lista, un documento en negativo no dice qué se devolvió:
+   * dice que hay un papel raro.
+   */
+  const esRectificativa = factura.tipo === "rectificativa";
+
   return (
     <li
       className={
-        factura.vigente
+        (factura.vigente
           ? "rounded-lg border bg-card p-3"
           : // La sustituida se apaga pero NO se esconde ni se tacha: existe, se
             // emitió y está en el libro. Lo que cambia es que ya no cuenta.
-            "rounded-lg border border-dashed bg-muted/30 p-3"
+            "rounded-lg border border-dashed bg-muted/30 p-3") +
+        (esRectificativa ? " ml-4 border-l-2 border-l-muted-foreground/30" : "")
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -470,6 +518,15 @@ function FilaFactura({ factura, puedeEnviar }: { factura: FacturaDeLaVenta; pued
               <>
                 {" · sustituida por "}
                 <span className="font-mono">{factura.sustituida_por}</span>
+              </>
+            )}
+            {/* A qué documento corrige. El RD 1619/2012 art. 15 lo exige en el
+                papel (lo imprime el PDF), y aquí hace la misma falta: es lo que
+                convierte «−2,40 €» en «−2,40 € de aquella venta». */}
+            {esRectificativa && factura.rectifica_a_numero && (
+              <>
+                {" · rectifica a "}
+                <span className="font-mono">{factura.rectifica_a_numero}</span>
               </>
             )}
           </p>

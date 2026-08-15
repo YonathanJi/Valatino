@@ -461,7 +461,9 @@ export class PedidosService {
          */
         this.supabase
           .from("libro_facturas_expedidas")
-          .select("id, numero, tipo, fecha_expedicion, total, vigente, sustituida_por")
+          .select(
+            "id, numero, tipo, fecha_expedicion, total, vigente, sustituida_por, rectifica_a_numero",
+          )
           .eq("pedido_id", pedidoId)
           .order("orden", { ascending: true }),
       ]);
@@ -491,7 +493,7 @@ export class PedidosService {
       reembolso_lineas: reembolsoLineas,
       /**
        * ⚠️⚠️ SE MAPEA CAMPO A CAMPO, no con un `as`. El `select` de arriba ya pide
-       * solo estas siete columnas, pero un `select` es fácil de cambiar a `*` sin
+       * solo estas ocho columnas, pero un `select` es fácil de cambiar a `*` sin
        * pensar —y entonces el NIF y el domicilio fiscal del cliente saldrían por
        * un endpoint que ve todo el equipo con `pedidos:lectura`—. Con el mapeo,
        * ese descuido no filtra nada: lo que no está aquí no sale.
@@ -508,6 +510,7 @@ export class PedidosService {
           total: Number(f["total"]),
           vigente: f["vigente"] as boolean,
           sustituida_por: (f["sustituida_por"] as string | null) ?? null,
+          rectifica_a_numero: (f["rectifica_a_numero"] as string | null) ?? null,
         }),
       ),
     };

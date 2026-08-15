@@ -734,6 +734,15 @@ export interface FacturaDeLaVenta {
   vigente: boolean;
   /** El número de la que la sustituyó, cuando `vigente` es `false`. */
   sustituida_por: string | null;
+  /**
+   * A qué factura corrige, cuando es una rectificativa. Lo resuelve la vista
+   * `libro_facturas_expedidas` (077 §5), porque en la tabla es un uuid.
+   *
+   * Es lo que permite pintarla COLGANDO de la factura que corrige en vez de
+   * suelta en la lista: una rectificativa que se lee sin su original no dice qué
+   * se devolvió, dice que hay un documento en negativo.
+   */
+  rectifica_a_numero: string | null;
 }
 
 // ============================================================
