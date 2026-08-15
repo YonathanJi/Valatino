@@ -285,10 +285,34 @@ export class ConfirmacionPedidoService {
       esTotal ? "reembolsado" : "reembolsado_parcial",
       reembolso.importe,
       reembolso.payloadRaw,
-      // Sin actor: esto llega por el aviso de Stripe, no lo pidió nadie desde
-      // el panel. Si sí lo pidieron, el evento con nombre ya lo dejó el propio
-      // ReembolsosService al cobrarlo.
-      { tipo: "reembolso", origen: "webhook" },
+      /**
+       * Sin actor: esto llega por el aviso de Stripe, no lo pidió nadie desde el
+       * panel.
+       *
+       * ⚠️⚠️ Y SOLO SE ANOTA EN LA LÍNEA DE TIEMPO SI TRAE ALGO NUEVO. Stripe
+       * manda `charge.refunded` también cuando la devolución la lanzamos
+       * nosotros, y ahí el evento con nombre ya lo dejó `ReembolsosService` al
+       * cobrarla — el comentario que había aquí ya lo decía, pero se anotaba
+       * igualmente: cada devolución del panel escribía DOS «Devolución» seguidas.
+       * Y como el importe de `charge.refunded` es el ACUMULADO del cargo, la
+       * segunda contradecía a la primera: «Devolución de 2,40 €» y justo debajo
+       * «Devolución de 3,02 €», que se lee como 5,42 € devueltos.
+       *
+       * La transacción SÍ se guarda siempre: es el registro de lo que dijo
+       * Stripe y de ahí sale el total devuelto. Lo que se calla es la línea
+       * duplicada de la ficha.
+       *
+       * ⭐ Y cuando la devolución se hizo desde el panel de Stripe —o el registro
+       * del backoffice falló—, esto SÍ es lo único que la cuenta, así que el
+       * evento sale, con lo devuelto de nuevo y no con el acumulado.
+       */
+      esNuevo
+        ? {
+            tipo: "reembolso",
+            origen: "webhook",
+            importe: (acumuladoCents - yaConocidoCents) / 100,
+          }
+        : undefined,
     );
 
     if (esNuevo) {

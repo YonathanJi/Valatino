@@ -421,6 +421,19 @@ export class ReembolsosService {
           // importe: es la diferencia entre «se devolvieron 4 €» y «se devolvió
           // la caja de galletas».
           ...(seleccion ? { detalle: `reembolso.backoffice · ${seleccion.resumen}` } : {}),
+          /**
+           * ⚠️⚠️ LO DEVUELTO AHORA, no el acumulado que va a la transacción. La
+           * transacción lleva el acumulado a propósito (`totalesReembolsados`
+           * saca el total tomando el máximo de esa columna); la línea de tiempo
+           * cuenta lo que acaba de pasar.
+           *
+           * El caso real que lo destapó, del 2026-08-14: una segunda devolución
+           * de 2,40 € sobre un pedido que ya llevaba 0,62 € escribió «Devolución
+           * de 3,02 € · 3 × Galleta Festival Sabor Chocolate». Las tres galletas
+           * costaban 2,40 €, y su propia factura rectificativa decía −2,40 €. La
+           * ficha y el documento fiscal se contradecían sobre el mismo dinero.
+           */
+          importe: importeCents / 100,
         },
       );
     } catch (err) {

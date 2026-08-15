@@ -178,6 +178,20 @@ export class InventarioService {
       origen?: OrigenEvento;
       /** Qué contar en la línea de tiempo. Por defecto, el tipo de evento. */
       detalle?: string;
+      /**
+       * Qué importe contar en la línea de tiempo. Por defecto, el de la
+       * transacción.
+       *
+       * ⚠️⚠️ EXISTE PORQUE LOS DOS NÚMEROS NO SON EL MISMO, y confundirlos ya
+       * mintió en pantalla: en un reembolso, `transacciones_pago.importe` es el
+       * ACUMULADO devuelto del cargo —y tiene que serlo, porque
+       * `totalesReembolsados` saca el total devuelto tomando el MÁXIMO de esa
+       * columna, no la suma—, mientras que la línea de tiempo cuenta lo que pasó
+       * en ESE momento. Con un solo número, devolver 2,40 € de una venta que ya
+       * llevaba 0,62 € devueltos escribía «Devolución de 3,02 €» al lado de los
+       * tres artículos que sí valían 2,40 €.
+       */
+      importe?: number;
     },
   ): Promise<void> {
     const { error } = await this.supabase.from("transacciones_pago").insert({
@@ -205,7 +219,7 @@ export class InventarioService {
       await this.eventos.registrar({
         pedidoId,
         tipo: historial.tipo,
-        importe,
+        importe: historial.importe ?? importe,
         detalle: historial.detalle ?? tipoEvento,
         actorId: historial.actorId,
         origen: historial.origen,

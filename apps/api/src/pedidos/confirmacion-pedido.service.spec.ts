@@ -15,7 +15,12 @@ import type { ReembolsosService } from "./reembolsos.service";
 function montar(totalPedido: number | null, yaReembolsado = 0) {
   const llamadas = {
     reembolsosTotales: [] as string[],
-    transacciones: [] as Array<{ estado: string; importe: number }>,
+    transacciones: [] as Array<{
+      estado: string;
+      importe: number;
+      /** `undefined` = no se anotó nada en la línea de tiempo. */
+      historial?: { tipo: string; origen?: string; importe?: number };
+    }>,
     emails: [] as Array<{ tipo: string; importe?: number }>,
   };
 
@@ -31,8 +36,10 @@ function montar(totalPedido: number | null, yaReembolsado = 0) {
       _tipoEvento: string,
       estado: string,
       importe: number,
+      _payload?: object,
+      historial?: { tipo: string; origen?: string; importe?: number },
     ) => {
-      llamadas.transacciones.push({ estado, importe });
+      llamadas.transacciones.push({ estado, importe, historial });
     },
     getPedidoConItems: async () => ({
       id: "pedido-1",
@@ -130,12 +137,45 @@ describe("ConfirmacionPedidoService.procesarReembolso", () => {
     expect(llamadas.transacciones).toHaveLength(1);
   });
 
+  /**
+   * ⚠️⚠️ Y TAMPOCO SE ANOTA EN LA LÍNEA DE TIEMPO, por lo mismo que no se manda el
+   * correo: el evento con nombre y artículos ya lo dejó `ReembolsosService` al
+   * cobrarla. Antes se anotaba igual, así que cada devolución del panel escribía
+   * DOS «Devolución» seguidas — y como el importe de `charge.refunded` es el
+   * ACUMULADO del cargo, la segunda contradecía a la primera: «Devolución de
+   * 2,40 €» y debajo «Devolución de 3,02 €», que se lee como 5,42 € devueltos.
+   */
+  it("el eco del panel tampoco duplica la línea de tiempo", async () => {
+    const { servicio, llamadas } = montar(49.99, 10);
+
+    await servicio.procesarReembolso(reembolsoDe(10));
+
+    expect(llamadas.transacciones[0]!.historial).toBeUndefined();
+  });
+
   it("sí avisa cuando el acumulado sube (segunda devolución hecha en Stripe)", async () => {
     const { servicio, llamadas } = montar(49.99, 10);
 
     await servicio.procesarReembolso(reembolsoDe(20));
 
     expect(llamadas.emails).toEqual([{ tipo: "reembolso", importe: 20 }]);
+  });
+
+  /**
+   * ⭐ Cuando la devolución se hizo en el panel de STRIPE, este evento es lo único
+   * que la cuenta, así que sí se anota — y con lo devuelto de nuevo (20 − 10),
+   * no con el acumulado que trae Stripe. La transacción sigue guardando el
+   * acumulado, que es de donde sale el total devuelto del pedido.
+   */
+  it("una devolución hecha en Stripe se anota con lo devuelto de nuevo", async () => {
+    const { servicio, llamadas } = montar(49.99, 10);
+
+    await servicio.procesarReembolso(reembolsoDe(20));
+
+    expect(llamadas.transacciones[0]).toMatchObject({
+      importe: 20, // el acumulado, tal como lo dice Stripe
+      historial: { tipo: "reembolso", origen: "webhook", importe: 10 }, // 20 − 10
+    });
   });
 
   it("un reembolso por encima del total también cuenta como total", async () => {

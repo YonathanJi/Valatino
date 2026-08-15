@@ -78,6 +78,8 @@ function montar(o: Opciones = {}) {
       importe: number;
       eventoId: string;
       detalle?: string;
+      /** El importe que va a la LÍNEA DE TIEMPO, que no es el de la transacción. */
+      importeEvento?: number;
     }>,
     rpc: [] as string[],
     rpcParams: [] as Array<Record<string, unknown>>,
@@ -156,13 +158,14 @@ function montar(o: Opciones = {}) {
       estadoTx: string,
       importe: number,
       _payload?: object,
-      historial?: { detalle?: string },
+      historial?: { detalle?: string; importe?: number },
     ) => {
       registro.transacciones.push({
         estado: estadoTx,
         importe,
         eventoId,
         detalle: historial?.detalle,
+        importeEvento: historial?.importe,
       });
     },
     getPedidoConItems: async () => ({
@@ -347,6 +350,51 @@ describe("ReembolsosService.reembolsar", () => {
     expect(registro.transacciones[0]).toMatchObject({
       estado: "reembolsado_parcial",
       importe: 30, // 20 previos + 10
+    });
+  });
+
+  /**
+   * ⚠️⚠️ Y LA LÍNEA DE TIEMPO CUENTA LO OTRO: lo devuelto AHORA. Los dos números
+   * son distintos y hasta hoy compartían uno solo, así que la ficha mentía.
+   *
+   * El caso real, del 2026-08-14: una segunda devolución de 2,40 € sobre un
+   * pedido que ya llevaba 0,62 € escribió «Devolución de 3,02 € · 3 × Galleta
+   * Festival Sabor Chocolate». Las tres galletas costaban 2,40 €, y su propia
+   * rectificativa decía −2,40 €: la ficha y el documento fiscal se contradecían
+   * sobre el mismo dinero.
+   */
+  it("la línea de tiempo cuenta lo devuelto AHORA, no el acumulado", async () => {
+    const { servicio, registro } = montar({ total: 50, reembolsosPrevios: [20] });
+
+    await servicio.reembolsar("ped-1", { importe: 10 }, "admin@valatino.es");
+
+    expect(registro.transacciones[0]).toMatchObject({
+      importe: 30, // la transacción, acumulada: de ahí sale el total devuelto
+      importeEvento: 10, // la ficha, lo de esta vez
+    });
+  });
+
+  /**
+   * Y con artículos es donde se veía el disparate, porque al lado del importe va
+   * la lista de lo devuelto: el importe tiene que ser el de ESOS artículos.
+   */
+  it("con artículos, el importe del evento es el de esos artículos", async () => {
+    const { servicio, registro } = montar({
+      total: 50,
+      reembolsosPrevios: [5],
+      items: [{ id: "it-1", nombre_producto: "Nucita", cantidad: 4, precio_unitario: 2.5 }],
+    });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 3 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.transacciones[0]).toMatchObject({
+      detalle: "reembolso.backoffice · 3 × Nucita",
+      importe: 12.5, // 5 previos + 7,50
+      importeEvento: 7.5, // 3 × 2,50, que es lo que dice el detalle
     });
   });
 
