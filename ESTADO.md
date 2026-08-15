@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-14
+**Última actualización**: 2026-08-15
 
 ---
 
@@ -48,41 +48,119 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-14
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-15
 
-**Todo está commiteado y pusheado** (`8d24ef5`), árbol limpio, 0 sin pushear. **713 tests**, `type-check` y los dos builds en verde.
+**Todo está commiteado y pusheado** (`a8d66d6`), árbol limpio, 0 sin pushear. **728 tests** (430 API + 298 web), `type-check` y los dos builds en verde.
 
-⭐ **La Capa 2 de contabilidad quedó CERRADA hoy**: simplificada automática, completa a petición, **rectificativa por devolución**, el 303, el libro con su cadena de huellas, y el PDF de los tres tipos con envío al cliente por correo.
+⭐⭐ **HOY LA CAPA 2 SE PROBÓ CON DINERO REAL DE PUNTA A PUNTA, Y ADEMÁS SE LIMPIÓ LA BASE.** La operación entera —compra, simplificada sola, canje a completa, PDF, envío por correo, dos devoluciones parciales con su rectificativa automática— cursó sobre el pedido `260815017972` y **volvió a cero exacto**.
 
 **Estado del remoto, comprobado al cerrar** (no de memoria):
 
 | | |
 |---|---|
-| Pedidos · devoluciones | **1 · 0** |
-| Facturas | `VALS202600100` · `VALF202600100` (la S sustituida por la F) |
-| Contadores | `VALS→101` `VALF→101` · la serie `VALR` aún sin estrenar |
-| Cadena de huellas | **intacta** |
-| 3T | **−24,83 €** · único aviso: `sin_arranque_fiscal` |
+| Pedidos | **1** (`260815017972`, REEMBOLSADO, 3,72 €) — el del 14/08 se limpió |
+| Facturas | `VALS202600100` (sustituida) · `VALF202600100` · `VALR202600100` · `VALR202600101` |
+| La suma de las rectificativas | **base 3,38 · cuota 0,34** = exactamente lo que declaró la venta |
+| Contadores | `VALS→101` `VALF→101` `VALR→102` |
+| Cadena de huellas | **intacta** · 0 anomalías en `factura_eventos` |
+| 3T | **−25,10 €** · repercutido **0,00 / 0,00** · único aviso: `sin_arranque_fiscal` |
+| Descuadres de stock | **0** |
 | Arranque fiscal | **sin marcar** — la ventana para rehacer cosas sigue abierta |
-| Rastros de los ensayos | **0** — todo se revirtió |
+| CHECK de la 076 | **convalidado** (079) — ya no es `NOT VALID` |
 
-⚠️ **Y la regla de siempre, que hoy volvió a salir cara**: este fichero se escribe al final de la sesión y la tienda sigue viva entre sesiones. **Preguntarle a la BD antes de creerse el markdown.**
+⚠️ **La regla de siempre, que ayer salió cara y hoy volvió a acertar**: este fichero se escribe al final de la sesión y la tienda sigue viva entre sesiones. Al reanudar hoy, la BD tenía **dos rectificativas que este documento no mencionaba** —Jonathan había hecho las tres pruebas de pantalla después del cierre— y de ahí salió todo lo demás. **Preguntarle a la BD antes de creerse el markdown.**
 
-#### Lo primero, y es de Jonathan: tres cosas en pantalla
+#### Lo primero al volver: NO hay nada pendiente de mirar en pantalla
 
-Nada de lo de hoy se ha visto con un navegador. Por orden:
+Por primera vez en varias sesiones, todo lo construido se ha visto funcionando en un navegador y con dinero real. La cola es de trabajo, no de comprobaciones.
 
-1. **Pinchar el botón `PDF`** de una factura en la ficha del pedido → debe abrirse en una pestaña.
-2. **Pulsar `Enviar`** en `VALF202600100` → debe llegar el correo con el adjunto, y el envío aparecer **en el historial del pedido con tu nombre**.
-3. **Devolver el pedido** desde el panel → la **rectificativa `VALR202600100` debe aparecer sola** en la ficha, en negativo, y el aviso del 303 seguir callado.
+#### La cola
 
-#### Y después, la cola
-
-1. 🔴 **Cerrar el `NOT VALID`** del CHECK de la 076 cuando `VALF202600100` desaparezca (la línea exacta está en la sección de la 076).
-2. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`.
-3. ⚠️⚠️ **Verifactu con la gestoría.** Ya no es código: el **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. La cadena está y **se puede recalcular antes del arranque fiscal**.
-4. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
+1. ⚠️⚠️ **Verifactu con la gestoría. Es lo único grande que separa esto del arranque fiscal.** Ya no es código: el **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. **La cadena se puede recalcular mientras el arranque no esté marcado; después, no.** Llevar a la misma consulta: la fecha con la que se deduce el IVA soportado (hoy la de registro, ver la 068) y el `TipoRectificativa` que se declara (las de aquí son **por diferencias**).
+2. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`. Ahí va también la **causa de la rectificación** en la rectificativa (art. 15.3), que hoy no se imprime.
+3. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
+4. **Higiene de producción, que lleva pendiente desde el 05/08**: revocar los **cinco secretos** y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt` (la `sb_secret_…` salta el RLS), y quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`.
 5. La cola de fondo: tests de componentes de la web, accesibilidad, la CSP a obligatoria, y el paso a Stripe `live`.
+
+
+## ⭐⭐ HECHO EL 2026-08-15 — el céntimo, la pregunta de «cuál es la factura final», y la base limpia
+
+### Lo que la BD dijo al reanudar, y este fichero no
+
+Otra vez, y por eso la regla está arriba. Jonathan hizo las **tres comprobaciones de pantalla** después del cierre del 14/08, y la BD lo contaba todo:
+
+| | |
+|---|---|
+| `enviada` de `VALF202600100` ×2 | El PDF y el envío funcionan (y `enviarFactura` **lanza** si falla, así que el evento prueba que salió) |
+| Dos rectificativas, `VALR202600100` y `…101` | Devolvió el pedido en **dos reembolsos parciales** y salieron solas |
+| Dos `rectificativa_sin_receptor_heredado` | ⚠️ Y salieron **sin receptor**, por el NIF de prueba. Ver abajo |
+
+### ⭐ El céntimo que perdían las rectificativas (078)
+
+**El síntoma, con los números reales**: la venta declaró base 2,75 / cuota 0,27. Se devolvió **entera** y las dos rectificativas sumaron 2,74 / 0,28. El **dinero** cuadraba al céntimo (3,02 − 0,62 − 2,40 = 0,00); lo que no volvía a cero era el reparto, y el 303 quedó con `repercutido` = base **+0,01** y cuota **−0,01**. Una cuota negativa sobre una base positiva, en una venta saldada.
+
+**La causa**: cada reembolso derivaba SU base aisladamente (`round(con_iva / (1 + pct/100), 2)`) y dos redondeos independientes no vuelven al original.
+
+**El arreglo**: la base sale del acumulado.
+
+```
+objetivo  = round(base_venta × devuelto_acumulado / total_venta, 2)
+base_doc  = objetivo − base_ya_rectificada        (por tipo de IVA)
+cuota_doc = devuelto_esta_vez − base_doc          ← RESTANDO, como siempre
+```
+
+⭐ **No compensa de casualidad: converge.** Si `devuelto_acumulado = total_venta`, el objetivo ES `base_venta`. Y **la deriva no se acumula**, porque el objetivo se recalcula sobre el total y no sobre el trozo.
+
+⚠️⚠️ **Que la proporción sea exacta hubo que comprobarlo antes de fiarse de una regla de tres sobre dinero**: `pedido_iva` se construye de `pedido_items` y `reembolso_lineas.importe` copia esas mismas líneas — **no hay coste de envío ni ningún concepto fuera de los artículos**. El universo devolvible y el declarado son el mismo. **Si algún día se cobra el envío aparte, esta proporción hay que revisarla.**
+
+⚠️⚠️ **Y había un problema más gordo que el céntimo: la aritmética estaba DUPLICADA.** La 077 la escribía para el documento y la 068 la recalculaba para el 303 —«copiada línea por línea», decía su propio comentario—. Arreglar solo la 077 habría hecho que el papel dijera 2,19/0,21 y el 303 siguiera diciendo 2,18/0,22 **del mismo reembolso**: de un céntimo a una contradicción. **Es el mismo patrón que costó la 074** (el formato del número en tres sitios). Ahora **el 303 suma el desglose de las rectificativas emitidas** y solo deriva por su cuenta las devoluciones sin documento, con el predicado **literal** del aviso `devolucion_sin_rectificativa` de la 075.
+
+**Ensayo en transacción revertida, 4/4**, y el que más valía era el **B**: emitir las dos al revés da el mismo resultado. Es **independiente del orden**, y lo es porque «lo ya rectificado» se lee de los **documentos emitidos**, no de los reembolsos — si una falla y se emite luego con `emitir_rectificativas_pendientes`, la última cierra el resto.
+
+### ⭐⭐ «¿Cuál queda como factura final?» — la pregunta de Jonathan, y por qué no existe
+
+Mirando el historial: *«la completa queda completa y las rectificativas son solo de lo que se devuelve, ¿no se debería actualizar la completa con cada devolución?»*. **No, y no se puede**: una factura emitida no se modifica jamás —lo impide la ley, `trg_factura_inmutable` y el hecho de que el número entra en la huella—. El estado fiscal de una venta es el **conjunto** de sus documentos.
+
+La ley admite dos formas de rectificar, y conviene saber cuál es la nuestra:
+
+| | Qué dice el documento | Cuándo |
+|---|---|---|
+| **Por diferencias** ← *la de aquí* | solo la diferencia (−2,40 €) | devoluciones, descuentos, impagos |
+| Por sustitución | el importe corregido entero, más el rectificado | errores de la factura (precio mal, NIF mal) |
+
+⚠️ Y *sustitución* aquí **ya significa otra cosa** (el canje simplificada → completa, vía `sustituye_a`): usar la palabra para dos mecanismos distintos es pedir un lío.
+
+**Lo que faltaba no era fiscal, era de pantalla**, y se añadió: la ficha cierra con «Facturado · rectificado · **Neto**» y, cuando hay rectificativas, explica la regla en una línea — sin eso, ver la completa intacta por 3,72 € después de haber devuelto 3,72 € **parece un fallo del programa**. Las rectificativas van sangradas y dicen a qué factura corrigen.
+
+- ⚠️ La suma va **en céntimos enteros**: en coma flotante `3.02 - 0.62 - 2.40` da `-4.44e-16`, que se pinta «−0,00 €» justo en la venta que quedó saldada.
+- ⭐ **Un test corrigió el diseño de quien lo escribió**: el resumen salía solo con varias facturas **vigentes**, y con una simplificada canjeada hay **dos filas de 3,72 € en pantalla y una sola cuenta** — o sea el caso donde más falta hace. Manda `facturas.length`.
+
+### La limpieza, y el `NOT VALID` cerrado (079)
+
+`limpiar_datos_de_prueba()` se llevó el pedido del 14/08 y sus cuatro facturas. **Antes de ejecutarla se hizo inventario**, porque borra bastante más que facturas: 0 empleados, 0 cuentas no-admin (la de admin se queda), y el recálculo de stock resultó ser **un no-op** (ya cuadraba). Después, el CHECK de la 076 **quedó convalidado**.
+
+⭐ **Y lo que costó esperar un día, que es lo aprovechable**: `VALF202600100` llevaba el NIF del propio negocio como receptor, así que al devolver ese pedido **las dos rectificativas salieron SIN receptor**. La válvula de la 077 hizo lo correcto —heredarlo habría abortado un reembolso ya cobrado— pero el precio fue **emitir dos documentos peores**. Un dato de prueba malo no se queda en su sitio: contamina lo que se construye encima.
+
+### La línea de tiempo decía mal cuánto se devolvió, y lo decía dos veces
+
+Dos números distintos compartían uno solo. ⚠️⚠️ **`transacciones_pago.importe` en un reembolso es el ACUMULADO devuelto del cargo, y TIENE que serlo**: `totalesReembolsados` saca el total tomando el **MÁXIMO** de esa columna, no la suma, porque el mismo reembolso se registra dos veces (panel y webhook) con `evento_id` distinto. Pero el evento de la ficha usaba ese mismo importe.
+
+**El resultado real**: una segunda devolución de 2,40 € sobre un pedido que ya llevaba 0,62 € escribió «Devolución de **3,02 €** · 3 × Galleta Festival Sabor Chocolate». Esas galletas costaban 2,40 €, y su propia rectificativa decía −2,40 €: **la ficha y el documento fiscal se contradecían sobre el mismo dinero**.
+
+Y al mirarlo apareció la otra mitad: el webhook anotaba **siempre** su evento, también cuando `charge.refunded` es el eco de la devolución que lanzamos nosotros. Cada devolución del panel escribía **dos** «Devolución» seguidas, y como la del webhook lleva el acumulado, la segunda contradecía a la primera. Ahora solo se anota **si trae algo nuevo** —el mismo `esNuevo` que ya evitaba el doble correo, y cuyo comentario *ya decía* que el evento con nombre lo había dejado `ReembolsosService`—; y si la devolución se hizo en el panel de Stripe, se anota con **lo devuelto de nuevo**. La transacción se guarda siempre.
+
+⚠️ `InventarioService` **no tenía spec** y esa línea decide ahora el importe de **todos** los eventos, no solo los de reembolso. Se le hizo uno.
+
+### La prueba de fuego, con dinero real
+
+Pedido `260815017972` (3,72 €), de la compra a la devolución total en 6 minutos: simplificada sola → canje a `VALF202600100` → PDF y envío → dos devoluciones parciales con rectificativa automática.
+
+- **La suma de las rectificativas: base 3,38 / cuota 0,34 = exactamente lo que declaró la venta.** 3T con repercutido **0,00 / 0,00**.
+- **El historial**: «Devolución de 2,12 €» (0,62 + 1,50) y «Devolución de 1,60 €» (0,80 + 0,80), **una línea por devolución**. Ayer la segunda habría dicho 3,72 € y habría salido dos veces.
+- ⭐ El receptor salió con **NIF distinto del emisor**, así que las dos rectificativas **heredaron receptor**: el efecto del dato malo desapareció con la limpieza.
+- Cadena intacta, 0 anomalías en `factura_eventos`, 0 descuadres de stock.
+
+⚠️ **Y lo que hay que decir aunque saliera bien: estos importes NO discriminan el fallo del céntimo.** Con 2,12 € y 1,60 €, la aritmética vieja da exactamente lo mismo. Esta prueba confirma todo lo demás; **la 078 la prueban los ensayos A y B**. El caso que sí lo distingue con este pedido sería devolver **las dos galletas en dos operaciones separadas** (0,80 y 0,80) y el resto después: la vieja daría 0,73 + 0,73 + 1,93 = **3,39**, un céntimo por encima de la base de la venta.
 
 
 ## ⭐⭐ HECHO EL 2026-08-14 (cont.) — el número de factura, y el aviso que mentía (074 y 075)
@@ -182,7 +260,7 @@ El arreglo va en **dos sitios, y no es duplicar la regla** — es la forma de la
 - el **CHECK** `facturas_receptor_no_es_el_emisor` es el **suelo**: vale para cualquier vía, incluida una inserción a mano por SQL, y ninguna función futura puede olvidarlo;
 - el **`raise`** en `emitir_factura_completa` es el **mensaje**, porque un CHECK solo dice «violates check constraint».
 
-🔴 **PENDIENTE PEQUEÑO, Y HAY QUE CERRARLO**: el CHECK está **`NOT VALID`**, porque `VALF202600100` viola la regla y un CHECK normal no se podría ni crear. Se eligió eso en vez de borrar la factura de Jonathan sin preguntarle. En cuanto esa factura desaparezca —con `limpiar_datos_de_prueba`, o borrándola a mano mientras no haya arranque fiscal— se cierra con:
+~~🔴 **PENDIENTE PEQUEÑO, Y HAY QUE CERRARLO**~~ → **CERRADO en la 079** (2026-08-15): la limpieza se llevó `VALF202600100` y el CHECK quedó **convalidado**. Lo de abajo se conserva porque explica por qué nació provisional. El CHECK estaba **`NOT VALID`** porque `VALF202600100` violaba la regla y un CHECK normal no se podría ni crear. Se eligió eso en vez de borrar la factura de Jonathan sin preguntarle. En cuanto esa factura desaparezca —con `limpiar_datos_de_prueba`, o borrándola a mano mientras no haya arranque fiscal— se cierra con:
 
 ```sql
 alter table public.facturas_emitidas validate constraint facturas_receptor_no_es_el_emisor;
@@ -284,7 +362,7 @@ Además: el aviso se calla, la cadena sigue intacta, rectifica a la **vigente** 
 
 ### 🔜 Lo único que falta de esto
 
-🔴 **Devolver un pedido de verdad desde el panel y ver la rectificativa aparecer sola** en la ficha, con su PDF. El ensayo lo prueba contra el remoto pero **nadie lo ha visto en pantalla**.
+~~🔴 **Devolver un pedido de verdad desde el panel y ver la rectificativa aparecer sola** en la ficha, con su PDF.~~ → **COMPROBADO EN PANTALLA** el 2026-08-15, dos veces: primero con el pedido del 14/08 y después con la operación entera de `260815017972`.
 
 ## ⭐⭐ HECHO EL 2026-08-14 (cont. 4) — la factura en PDF, y el botón de mandársela al cliente
 
@@ -330,8 +408,8 @@ Se generó con datos reales y **se leyó el texto de dentro** descomprimiendo lo
 
 ### 🔜 Lo que falta de esto, y es de Jonathan
 
-1. 🔴 **Pinchar una factura y ver el PDF en el navegador.** Nadie lo ha hecho.
-2. 🔴 **Mandarse una factura a uno mismo y abrir el adjunto en una bandeja de entrada real.** Es lo único que prueba que SendGrid entrega el adjunto y que el visor del móvil lo abre en vez de ofrecer «descargar».
+1. ~~🔴 **Pinchar una factura y ver el PDF en el navegador.**~~ → **hecho el 2026-08-15**.
+2. ~~🔴 **Mandarse una factura a uno mismo y abrir el adjunto en una bandeja de entrada real.**~~ → **hecho**: los `enviada` de `factura_eventos` lo prueban, y `enviarFactura` es el único correo que **lanza** si falla, así que el evento significa que salió.
 3. ⚠️ **El `Reply-To` sigue siendo un gmail** porque `valatino.es` no tiene MX. En un correo de factura queda raro; no bloquea.
 
 ### 🔜 La decisión sobre el PDF, ya ejecutada
@@ -347,9 +425,9 @@ Jonathan confirmó que **la factura hay que poder enviársela al cliente por cor
 ### 🔜 Lo siguiente, por orden
 
 1. ~~Pushear y emitir las que faltan~~ → **hecho**. Jonathan limpió la base y cursó la operación entera; ver el bloque de arriba.
-2. 🔴 **Mirar en pantalla el bloque de facturas de la ficha y los dos atajos.** Es lo único de la cont. 3 sin comprobar con un navegador: la consulta está verificada contra el remoto y el build es limpio, pero **nadie ha visto renderizado** ni el bloque ni el `?pedido=` de ida y vuelta. Entrar por Pedidos → pinchar `260814015565`, y desde el libro pinchar el número de pedido.
-3. 🔴 **Ver el PDF en el navegador, mandarse una factura a uno mismo, y devolver un pedido para ver su rectificativa aparecer sola.** Es todo lo que falta por comprobar en pantalla.
-4. 🔴 **Cerrar el `NOT VALID` del CHECK de la 076** en cuanto `VALF202600100` desaparezca (una línea, está arriba).
+2. ~~🔴 **Mirar en pantalla el bloque de facturas de la ficha y los dos atajos.**~~ → **hecho el 2026-08-15**, y el bloque ganó además el **neto de la venta** (ver la sesión del 15).
+3. ~~🔴 **Ver el PDF en el navegador, mandarse una factura a uno mismo, y devolver un pedido para ver su rectificativa aparecer sola.**~~ → **todo comprobado el 2026-08-15**, con la operación entera de `260815017972`.
+4. ~~🔴 **Cerrar el `NOT VALID` del CHECK de la 076**~~ → **CERRADO en la 079** (2026-08-15), después de la limpieza.
 5. ~~La rectificativa por devolución~~ → **HECHA** (077, cont. 5). **Con esto la Capa 2 de contabilidad está cerrada**: simplificada automática, completa a petición, rectificativa por devolución, el 303, el libro con su cadena de huellas y el PDF de los tres tipos.
 6. **El logo y el pulido del PDF**, cuando Jonathan pase el modelo. Requisitos y la trampa del `nest-cli.json` en `factura-pdf.service.ts`.
 7. **Migrar `DireccionForm` al componente compartido de ubicación**, con la pantalla delante: es checkout, o sea la ruta del dinero.
@@ -600,7 +678,7 @@ Saltarse esto con un campo obligatorio nuevo devuelve **400 al pagar** durante l
 - **Local**: `cd C:\YJIMENEZ\Valatino && pnpm dev` levanta web (3000) + API (4000). El `.env` local apunta la web a `localhost:4000`.
   - ⚠️ Si `localhost:3000` da 500 tras muchos cambios → caché de dev corrupto: parar `pnpm dev`, borrar `apps/web/.next`, relevantar. Inofensivo.
 - **Checkout end-to-end operativo en producción** (arreglado 2026-07-22): carrito (cross-domain), webhook de Stripe creado, email de pedido saliendo (SMTP por puerto **2525**). Ver sesión 2026-07-22.
-- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **077** (la rectificativa por devolución: `emitir_rectificativa` con la aritmética del bloque `rectificado` de la 068 en negativo, el trigger diferido sobre `reembolso_lineas` que no puede tumbar un reembolso, `emitir_rectificativas_pendientes`, `rectifica_a_numero` en el libro, y **dos parámetros nuevos en el motor que obligaron a `drop function`**). Antes la **076** (una factura no se emite a uno mismo: CHECK `NOT VALID` + el mensaje accionable). Antes la **075** (los dos avisos condicionales del 303, en vez del incondicional que había pasado a ser falso; solo lectura). Antes la **074** (el número `VALS202600100`: `factura_numero()` como única definición del formato, `factura_correlativo_inicial()` = 100, las series con prefijo `VAL`, y la población del emisor corregida). Antes las **071, 072 y 073** (los datos fiscales del emisor · el libro de facturas emitidas con su cadena de huellas y el trigger diferido de la simplificada · la completa a petición y la mina del `ON DELETE RESTRICT`; ver la sesión 2026-08-13 cont.). Antes la **070** (los documentos DISTINTOS de cada bloque de la liquidación; solo lectura). Antes la **069** (`fecha_factura` a NOT NULL, aplicada **después** de verificar el deploy por HTTP). Antes la **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
+- **Aplicar migraciones al remoto**: por Management API (ahora directo con la tool MCP `apply_migration`), NO `supabase db push`. Última aplicada: **079** (el CHECK de la 076 convalidado, ya sin `NOT VALID`, con su propia comprobación para no dejar el repo diciendo que se cerró algo abierto). Antes la **078** (el céntimo de las rectificativas: base con **redondeo acumulado** sobre `pedido_iva`, que converge a la base de la venta cuando se devuelve todo; y el 303 **sumando el desglose de las rectificativas emitidas** en vez de recalcularlo, que era la misma aritmética duplicada). Antes la **077** (la rectificativa por devolución: `emitir_rectificativa` con la aritmética del bloque `rectificado` de la 068 en negativo, el trigger diferido sobre `reembolso_lineas` que no puede tumbar un reembolso, `emitir_rectificativas_pendientes`, `rectifica_a_numero` en el libro, y **dos parámetros nuevos en el motor que obligaron a `drop function`**). Antes la **076** (una factura no se emite a uno mismo: CHECK `NOT VALID` + el mensaje accionable). Antes la **075** (los dos avisos condicionales del 303, en vez del incondicional que había pasado a ser falso; solo lectura). Antes la **074** (el número `VALS202600100`: `factura_numero()` como única definición del formato, `factura_correlativo_inicial()` = 100, las series con prefijo `VAL`, y la población del emisor corregida). Antes las **071, 072 y 073** (los datos fiscales del emisor · el libro de facturas emitidas con su cadena de huellas y el trigger diferido de la simplificada · la completa a petición y la mina del `ON DELETE RESTRICT`; ver la sesión 2026-08-13 cont.). Antes la **070** (los documentos DISTINTOS de cada bloque de la liquidación; solo lectura). Antes la **069** (`fecha_factura` a NOT NULL, aplicada **después** de verificar el deploy por HTTP). Antes la **068** (la liquidación del IVA: `pedidos.devengado_el`, `facturas_compra.fecha_factura`, el reembolso total que apunta sus líneas, el módulo `contabilidad` y la RPC `liquidacion_iva`; ver la sesión 2026-08-13). Antes la **067** (la limpieza se lleva los empleados de prueba y toda cuenta que no sea `admin`; los cargos NO se tocan). Antes la **066** (primera versión, solo cuentas de cliente). Antes la **065** (la limpieza necesitaba WHERE en cada DELETE: `safeupdate`). Antes la **064** (el arranque fiscal y la limpieza de datos de prueba). Antes la **063** (libro de ajustes de stock: `ajustes_stock` y `comprobar_stock()`) y la **062** (el IVA de venta: `productos.iva_pct`, el snapshot en `pedido_items` y la tabla `pedido_iva` con su desglose por tipo; ver la sesión del 2026-08-12 cont.). Antes la **061**. Del 2026-08-11 salieron cuatro: **058** (un usuario, un rol), **059** (revocar EXECUTE a las RPC internas), **060** (su corrección: había que revocar también a `PUBLIC`) y **061** (`get_user_role` al esquema `interno`, fuera de la API REST). Antes la **057** (`familia`/`variante` en productos). Del 2026-08-06 salieron cuatro: **054** número de factura obligatorio y único, **055** su corrección para que el único ignore espacios, **056** `desempaquetados` + la RPC, y **057** las variantes fuera del nombre del producto. Antes, la **053** (el teléfono que la 047 se llevó de `confirmar_venta`). Del 2026-08-02 salieron siete seguidas: **044** reembolso por artículos (`reembolso_lineas` + `reembolsar_pedido_total` sin reponer dos veces), **045** pago por transferencia (el plazo de pago ES el TTL de la reserva), **046** `ajustes_tienda` (la cuenta de cobro fuera de las variables de entorno), **047** el carrito no se vacía hasta que el pago existe, **048** `metodo_detalle` (decir «Bizum» y no «Stripe»), **049** `reemplazado_por` (enlazar en vez de fusionar) y **050** el tipo de evento `nota`. Antes, la **043** (el teléfono que el cliente actualiza llega al panel; trae `direcciones_envio.updated_at` y `set_updated_at_preciso()` con `clock_timestamp()`). Antes, la **042** (calificación de la experiencia de compra). Antes, la **041** (direcciones validadas), la **040** (teléfono de contacto) y la **039** con su corrección `039_fix_orden_y_fuga_de_actor`. Las 033–035 se aplicaron con la BD en «arranque real» (0 pedidos, 0 reservas), así que no tocaron ningún dato. Verificadas contra el remoto: `confirmar_venta` es idempotente (un reintento del webhook devuelve el mismo pedido) y `reservar_carrito` no apila al recargar el checkout (7/3 dos veces) y ante falta de stock deja el inventario intacto.
 - **Tokens de despliegue**: la gestión de Render y Vercel se hace por sus APIs REST. ⚠️ **El 2026-07-25 Jonathan revocó TODOS los tokens** (Render, los dos de Vercel y una clave de la API de Anthropic que se pegó por error). Para volver a operar por API hay que emitir nuevos. **El despliegue NO los necesita**: Render y Vercel auto-despliegan con el push a `main`, y el resultado se verifica por HTTP.
 - **Cuenta de Vercel**: el proyecto **`valatino-api-steel`** (dominio `https://valatino-api-steel.vercel.app`) **NO está en la cuenta `yonathanji` / `yonathan.jimenez00@usc.edu.co`** — ahí hay 0 proyectos, 0 teams y 0 dominios, y el id `prj_VwIo6RyE0YRKsz35VdOfNK6Knaf6` da 404. Vive en otra cuenta; para emitir un token útil hay que mirar el `<scope>` en `vercel.com/<scope>/<proyecto>` y crearlo desde ahí.
 - **Constitución = guía vinculante del proyecto**: `specs/constitution.md` (v1.1.0) define los principios (TypeScript fullstack, monorepo Turborepo, seguridad en capas con RLS, UX premium, despliegue Vercel+Render). Verificar conformidad antes de cambios. Spec-Kit se retiró del repo el 2026-07-23 (raíz limpia).
