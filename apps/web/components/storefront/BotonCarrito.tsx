@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ShoppingBag } from "lucide-react";
+import { ShoppingCart } from "lucide-react";
 import { useCarrito } from "@lib/hooks/useCarrito";
 
-interface BotonBolsaProps {
+interface BotonCarritoProps {
   productoId: string;
   /**
    * Para el `aria-label`. En una rejilla de veinte tarjetas, un «Añadir al
@@ -15,7 +15,13 @@ interface BotonBolsaProps {
 }
 
 /**
- * La bolsa que añade una unidad al carrito desde el catálogo.
+ * El carrito que añade una unidad al catálogo desde la tarjeta.
+ *
+ * ⚠️ **El icono es `ShoppingCart`, EL MISMO QUE LA BARRA DE ARRIBA.** Antes era
+ * una bolsa, y eran dos dibujos distintos para la misma idea en la misma
+ * pantalla: se toca el carrito de la tarjeta y el número que sube está en el
+ * carrito del menú. Si algún día se cambia uno, hay que cambiar el otro —
+ * `Navbar.tsx` es el que manda.
  *
  * ⚠️⚠️ **VIVE AQUÍ Y NO EN CADA TARJETA** porque lo usan las dos: la de producto
  * suelto y la de familia (esta última **solo cuando ya hay una presentación
@@ -23,16 +29,15 @@ interface BotonBolsaProps {
  * dejado dos botones que se parecen hasta el día que alguien arregle uno —el
  * mismo patrón que costó la migración 074 con el formato del número de factura.
  *
- * ⚠️ **Se posiciona solo** (`absolute bottom-2 right-2`), así que el contenedor
- * de la imagen tiene que ser `relative`. Va aquí dentro a propósito: si cada
- * tarjeta pusiera su posición, la bolsa acabaría en un sitio distinto en cada
- * una y nadie sabría cuál es la buena.
+ * ⚠️ **Se posiciona solo** (`absolute`), así que el contenedor de la imagen tiene
+ * que ser `relative`. Va aquí dentro a propósito: si cada tarjeta pusiera su
+ * posición, acabaría en un sitio distinto en cada una.
  *
  * ⚠️⚠️ **Y NO PUEDE IR DENTRO DEL `<Link>` de la tarjeta.** Un `<button>` dentro
  * de un `<a>` es HTML inválido y el clic haría las dos cosas: añadir al carrito
  * Y navegar a la ficha.
  */
-export function BotonBolsa({ productoId, nombre }: BotonBolsaProps) {
+export function BotonCarrito({ productoId, nombre }: BotonCarritoProps) {
   const { addItem, isLoading } = useCarrito();
   /**
    * ⚠️ Pendiente propio, y no el `isLoading` del carrito (que es el de su carga
@@ -60,35 +65,33 @@ export function BotonBolsa({ productoId, nombre }: BotonBolsaProps) {
       aria-label={`Añadir ${nombre} al carrito`}
       title="Añadir al carrito"
       /**
-       * Sin fondo: solo el icono. El cuadro de 40 px sigue estando aunque no se
-       * vea, porque es el área que se toca con el dedo — un icono de 20 px suelto
-       * es un blanco imposible en un móvil.
+       * Sin fondo: solo el icono.
        *
        * ⚠️ `text-foreground` y NO `text-primary`, aunque en el storefront los dos
        * den el mismo negro: la paleta `.theme-cliente` es de grises pero la de
        * `:root` tiene el primary NARANJA, así que esto pintado fuera del área de
-       * cliente sacaría una bolsa naranja.
+       * cliente sacaría un carrito naranja.
        *
-       * ⚠️⚠️ EN MÓVIL VA PEGADA A LA ESQUINA (`bottom-0 right-0`) Y EN PANTALLA
-       * GRANDE SEPARADA (`sm:bottom-2 sm:right-2`). No es un capricho de maqueta:
-       * el catálogo va a DOS columnas en móvil, así que la misma separación de
-       * 8 px cae mucho más adentro de una tarjeta pequeña y la bolsa termina
-       * encima del producto. `sm:` es el mismo corte en el que la rejilla pasa a
-       * tres columnas, o sea que las dos cosas cambian a la vez.
+       * ⚠️⚠️ EN MÓVIL VA PEGADO A LA ESQUINA Y CON EL ICONO ARRINCONADO DENTRO DE
+       * SU PROPIO CUADRO (`items-end justify-end p-1`), y en pantalla grande
+       * centrado y separado. El motivo: el catálogo va a DOS columnas en móvil,
+       * así que la misma separación cae mucho más adentro de una tarjeta pequeña
+       * y el icono termina encima del producto.
        *
-       * El cuadro de 40 px NO se toca al bajar de tamaño: es lo que se toca con
-       * el dedo, y encogerlo en móvil sería empeorarlo justo donde se usa el
-       * dedo. Lo que se mueve es dónde se ancla, no cuánto mide.
+       * ⭐ Y ESE ES EL TRUCO QUE IMPORTA: lo que se arrincona es el DIBUJO, no el
+       * botón. El cuadro de 40 px —lo que se toca con el dedo— no se encoge en
+       * móvil, que es justo donde hay dedos. Encogerlo para ganar 6 px de margen
+       * habría sido pagar el arreglo con el único sitio donde el botón se usa mal.
        */
-      className="absolute bottom-0 right-0 sm:bottom-2 sm:right-2 inline-flex h-10 w-10 items-center justify-center rounded-full text-foreground transition-transform hover:scale-110 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="absolute bottom-0 right-0 sm:bottom-2 sm:right-2 inline-flex h-10 w-10 items-end justify-end p-1 sm:items-center sm:justify-center sm:p-0 rounded-full text-foreground transition-transform hover:scale-110 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       {/**
        * ⚠️ El halo blanco es lo único que queda del fondo, y hace falta: un icono
        * negro suelto sobre la foto de un producto oscuro desaparece. En las fotos
        * claras no se nota; en una oscura es lo que salva el botón.
        */}
-      <ShoppingBag
-        className="h-5 w-5 [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
+      <ShoppingCart
+        className="h-4 w-4 sm:h-5 sm:w-5 [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
         aria-hidden="true"
       />
     </button>

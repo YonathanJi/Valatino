@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import type { Producto } from "@valatino/types";
-import { BotonBolsa } from "./BotonBolsa";
+import { BotonCarrito } from "./BotonCarrito";
 import { formatEUR } from "@lib/utils";
 
 interface ProductoCardProps {
@@ -26,8 +26,8 @@ export function ProductoCard({ producto }: ProductoCardProps) {
     >
       {/**
        * El `relative` vive aquí fuera y no en el contenedor de la imagen porque
-       * ese recorta (`overflow-hidden`) para el zoom del hover y se comería la
-       * bolsa. Y la bolsa es HERMANA del enlace, nunca hija: ver `BotonBolsa`.
+       * ese recorta (`overflow-hidden`) para el zoom del hover y se comería el
+       * botón. Y el botón es HERMANO del enlace, nunca hijo: ver `BotonCarrito`.
        */}
       <div className="relative">
         <Link href={href}>
@@ -48,9 +48,10 @@ export function ProductoCard({ producto }: ProductoCardProps) {
           </div>
         </Link>
 
-        {/* Agotado: no hay bolsa. El cartel ya lo dice a pantalla completa, y un
-            botón apagado encima solo añade ruido a algo que no se puede hacer. */}
-        {!agotado && <BotonBolsa productoId={producto.id} nombre={producto.nombre} />}
+        {/* Agotado: no hay carrito. El cartel ya lo dice a pantalla completa, y
+            un botón apagado encima solo añade ruido a algo que no se puede
+            hacer. */}
+        {!agotado && <BotonCarrito productoId={producto.id} nombre={producto.nombre} />}
       </div>
 
       <div className="p-3 space-y-2">

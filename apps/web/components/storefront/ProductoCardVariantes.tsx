@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { BotonBolsa } from "./BotonBolsa";
+import { BotonCarrito } from "./BotonCarrito";
 import {
   etiquetaVariantes,
   miniaturaDe,
@@ -31,18 +31,18 @@ interface ProductoCardVariantesProps {
  * prueba. Este fichero pinta.
  *
  * ⚠️ **Elegir una miniatura NO navega**, cambia la tarjeta: foto, precio y
- * nombre. Para entrar se pincha la foto, el título o el botón, y entonces se
- * abre la ficha de **la elegida**. Así se comparan cuatro sabores sin salir del
- * catálogo ni volver atrás cuatro veces, que en móvil es donde se abandona.
+ * nombre. Para entrar se pincha la foto o el título, y entonces se abre la ficha
+ * de **la elegida**. Así se comparan cuatro sabores sin salir del catálogo ni
+ * volver atrás cuatro veces, que en móvil es donde se abandona.
  */
 export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
   const { familia: base, tipo, productos } = grupo;
   const [elegidaId, setElegidaId] = useState<string | null>(null);
   const vista = vistaDeFamilia(grupo, elegidaId);
   /**
-   * ⚠️⚠️ LA BOLSA SOLO EXISTE CUANDO YA HAY UNA ELEGIDA, y ese es el motivo de
-   * que esta tarjeta no la tuviera al principio: **antes de elegir no se sabe qué
-   * sabor añadir**, y una bolsa que decide por su cuenta es peor que no tenerla.
+   * ⚠️⚠️ EL CARRITO SOLO EXISTE CUANDO YA HAY UNA ELEGIDA, y ese es el motivo de
+   * que esta tarjeta no lo tuviera al principio: **antes de elegir no se sabe qué
+   * sabor añadir**, y un botón que decide por su cuenta es peor que no tenerlo.
    *
    * En cuanto se elige, la ambigüedad desaparece —hay un producto concreto, con
    * su precio y su stock— y entonces añadir desde el catálogo es exactamente lo
@@ -87,7 +87,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
             cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,
             no el de la familia. */}
         {elegida && !vista.agotado && (
-          <BotonBolsa productoId={elegida.id} nombre={`${base} ${elegida.variante}`} />
+          <BotonCarrito productoId={elegida.id} nombre={`${base} ${elegida.variante}`} />
         )}
       </div>
 
@@ -147,17 +147,19 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
           </h3>
         </Link>
         <p className="text-xs text-muted-foreground line-clamp-1">{vista.subtitulo}</p>
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-bold text-primary">
-            {vista.esDesde ? `Desde ${formatEUR(vista.precio)}` : formatEUR(vista.precio)}
-          </span>
-          <Link
-            href={vista.href}
-            className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-          >
-            {elegidaId ? "Ver" : `Elegir ${tipo}`}
-          </Link>
-        </div>
+        {/**
+         * Sin botón de «Elegir sabor»: las miniaturas YA son el selector y la
+         * foto y el título ya entran a la ficha, así que era un tercer camino
+         * para lo que ya se podía hacer de dos formas.
+         *
+         * ⭐ Y de paso arregla lo que chirriaba: esta tarjeta tenía un botón de
+         * texto abajo mientras las de producto suelto llevaban el icono sobre la
+         * foto, así que la rejilla se leía en dos idiomas. Ahora las dos acaban
+         * igual —datos y precio— y la acción vive en el mismo sitio en ambas.
+         */}
+        <span className="block font-bold text-primary">
+          {vista.esDesde ? `Desde ${formatEUR(vista.precio)}` : formatEUR(vista.precio)}
+        </span>
       </div>
     </motion.article>
   );
