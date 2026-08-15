@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ShoppingCart, User, LogOut, Package, Settings, LayoutDashboard } from "lucide-react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { obtenerRol, esRolStaff } from "@lib/auth/rol";
+import { useBarraOculta } from "@lib/hooks/useBarraOculta";
 import { useCarrito } from "@lib/hooks/useCarrito";
 import { Button } from "@components/ui/button";
 import { toast } from "sonner";
@@ -16,6 +17,7 @@ export function Navbar() {
   const { carrito } = useCarrito();
   const [userData, setUserData] = useState<{ email?: string; nombre?: string; role?: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const oculta = useBarraOculta();
   const menuRef = useRef<HTMLDivElement>(null);
   const itemCount = carrito?.items.reduce((sum, i) => sum + i.cantidad, 0) ?? 0;
 
@@ -72,7 +74,33 @@ export function Navbar() {
   const esStaff = esRolStaff(userData?.role);
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm">
+    /**
+     * La barra se esconde al bajar y vuelve al subir. Las reglas están en
+     * `decidirOculta` (probadas); aquí solo se pinta.
+     *
+     * ⚠️ **Se esconde con `translate`, NO con `display` ni cambiando el
+     * `position`.** Al ser `sticky`, la barra ya ocupa su hueco en el flujo:
+     * sacarla del flujo o dejar de pintarla haría que todo el contenido saltara
+     * 64 px hacia arriba cada vez que se esconde. Con `translate` se mueve el
+     * dibujo y el hueco se queda donde estaba.
+     *
+     * ⚠️ **No se esconde con el menú de usuario abierto**: el desplegable cuelga
+     * de la barra y se iría con ella, dejando al cliente con el menú a medio
+     * abrir fuera de la pantalla.
+     *
+     * ⭐ **`focus-within` la devuelve.** Quien navega con el tabulador puede
+     * llegar a la barra estando escondida; sin esto, el foco estaría en un enlace
+     * que no se ve y no habría forma de saber dónde se está. Es CSS: no hace
+     * falta ni un listener.
+     *
+     * `motion-reduce` quita la animación a quien haya pedido menos movimiento en
+     * su sistema. La barra sigue escondiéndose, pero sin deslizarse.
+     */
+    <header
+      className={`sticky top-0 z-50 border-b bg-background/80 backdrop-blur-sm transition-transform duration-300 motion-reduce:transition-none focus-within:translate-y-0 ${
+        oculta && !menuOpen ? "-translate-y-full" : "translate-y-0"
+      }`}
+    >
       <nav className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="text-xl font-bold text-primary">
           Valatino
