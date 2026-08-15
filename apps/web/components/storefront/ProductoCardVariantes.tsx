@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { BotonBolsa } from "./BotonBolsa";
 import {
   etiquetaVariantes,
   miniaturaDe,
@@ -38,6 +39,17 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
   const { familia: base, tipo, productos } = grupo;
   const [elegidaId, setElegidaId] = useState<string | null>(null);
   const vista = vistaDeFamilia(grupo, elegidaId);
+  /**
+   * ⚠️⚠️ LA BOLSA SOLO EXISTE CUANDO YA HAY UNA ELEGIDA, y ese es el motivo de
+   * que esta tarjeta no la tuviera al principio: **antes de elegir no se sabe qué
+   * sabor añadir**, y una bolsa que decide por su cuenta es peor que no tenerla.
+   *
+   * En cuanto se elige, la ambigüedad desaparece —hay un producto concreto, con
+   * su precio y su stock— y entonces añadir desde el catálogo es exactamente lo
+   * mismo que en una tarjeta suelta. Lo levantó Jonathan probándolo: elegía un
+   * sabor y se quedaba sin poder añadirlo como en las demás.
+   */
+  const elegida = productos.find((p) => p.id === elegidaId) ?? null;
 
   return (
     <motion.article
@@ -47,28 +59,37 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
       transition={{ duration: 0.2 }}
       className="group rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
     >
-      <Link href={vista.href}>
-        <div className="relative aspect-square overflow-hidden bg-muted">
-          <Image
-            src={vista.imagen}
-            alt={vista.alt}
-            unoptimized={vista.imagen.endsWith(".svg")}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-          />
-          {/* Dice el EJE, que es lo único que las fotos no pueden decir: cuatro
-              miniaturas no aclaran si lo que cambia es el sabor o el tamaño. */}
-          <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2.5 py-0.5 text-xs font-medium border">
-            {etiquetaVariantes(tipo, productos.length)}
-          </span>
-          {vista.agotado && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-              <span className="text-white font-semibold text-sm">Agotado</span>
-            </div>
-          )}
-        </div>
-      </Link>
+      <div className="relative">
+        <Link href={vista.href}>
+          <div className="relative aspect-square overflow-hidden bg-muted">
+            <Image
+              src={vista.imagen}
+              alt={vista.alt}
+              unoptimized={vista.imagen.endsWith(".svg")}
+              fill
+              className="object-cover transition-transform duration-300 group-hover:scale-105"
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            />
+            {/* Dice el EJE, que es lo único que las fotos no pueden decir: cuatro
+                miniaturas no aclaran si lo que cambia es el sabor o el tamaño. */}
+            <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2.5 py-0.5 text-xs font-medium border">
+              {etiquetaVariantes(tipo, productos.length)}
+            </span>
+            {vista.agotado && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <span className="text-white font-semibold text-sm">Agotado</span>
+              </div>
+            )}
+          </div>
+        </Link>
+
+        {/* Con una elegida y con stock, se añade desde aquí igual que en
+            cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,
+            no el de la familia. */}
+        {elegida && !vista.agotado && (
+          <BotonBolsa productoId={elegida.id} nombre={`${base} ${elegida.variante}`} />
+        )}
+      </div>
 
       <div className="p-3 space-y-2">
         {/**
