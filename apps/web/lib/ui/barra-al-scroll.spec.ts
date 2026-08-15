@@ -1,4 +1,4 @@
-import { ALTURA_BARRA, UMBRAL, decidirOculta } from "./barra-al-scroll";
+import { ALTURA_BARRA, UMBRAL, debeRevelar, decidirOculta } from "./barra-al-scroll";
 
 /**
  * Las cuatro reglas de la barra que se esconde al bajar. Cada una está aquí
@@ -83,5 +83,38 @@ describe("decidirOculta", () => {
     it("un rebote desde el fondo devuelve la barra", () => {
       expect(decidirOculta({ y: -20, yPrevio: 2000, oculta: true })).toBe(false);
     });
+  });
+});
+
+/**
+ * La barra vuelve cuando entra algo al carrito. El aviso se va en dos segundos;
+ * la prueba de que el pedido crecio es el numero del carrito, que vive en la
+ * barra que se acaba de esconder.
+ */
+describe("debeRevelar", () => {
+  it("vuelve cuando el contador sube", () => {
+    expect(debeRevelar(0, 1)).toBe(true);
+    expect(debeRevelar(3, 5)).toBe(true);
+  });
+
+  /**
+   * ⚠️ La primera lectura es la CARGA del carrito, no una compra. Un cliente que
+   * vuelve con tres cosas dentro pasa de nada a 3 al hidratar la pagina, y sin
+   * esta guarda la barra aparecería sola por algo que hizo la semana pasada.
+   */
+  it("la primera lectura no cuenta, aunque venga con artículos", () => {
+    expect(debeRevelar(null, 3)).toBe(false);
+    expect(debeRevelar(null, 0)).toBe(false);
+  });
+
+  it("quitar algo no la devuelve", () => {
+    // Se quita desde el carrito, donde la barra no estorba y nadie necesita
+    // que reaparezca.
+    expect(debeRevelar(3, 1)).toBe(false);
+    expect(debeRevelar(1, 0)).toBe(false);
+  });
+
+  it("sin cambio no pasa nada", () => {
+    expect(debeRevelar(2, 2)).toBe(false);
   });
 });

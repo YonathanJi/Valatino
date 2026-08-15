@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { obtenerRol, esRolStaff } from "@lib/auth/rol";
 import { useBarraOculta } from "@lib/hooks/useBarraOculta";
 import { useCarrito } from "@lib/hooks/useCarrito";
+import { debeRevelar } from "@lib/ui/barra-al-scroll";
 import { Button } from "@components/ui/button";
 import { toast } from "sonner";
 
@@ -17,9 +18,27 @@ export function Navbar() {
   const { carrito } = useCarrito();
   const [userData, setUserData] = useState<{ email?: string; nombre?: string; role?: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const oculta = useBarraOculta();
+  const { oculta, revelar } = useBarraOculta();
   const menuRef = useRef<HTMLDivElement>(null);
   const itemCount = carrito?.items.reduce((sum, i) => sum + i.cantidad, 0) ?? 0;
+  const itemsPrevios = useRef<number | null>(null);
+
+  /**
+   * ⚠️⚠️ SI ENTRA ALGO AL CARRITO, LA BARRA VUELVE. Lo levantó Jonathan: con la
+   * barra escondida, tocabas el carrito de una tarjeta y no pasaba nada visible.
+   * El aviso se va en dos segundos y **la prueba de que el pedido creció es este
+   * número**, que estaba justo en lo que se acababa de esconder.
+   *
+   * ⭐ Se vigila el CONTADOR en vez de avisar desde el botón, y eso es lo que hace
+   * que no haya que acordarse: vale para la tarjeta del catálogo, para la ficha
+   * del producto y para el camino que se añada mañana. Ninguno tiene que saber
+   * que existe una barra que esconderse.
+   */
+  useEffect(() => {
+    const previo = itemsPrevios.current;
+    itemsPrevios.current = itemCount;
+    if (debeRevelar(previo, itemCount)) revelar();
+  }, [itemCount, revelar]);
 
   useEffect(() => {
     const load = async () => {

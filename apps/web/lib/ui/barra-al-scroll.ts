@@ -63,3 +63,30 @@ export function decidirOculta({ y, yPrevio, oculta }: EstadoScroll): boolean {
 
   return delta > 0;
 }
+
+/**
+ * Si un cambio en el número de artículos del carrito debe devolver la barra.
+ *
+ * ⚠️⚠️ **HACE FALTA PORQUE EL AVISO NO BASTA.** Al añadir algo sale un toast que
+ * se va en dos segundos; la prueba de que el pedido creció es **el número del
+ * carrito**, y ese vive en la barra que acabamos de esconder. Sin esto, el
+ * cliente toca el carrito de una tarjeta estando abajo y no ve pasar nada.
+ *
+ * Se mira el CONTADOR y no se conecta un aviso desde el botón a propósito: así
+ * vale para todos los caminos —la tarjeta del catálogo, la ficha del producto, y
+ * el que se añada mañana— sin que ninguno tenga que acordarse de avisar.
+ *
+ * @param previo `null` la primera vez que se mira.
+ */
+export function debeRevelar(previo: number | null, actual: number): boolean {
+  /**
+   * ⚠️ La primera lectura es la CARGA del carrito, no una compra. Un cliente que
+   * vuelve con tres cosas dentro pasa de 0 a 3 al hidratar la página, y sin esta
+   * guarda la barra aparecería sola por algo que hizo la semana pasada.
+   */
+  if (previo === null) return false;
+
+  // Solo cuando SUBE. Quitar algo también cambia el número, pero eso se hace
+  // desde el carrito, donde la barra no estorba y nadie necesita que reaparezca.
+  return actual > previo;
+}
