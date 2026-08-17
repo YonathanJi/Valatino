@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-15
+**Última actualización**: 2026-08-17
 
 ---
 
@@ -48,7 +48,46 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-15
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-17
+
+**Todo commiteado y pusheado** (`8f01a8a`), árbol limpio, 0 sin pushear. **787 tests** (448 API + 339 web).
+
+⚠️ **Los dos builds y los dos `type-check` van en verde, pero SECUENCIALMENTE.** Corriendo `turbo build type-check` en la misma invocación, el `type-check` de la web falla a veces. Encaja con que `next build` regenere `.next/types/**` —que el `tsconfig` de la web incluye— mientras `tsc` los lee. **No está diagnosticado, solo observado**: se llegó a atribuir a una carrera de turbo y era falso (`dependsOn: ["^build"]` ya estaba bien puesto). Si sale rojo en CI, mirar aquí antes de buscar un error de tipos real.
+
+⭐ **La tarde fue de dos averías, y ninguna de las dos era lo que parecía al empezar.**
+
+**Estado del remoto, comprobado al cerrar** (no de memoria):
+
+| | |
+|---|---|
+| Pedidos | **1** (`260815017972`, REEMBOLSADO, 3,72 €) — sin cambios |
+| Facturas | 4, contadores intactos · 8 eventos · sin actividad desde el 15/08 12:53 |
+| Productos | **30** (29 activos) — Jonathan dio de alta 3 el 17/08 a las 19:07-19:09 UTC |
+| API | `8f01a8a` live en Render · `/health` 200 · `/diagnostico/red` 401 sin sesión |
+
+#### Lo primero al volver: NADA pendiente de comprobar
+
+Las dos averías están desplegadas Y verificadas contra producción. La de las imágenes la verificó Jonathan sin saberlo: los tres productos que subió a las 19:07 llevan su `.webp` en el bucket, y son de después del despliegue del arreglo.
+
+#### La cola
+
+1. 🟡 **Decidir el cortafuegos de Vercel.** Es lo único que quedó a medias hoy. El tráfico que entra por el proxy `/api` se sigue agrupando bajo las IPs de salida de Vercel, así que una IP abusiva puede gastar la cuota de otros clientes de su misma zona. Quien SÍ ve la IP real es Vercel, y su cortafuegos está **accesible y vacío** (`{"active":null,"draft":null,"versions":[]}`). Una regla conservadora de límite por IP lo cierra. ⚠️ Mal calibrada rechaza compras sin que te enteres, así que el techo va muy por encima de lo que hace una persona navegando.
+2. ⚠️⚠️ **Verifactu con la gestoría. Sigue siendo lo único grande que separa esto del arranque fiscal.** El **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. **La cadena se puede recalcular mientras el arranque no esté marcado; después, no.** Llevar también la fecha con la que se deduce el IVA soportado (la de registro, ver la 068) y el `TipoRectificativa` (las de aquí son **por diferencias**).
+3. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`. Ahí va también la **causa de la rectificación** (art. 15.3), que hoy no se imprime.
+4. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
+5. **Higiene de producción, pendiente desde el 05/08**: revocar los secretos y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`, y quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`. ⚠️ **El token de Vercel se regeneró el 17/08** (el viejo ya estaba muerto: daba 403 pidiendo reautenticar el ámbito `yonathanjis-projects`). El que más prisa tiene sigue siendo `sb_secret_…`, que **salta el RLS**.
+6. La cola de fondo: tests de componentes de la web, accesibilidad, la CSP a obligatoria, y el paso a Stripe `live`.
+
+#### 🔴 Lo que se destapó al mirar la tienda como tienda (2026-08-15) — SIGUE TODO PENDIENTE
+
+1. 🔴🔴 **NO EXISTE EL COSTE DE ENVÍO. En ningún sitio.** Ni columna, ni campo en el checkout, ni línea en la factura: `recalcular_iva_pedido` **aborta** si el desglose no suma exactamente `pedidos.total`, y ese total es la suma de los artículos. Hoy **se envía gratis a toda España** y se venden Quipitos de 0,62 €. Toca `pedido_iva`, las líneas de la factura y el 303, así que hay que diseñarlo **antes del arranque fiscal**.
+2. 🔴 **Compartir un enlace de la tienda no enseña nada.** Sin `metadataBase` ni `openGraph` ni imagen de portada: en WhatsApp sale un enlace pelado que parece spam. Barato y se nota el mismo día.
+3. **No hay `sitemap.ts`, ni `robots.ts`, ni datos estructurados** (`Product` con precio y disponibilidad).
+4. **El catálogo no escala**: sin buscador, sin filtro por categoría y sin paginación — `limit=50` fijo. Con 30 productos aguanta; con 100 se rompe sin avisar.
+5. **Sin analítica y sin banner de cookies.**
+6. **Sin reseñas de producto.** `pedido_calificaciones` mide la experiencia de COMPRA, que es otra cosa.
+
+### Cierre anterior — 2026-08-15
 
 **Todo está commiteado y pusheado** (`e41439f`), árbol limpio, 0 sin pushear. **757 tests** (430 API + 327 web), `type-check` y los dos builds en verde.
 
@@ -94,6 +133,98 @@ Comprobado en el código, no supuesto. Por orden de lo que cuesta dinero:
 4. **El catálogo no escala**: sin buscador, sin filtro por categoría y sin paginación — un `limit=50` fijo y todo en una rejilla. Con 20 productos funciona; con 100 se rompe, y no avisa.
 5. **Sin analítica y sin banner de cookies.** No se sabe qué se mira ni de dónde viene la gente; y en cuanto se ponga analítica, en España el banner deja de ser opcional.
 6. **Sin reseñas de producto.** `pedido_calificaciones` mide la experiencia de COMPRA, que es otra cosa y no se enseña en la ficha.
+
+
+## ⭐⭐ HECHO EL 2026-08-17 — Dos averías, y ninguna era lo que parecía
+
+### 1. No se podían subir imágenes al catálogo (roto seis días)
+
+Jonathan avisó de que no le dejaba subir imágenes y que «decía algo con *many to*». Reproducido y arreglado (`4018169`).
+
+**La causa: `parts: 1` en los límites del multipart de `productos.controller.ts` no admite una parte, admite CERO.** En busboy (`types/multipart.js:548`) el contador se incrementa ANTES de comparar:
+
+```js
+if (++parts === partsLimit) this.emit('partsLimit');
+```
+
+⚠️ **Y `files` y `fields` NO se cuentan igual**: esos comparan antes de incrementar (líneas 340 y 369), así que `files: 1` sí admite un fichero. Solo `parts` va desfasado en uno. **`parts: N` admite N−1.**
+
+Lo que lo rompió fue lo que se creyó al escribirlo, el 11/08 a las 21:34 (`649a2e3`): «el envío es un fichero y ningún campo, así que los números son los exactos y no de holgura». El número exacto para un fichero es **2**. `compras` se libró solo porque allí sí se dejó holgura (`parts: 10` para 6 partes reales).
+
+⚠️ **El fallo era invisible para los tests porque los límites vivían en un objeto literal que nadie ejecutaba.** Ahora hay `productos.controller.spec.ts` con `supertest` contra la app de verdad, comprobado que se pone rojo si alguien vuelve a apretar `parts`.
+
+⚠️⚠️ **Y la lección de método, que casi cuesta el diagnóstico entero**: el primer intento de reproducirlo con un `req` falso (un `Readable` con cabeceras a mano) daba «sin fichero» **incluso con los límites buenos**. O sea que habría «demostrado» un fallo que no existe y dejado pasar el que sí. Solo con un servidor HTTP real y `FormData` generado por el navegador/Node salió el `Too many parts`. Está anotado en el test para que nadie lo reescriba con un mock.
+
+De paso: `tsconfig.spec.json` recortaba `types` a `node` y `jest`, y eso dejaba fuera `@types/multer`. Ningún spec de un controlador con subida de ficheros podía ni compilar.
+
+### 2. Los errores de fichero salían en inglés — y la traducción era código muerto
+
+`ca7340b`. La tabla de traducción al castellano **ya existía** en `common/errores/subidas.ts`, y aun así el panel enseñaba `Too many parts`.
+
+⚠️⚠️ **El motivo hay que recordarlo, porque se repetirá con cualquier error de Multer**: `FileInterceptor` pasa el error por `transformException()` de `@nestjs/platform-express` **antes de que lo vea ningún filtro**, y ahí deja de ser un `MulterError` — se convierte en un `BadRequestException` cuyo mensaje es la cadena inglesa. Para cuando llegaba al filtro global, `name` ya no era `"MulterError"` y el `code` se había perdido, así que el reconocimiento por pato no casaba nunca.
+
+⚠️ **Sus tests estaban en verde probando el camino muerto**: el spec fabricaba a mano un `MulterError` que Nest jamás entrega. Se dejaron (por si algún día se parsea un multipart a mano) y se añadieron los del caso real, más uno de punta a punta con el filtro global montado.
+
+También se cambió lo que dicen los tres errores de «cuenta» (partes, campos, ficheros): el formulario manda lo que manda, así que si no cabe es que el límite del servidor está mal puesto. Ahora dicen **«Es un fallo nuestro: avísanos»**. Un «trae más partes de las admitidas» a secas se lee como culpa propia y no se reporta — que es exactamente por qué esto estuvo seis días roto.
+
+### 3. ⭐⭐ El límite de peticiones no limitaba a nadie (y llevaba así desde antes)
+
+Salió tirando de un cabo suelto, y resultó ser lo más gordo del día.
+
+**⚠️⚠️ LA TOPOLOGÍA REAL NO ES LA QUE SE CREYÓ. Hay un Cloudflare delante de Render que nadie había contado.** Medido con `/diagnostico/red`, no supuesto:
+
+```
+Directo:      94.73.34.5 , 172.71.146.191 , 10.199.135.225
+              (cliente)    (Cloudflare)     (interna de Render)
+
+Por el proxy: 94.73.34.5 , 15.237.214.233 , 172.71.146.136 , 10.194.229.222
+              (cliente)    (Vercel)          (Cloudflare)      (interna de Render)
+```
+
+Con `TRUST_PROXY_HOPS=1`, `req.ip` salía **una IP interna de Render** (`10.x`), y encima cambiaba entre peticiones. El límite de 100/min no agrupaba por cliente ni por nada estable: **no protegía de nada y repartía la cuota a ciegas.** «Corto pero seguro» resultó ser también «inútil».
+
+**Subido a 3** (`8f01a8a`). Por qué 3 y no 4, medido con las cadenas reales mandando un `X-Forwarded-For` inventado:
+
+| | directo normal | directo mintiendo | con 3 mentiras | por el proxy |
+|---|---|---|---|---|
+| 1 (antes) | interna Render | interna Render | interna Render | interna Render |
+| 2 | Cloudflare | Cloudflare | Cloudflare | Cloudflare |
+| **3 (hoy)** | ✅ IP real | ✅ IP real | ✅ IP real | 🟡 Vercel |
+| 4 | ✅ IP real | 🔴 **falsificada** | 🔴 `3.3.3.3` | ✅ IP real |
+
+Funciona porque **Cloudflare AÑADE la IP real detrás** de lo que traiga el cliente, y Render añade dos más: el cliente de verdad queda **siempre a profundidad 3**, por muchas mentiras que se pongan delante.
+
+⚠️ **Se sostiene sobre que no exista forma de llegar con menos saltos.** Comprobado: `api.valatino.es` y `valatino.onrender.com` responden los dos con `Server: cloudflare` y `CF-RAY`. **Si algún día se sirve la API por un host que no pase por Cloudflare, este 3 pasa a ser falsificable.**
+
+Verificado contra producción tras desplegar: directo normal y directo mintiendo dan los dos `94.73.34.5`.
+
+#### Lo que queda apagado a propósito: el secreto del proxy
+
+Está construido, probado y **desplegado inerte** (`7b941a7`): la web se identifica ante la API con un secreto compartido y solo entonces la API se cree la IP que le declara. Arregla el trozo que los 3 saltos no cubren (el tráfico de la tienda, que lleva un salto más).
+
+🔴 **NO ACTIVARLO todavía, y el motivo es un dato:** probando tres veces cómo trata Vercel un `X-Forwarded-For` falsificado del cliente, **una de las tres lo reenvió tal cual** en vez de sustituirlo por la IP real. No hay explicación para la variación. Y como el middleware estuvo **inerte las tres veces** (sin secreto en Vercel → `NextResponse.next()` pelado), **no fue artefacto de nuestro código: es Vercel.**
+
+Activarlo así abriría un camino por el que un cliente puede a veces elegir su propio cubo — el mismo agujero por el que se descartó subir a 4 saltos. Se activa el día que haya una fuente fiable de la IP en el borde de Vercel, y se verifica con `/diagnostico/red`.
+
+⚠️ `PROXY_API_SECRETO` **está puesto en Render y NO en Vercel**. Es inerte; se puede borrar.
+
+#### `GET /diagnostico/red` (solo admin) — el instrumento
+
+Se ganó el sitio en la primera pasada: sin él se habría dado por bueno un reinicio que no aplicó la variable. Devuelve qué IP usa de verdad la cuota, la cadena `X-Forwarded-For` entera, si el proxy se identificó y por qué no. **Nunca devuelve el secreto.**
+
+⚠️ **Distingue `sin-cabecera` de `secreto-no-coincide` a propósito**: la primera versión los juntaba y decía «algo pasa» sin decir dónde mirar. Sin cabecera = la web no la manda (falta la variable o falta redesplegar); no coincide = los valores difieren.
+
+⚠️ **Abrirlo en el navegador NO vale**: la API se autentica con Bearer, no con cookie, así que una URL pelada da 401. Es la misma trampa anotada en `client.ts` para el PDF.
+
+#### Tres trampas de despliegue que costaron vueltas
+
+1. ⚠️⚠️ **Cambiar una variable de entorno en Render por API NO la aplica. Un `restart` TAMPOCO.** Hace falta un **deploy** (`POST /v1/services/{id}/deploys`). Estaba avisado en este mismo fichero desde el 12/08 y se tiró por el atajo igual; lo cazó el diagnóstico (`secretoConfigurado: false`).
+2. ⚠️ Para tocar variables por API, usar `PUT /v1/services/{id}/env-vars/{KEY}` (una sola clave). El `PUT /env-vars` sin clave **reemplaza TODAS** y se llevaría por delante las otras catorce.
+3. ⚠️ En Vercel, `process.env.PROXY_API_SECRETO` se **inlinea en el bundle del middleware al construir**: guardar la variable no basta, hay que redesplegar. Misma trampa que `NEXT_PUBLIC_API_URL` el 05/08.
+
+#### Un detalle menor pero real
+
+El comentario de `limites-peticiones.ts` dice que el límite global «reparte la MISMA cuota entre todas las rutas». **No es así**: la clave del throttler es `sha256(Clase-manejador-nombre-IP)`, o sea que cada ruta tiene su propio cubo. Y el almacén es **en memoria**: cada despliegue pone los contadores a cero, y si Render escalara a más de una instancia el límite real se multiplicaría sin avisar.
 
 
 ## ⭐⭐ HECHO EL 2026-08-15 (cont.) — La tienda del cliente
