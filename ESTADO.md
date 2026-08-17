@@ -206,7 +206,7 @@ Está construido, probado y **desplegado inerte** (`7b941a7`): la web se identif
 
 Activarlo así abriría un camino por el que un cliente puede a veces elegir su propio cubo — el mismo agujero por el que se descartó subir a 4 saltos. Se activa el día que haya una fuente fiable de la IP en el borde de Vercel, y se verifica con `/diagnostico/red`.
 
-⚠️ `PROXY_API_SECRETO` **está puesto en Render y NO en Vercel**. Es inerte; se puede borrar.
+⚠️ **`PROXY_API_SECRETO` no está en ningún sitio, y es a propósito.** Se llegó a poner en Render y se borró el mismo día: una variable inerte solo sirve para que alguien la vea, la crea necesaria y la replique en Vercel — que es exactamente lo que NO hay que hacer. Tampoco se declara en `render.yaml` con `sync: false`, porque eso la pediría al aplicar el blueprint. El aviso vive ahí en forma de comentario.
 
 #### `GET /diagnostico/red` (solo admin) — el instrumento
 

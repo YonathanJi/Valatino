@@ -33,21 +33,26 @@ services:
       # que traiga el cliente. El razonamiento largo está en main.ts.
       - key: TRUST_PROXY_HOPS
         value: "3"
-      # Secreto compartido con el proxy /api de la web (la MISMA cadena en
-      # Vercel, con este nombre). Sirve para una cosa: que la API sepa que
-      # quien llama es nuestro proxy y pueda creerse la IP del cliente que le
-      # declara, en vez de contar la cuota por la IP del nodo de Vercel — que
-      # es lo que mete a toda la tienda en el mismo cubo de 100/min.
+      # ⚠️⚠️ PROXY_API_SECRETO NO VA AQUÍ, Y NO ES UN OLVIDO.
       #
-      # ⚠️ Esto NO se arregla subiendo TRUST_PROXY_HOPS a 2: a la API se llega
-      # también en directo (confirmación del pedido y widget de calificar), y
-      # con 2 saltos cualquiera se salta el límite mandando un X-Forwarded-For
-      # inventado. Medido en su momento, no supuesto.
+      # El código que lo usa existe y está probado (throttler-ip-real.guard.ts
+      # en la API, middleware.ts en la web): el proxy /api se identifica con un
+      # secreto compartido y, solo entonces, la API se cree la IP del cliente
+      # que le declara, en vez de contar la cuota por la IP del nodo de Vercel.
+      # Arregla el trozo que TRUST_PROXY_HOPS=3 no cubre.
       #
-      # Sin poner, no falla nada: se cuenta como antes. Se comprueba con
-      # GET /diagnostico/red (solo admin).
-      - key: PROXY_API_SECRETO
-        sync: false
+      # 🔴 Está DESACTIVADO a propósito. Probando tres veces cómo trata Vercel
+      # un X-Forwarded-For falsificado del cliente, UNA de las tres lo reenvió
+      # tal cual en vez de sustituirlo por la IP real. No hay explicación para
+      # la variación, y no fue cosa nuestra: el middleware estaba inerte las
+      # tres veces. Activarlo así abriría un camino por el que un cliente puede
+      # a veces elegir su propio cubo — el mismo agujero por el que se descartó
+      # subir TRUST_PROXY_HOPS a 4.
+      #
+      # NO declararlo con `sync: false` es deliberado: eso lo pediría al aplicar
+      # el blueprint, y rellenarlo sin más ACTIVA el mecanismo. Para encenderlo
+      # hace falta antes una fuente fiable de la IP en el borde de Vercel, y
+      # después verificarlo con GET /diagnostico/red (solo admin).
       # Origen(es) permitidos para CORS, separados por comas. Hoy la tienda vive
       # en su dominio propio, así que son https://valatino.es y su www; el
       # https://valatino-api-steel.vercel.app de la transición se conserva a
