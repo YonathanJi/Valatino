@@ -1,6 +1,6 @@
 import { Module, MiddlewareConsumer, NestModule, RequestMethod } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
-import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { APP_GUARD } from "@nestjs/core";
 import { SupabaseModule } from "./supabase/supabase.module";
 import { AuthModule } from "./auth/auth.module";
@@ -22,6 +22,8 @@ import { CalificacionesModule } from "./calificaciones/calificaciones.module";
 import { HealthController } from "./health.controller";
 import { SessionMiddleware } from "./carrito/session.middleware";
 import { OrigenCsrfMiddleware } from "./common/origen-csrf.middleware";
+import { ThrottlerIpRealGuard } from "./common/throttler-ip-real.guard";
+import { DiagnosticoController } from "./common/diagnostico.controller";
 
 /**
  * Los webhooks de los proveedores de pago. Quedan fuera de los middlewares que
@@ -55,8 +57,11 @@ const WEBHOOKS = [
     EventosModule,
     CalificacionesModule,
   ],
-  controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  controllers: [HealthController, DiagnosticoController],
+  // El guard de la cuota va con el `getTracker` propio: detrás del proxy de
+  // Vercel, `req.ip` es la IP de Vercel y no la del cliente. Ver el comentario
+  // largo de throttler-ip-real.guard.ts.
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerIpRealGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

@@ -1808,3 +1808,37 @@ export interface CuentaVinculable {
   email: string | null;
   nombre: string | null;
 }
+
+// ============================================================
+// El proxy /api, identificándose ante la API
+// ============================================================
+//
+// El navegador llama a `/api/*` (mismo dominio, para que la cookie sea de
+// primera parte) y Vercel lo reenvía a Render. Eso mete UN SALTO DE MÁS, y el
+// límite de peticiones va por IP: con `TRUST_PROXY_HOPS=1` la API ve la IP del
+// nodo de Vercel y no la del cliente, así que **toda la tienda comparte cubo**.
+//
+// ⚠️ Subir a 2 saltos NO es la solución, y es la trampa evidente: a la API se
+// llega también en directo (la confirmación del pedido y el widget de calificar
+// hablan con api.valatino.es sin pasar por aquí). Con 2, cualquiera que llame
+// en directo con un `X-Forwarded-For` inventado se salta el límite entero.
+// Medido, no supuesto: con 1 salto la IP falsa se ignora; con 2 se cree.
+//
+// Por eso el proxy se identifica con un secreto compartido y, solo entonces,
+// la API se cree la IP que le dice. Quien llega en directo sigue con `req.ip`.
+//
+// ⚠️⚠️ Los nombres viven AQUÍ, en el paquete compartido, y no escritos a mano
+// en cada lado: si divergieran, la API dejaría de reconocer al proxy y
+// **volvería al comportamiento de hoy sin dar ningún error**. Una errata que
+// no rompe nada es una errata que no se encuentra.
+
+/** La lleva el proxy con el secreto compartido, para que la API sepa que es él. */
+export const CABECERA_PROXY_SECRETO = "x-valatino-proxy";
+
+/**
+ * La IP del cliente, según se la da Vercel al proxy.
+ *
+ * ⚠️ El proxy la ESCRIBE SIEMPRE (no la reenvía), justo para que no se pueda
+ * colar desde fuera: si un cliente la manda, se la pisamos.
+ */
+export const CABECERA_IP_CLIENTE = "x-valatino-ip";

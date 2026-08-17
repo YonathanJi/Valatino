@@ -28,6 +28,21 @@ services:
       # IP con X-Forwarded-For.
       - key: TRUST_PROXY_HOPS
         value: "1"
+      # Secreto compartido con el proxy /api de la web (la MISMA cadena en
+      # Vercel, con este nombre). Sirve para una cosa: que la API sepa que
+      # quien llama es nuestro proxy y pueda creerse la IP del cliente que le
+      # declara, en vez de contar la cuota por la IP del nodo de Vercel — que
+      # es lo que mete a toda la tienda en el mismo cubo de 100/min.
+      #
+      # ⚠️ Esto NO se arregla subiendo TRUST_PROXY_HOPS a 2: a la API se llega
+      # también en directo (confirmación del pedido y widget de calificar), y
+      # con 2 saltos cualquiera se salta el límite mandando un X-Forwarded-For
+      # inventado. Medido en su momento, no supuesto.
+      #
+      # Sin poner, no falla nada: se cuenta como antes. Se comprueba con
+      # GET /diagnostico/red (solo admin).
+      - key: PROXY_API_SECRETO
+        sync: false
       # Origen(es) permitidos para CORS, separados por comas. Hoy la tienda vive
       # en su dominio propio, así que son https://valatino.es y su www; el
       # https://valatino-api-steel.vercel.app de la transición se conserva a
