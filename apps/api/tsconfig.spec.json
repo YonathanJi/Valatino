@@ -2,7 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node", "jest"]
+    // `express` y `multer` van explícitos porque esta lista SUSTITUYE a los
+    // @types que el build coge solos: sin ellos, `Express.Multer.File` no
+    // existe al compilar los tests y cualquier spec que toque un controlador
+    // con subida de ficheros ni siquiera arranca.
+    "types": ["node", "jest", "express", "multer"]
   },
   "include": ["src/**/*.ts"]
 }

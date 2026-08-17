@@ -46,15 +46,32 @@ const MAX_IMAGEN_BYTES = 5 * 1024 * 1024; // 5 MB
  * `compras.controller.ts`: `fileSize` a solas deja `fields`, `parts` y `files`
  * en **Infinity**, que es lo que aprovechan los avisos de Multer.
  *
- * Aquí el envío es exactamente un fichero y ningún campo de texto, así que los
- * números son los exactos y no de holgura: si alguien añade un campo, el fallo
- * sale en el primer intento y en desarrollo, no meses después en producción.
+ * ⚠️⚠️ `parts` NO SE CUENTA COMO `files` Y `fields`, y esto tuvo la subida de
+ * imágenes rota del 11/08 al 17/08. En busboy (`types/multipart.js`):
+ *
+ *   - `files` y `fields` comparan ANTES de incrementar (`if (files === limite)`),
+ *     así que `files: 1` admite un fichero, que es lo que uno espera.
+ *   - `parts` incrementa y compara DESPUÉS (`if (++parts === limite)`), así que
+ *     **`parts: N` admite N−1 partes**. Con `parts: 1` no entraba NADA: la
+ *     primera parte disparaba el límite y Multer abortaba con
+ *     `LIMIT_PART_COUNT` → un `Too many parts` en inglés, que a quien sube una
+ *     foto no le dice absolutamente nada.
+ *
+ * Lo que se creyó al escribirlo —«el envío es un fichero y ningún campo, así
+ * que los números son los exactos y no de holgura»— es justo lo que lo rompió:
+ * el número exacto de `parts` para un fichero es 2, no 1. `compras` se libró
+ * solo porque allí se dejó holgura (`parts: 10` para 6 partes reales).
+ *
+ * Así que aquí también va con holgura, y por el mismo motivo que allí: apretar
+ * a la cifra exacta convierte «añadir un campo al formulario» en un fallo raro
+ * de diagnosticar. Sigue cortando en seco los cien mil campos diminutos, que
+ * era el ataque que se quería evitar.
  */
 const LIMITES_IMAGEN = {
   fileSize: MAX_IMAGEN_BYTES,
   files: 1,
-  fields: 0,
-  parts: 1,
+  fields: 1,
+  parts: 4,
   fieldNameSize: 100,
 } as const;
 
