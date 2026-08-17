@@ -35,7 +35,41 @@ async function bootstrap() {
    *
    * Quedarse CORTO es seguro y pasarse no: con menos saltos de los reales se
    * agrupa gente bajo una IP intermedia (impreciso, pero nadie la falsifica);
-   * con más de los reales se lee un valor que pone el atacante. Por eso 1.
+   * con más de los reales se lee un valor que pone el atacante.
+   *
+   * ⚠️⚠️ ESTUVO EN 1 Y ERA DEMASIADO CORTO, y «corto pero seguro» resultó ser
+   * también «inútil». La topología real, medida contra producción el 17/08 con
+   * `/diagnostico/red`, tiene TRES saltos y no uno:
+   *
+   *   cliente → Cloudflare → balanceador de Render → el proceso
+   *   X-Forwarded-For = "94.73.34.5, 172.71.146.191, 10.199.135.225"
+   *
+   * Con 1 salto, `req.ip` salía `10.199.135.225` —una IP INTERNA de Render— y
+   * además cambiante entre peticiones. O sea que el límite de 100/min no
+   * agrupaba por cliente ni por nada estable: no protegía de nada y encima
+   * repartía la cuota a ciegas. Es peor que impreciso.
+   *
+   * Por qué 3 y no 4, que también «funciona» en el caso normal: con 4 se lee
+   * una entrada que puede haber escrito el cliente. Medido con las cadenas
+   * reales — mandando un X-Forwarded-For inventado a mano:
+   *
+   *   hops=3 → req.ip = 94.73.34.5      (la de verdad; la mentira se ignora)
+   *   hops=4 → req.ip = 198.51.100.99   (la mentira gana)
+   *
+   * Funciona porque Cloudflare AÑADE la IP real detrás de lo que traiga el
+   * cliente, y Render añade dos más: el cliente de verdad queda siempre a
+   * profundidad 3, por muchas mentiras que se pongan delante. Comprobado con
+   * una y con tres.
+   *
+   * ⚠️ Y esto se sostiene sobre que NO exista forma de llegar con menos saltos.
+   * Comprobado: tanto `api.valatino.es` como `valatino.onrender.com` responden
+   * con `Server: cloudflare` y `CF-RAY`. Si algún día se sirviera la API por un
+   * host que no pase por Cloudflare, este 3 pasaría a ser falsificable.
+   *
+   * Lo que 3 NO arregla es el tráfico que entra por el proxy /api de Vercel,
+   * que lleva un salto más: ahí `req.ip` es la IP de Vercel y toda la tienda
+   * comparte cubo. Eso lo resuelve `throttler-ip-real.guard.ts`, y son
+   * complementarios, no alternativos.
    */
   const saltosDeProxy = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? "0", 10);
   if (Number.isInteger(saltosDeProxy) && saltosDeProxy > 0) {

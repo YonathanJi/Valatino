@@ -21,13 +21,18 @@ services:
       - key: NODE_ENV
         value: production
       # Saltos de proxy en los que confiar para deducir la IP del cliente.
-      # Render pone UN proxy delante, así que 1. Sin esto, req.ip es la IP del
-      # proxy y el límite de peticiones agrupa a todos los clientes en un solo
-      # cubo de 100/min. Ojo: NUNCA poner `true` en el código (ver main.ts) y
-      # quedarse corto antes que pasarse, porque pasarse permite falsificar la
-      # IP con X-Forwarded-For.
+      #
+      # ⚠️ ESTUVO EN 1 CREYENDO QUE RENDER PONÍA UN SOLO PROXY DELANTE, y son
+      # TRES: cliente → Cloudflare → balanceador de Render → el proceso. Con 1,
+      # req.ip salía una IP INTERNA de Render (10.x) y encima cambiante, así que
+      # el límite de 100/min no agrupaba por cliente ni por nada estable.
+      # Medido contra producción el 17/08 con /diagnostico/red.
+      #
+      # 3 y no 4: con 4 se lee una entrada que puede escribir el cliente y la
+      # mentira gana. Con 3 no, porque Cloudflare añade la IP real DETRÁS de lo
+      # que traiga el cliente. El razonamiento largo está en main.ts.
       - key: TRUST_PROXY_HOPS
-        value: "1"
+        value: "3"
       # Secreto compartido con el proxy /api de la web (la MISMA cadena en
       # Vercel, con este nombre). Sirve para una cosa: que la API sepa que
       # quien llama es nuestro proxy y pueda creerse la IP del cliente que le

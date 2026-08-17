@@ -37,11 +37,25 @@ export class ThrottlerIpRealGuard extends ThrottlerGuard {
   }
 }
 
-/** Lo que se decidió y por qué. El `motivo` es lo que enseña el diagnóstico. */
+/**
+ * Lo que se decidió y por qué. El `motivo` es lo que enseña el diagnóstico.
+ *
+ * ⚠️ `sin-cabecera` y `secreto-no-coincide` están separados a propósito, y la
+ * primera versión los juntaba: se arreglan en sitios distintos. Sin cabecera es
+ * que la web no la manda (falta la variable en Vercel, o falta redesplegar);
+ * que no coincida es que los valores de los dos lados son distintos. Con un
+ * solo motivo para las dos cosas, el diagnóstico decía «algo pasa» sin decir
+ * dónde mirar, que es la mitad de un diagnóstico.
+ */
 export interface IpDeLaCuota {
   ip: string;
   proxyIdentificado: boolean;
-  motivo: "proxy-identificado" | "sin-secreto" | "secreto-no-coincide" | "proxy-sin-ip";
+  motivo:
+    | "proxy-identificado"
+    | "sin-secreto"
+    | "sin-cabecera"
+    | "secreto-no-coincide"
+    | "proxy-sin-ip";
 }
 
 /**
@@ -61,7 +75,10 @@ export function decidirIpDeLaCuota(
   }
 
   const declarado = cabeceras[CABECERA_PROXY_SECRETO];
-  if (typeof declarado !== "string" || !igualEnTiempoConstante(declarado, secreto)) {
+  if (typeof declarado !== "string" || declarado === "") {
+    return { ip: ipDeLaConexion, proxyIdentificado: false, motivo: "sin-cabecera" };
+  }
+  if (!igualEnTiempoConstante(declarado, secreto)) {
     return { ip: ipDeLaConexion, proxyIdentificado: false, motivo: "secreto-no-coincide" };
   }
 

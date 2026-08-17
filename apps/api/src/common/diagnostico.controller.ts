@@ -4,6 +4,7 @@ import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { Roles } from "../auth/decorators/roles.decorator";
 import { decidirIpDeLaCuota } from "./throttler-ip-real.guard";
+import { CABECERA_PROXY_SECRETO, CABECERA_IP_CLIENTE } from "@valatino/types";
 
 /**
  * Qué ve la API de quien la llama.
@@ -45,6 +46,18 @@ export class DiagnosticoController {
       motivo: decision.motivo,
       secretoConfigurado: Boolean(process.env.PROXY_API_SECRETO),
       saltosDeProxy: process.env.TRUST_PROXY_HOPS ?? "(sin definir)",
+      /**
+       * Si la cabecera del proxy llegó siquiera. Distingue «la web no la manda»
+       * de «la manda y no coincide», que se arreglan en sitios distintos.
+       * ⚠️ Es un booleano y NUNCA el valor: el valor es el secreto.
+       */
+      proxyMandoCabecera: typeof req.headers[CABECERA_PROXY_SECRETO] === "string",
+      /**
+       * Qué IP declaró el proxy, se le haya creído o no. Sirve para ver si el
+       * middleware está leyendo lo que creemos que lee — que es justo lo que
+       * quedó sin aclarar al medirlo desde fuera.
+       */
+      ipDeclaradaPorElProxy: req.headers[CABECERA_IP_CLIENTE] ?? null,
     };
   }
 }

@@ -53,7 +53,23 @@ describe("decidirIpDeLaCuota", () => {
   it("y tampoco si manda la IP sin ningún secreto", () => {
     const req = peticion("198.51.100.9", { [CABECERA_IP_CLIENTE]: "9.9.9.9" });
 
-    expect(decidirIpDeLaCuota(req, SECRETO).ip).toBe("198.51.100.9");
+    const decision = decidirIpDeLaCuota(req, SECRETO);
+    expect(decision.ip).toBe("198.51.100.9");
+    expect(decision.motivo).toBe("sin-cabecera");
+  });
+
+  /**
+   * Los dos motivos se separan porque se arreglan en sitios distintos, y
+   * juntarlos costó una vuelta entera: el diagnóstico decía «secreto no
+   * coincide» tanto cuando la web no mandaba nada (falta la variable en Vercel
+   * o falta redesplegar) como cuando los dos valores diferían de verdad.
+   */
+  it("distingue «no llegó la cabecera» de «llegó y no coincide»", () => {
+    const sinNada = peticion("198.51.100.9");
+    const conOtro = peticion("198.51.100.9", { [CABECERA_PROXY_SECRETO]: "otro-distinto-aa" });
+
+    expect(decidirIpDeLaCuota(sinNada, SECRETO).motivo).toBe("sin-cabecera");
+    expect(decidirIpDeLaCuota(conOtro, SECRETO).motivo).toBe("secreto-no-coincide");
   });
 
   // El despliegue a medias: la web ya manda la cabecera y la API aún no tiene
