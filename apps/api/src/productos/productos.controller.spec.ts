@@ -7,6 +7,7 @@ import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
+import { HttpExceptionFilter } from "../common/filters/http-exception.filter";
 
 /**
  * Un solo tema: que **subir una imagen funcione**.
@@ -75,6 +76,10 @@ describe("ProductosController · subir imagen", () => {
       .compile();
 
     app = moduleRef.createNestApplication();
+    // El filtro global va montado a propósito: sin él este spec no vería lo
+    // que ve el navegador, que es justo donde estaba el otro fallo (el
+    // mensaje de Multer saliendo en inglés).
+    app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
   });
 
@@ -137,6 +142,31 @@ describe("ProductosController · subir imagen", () => {
     const res = await request(app.getHttpServer()).post("/productos/imagen");
 
     expect(res.status).toBe(400);
+    expect(subidas).toEqual([]);
+  });
+
+  /**
+   * Cuando SÍ se pasa un límite del multipart, el que lo lee es una persona.
+   *
+   * Esto estuvo saliendo en inglés («Too many parts») aunque la tabla de
+   * traducción llevaba escrita desde antes: `FileInterceptor` convierte el
+   * MulterError en un BadRequestException con el mensaje inglés ANTES de que
+   * lo vea el filtro, y allí se reconocía solo por `name === "MulterError"`.
+   *
+   * Se dispara con dos campos de texto porque `fields: 1`, y así no hay que
+   * tocar los límites de producción para probarlo.
+   */
+  it("cuando se pasa un límite, lo cuenta en castellano y no en inglés", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/productos/imagen")
+      .field("alt", "Quipitos de fresa")
+      .field("titulo", "uno de más")
+      .attach("imagen", WEBP, { filename: "imagen.webp", contentType: "image/webp" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(
+      "Esta pantalla admite menos campos de los que ha enviado. Es un fallo nuestro: avísanos",
+    );
     expect(subidas).toEqual([]);
   });
 });

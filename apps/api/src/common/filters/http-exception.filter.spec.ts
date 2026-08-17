@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   InternalServerErrorException,
+  PayloadTooLargeException,
   Logger,
 } from "@nestjs/common";
 import type { ArgumentsHost } from "@nestjs/common";
@@ -165,6 +166,44 @@ describe("HttpExceptionFilter", () => {
       filtro.catch(impostor, host);
 
       expect(codigoHttp()).toBe(500);
+    });
+
+    /**
+     * ⚠️ Los de arriba fabrican un MulterError a mano, y por eso estuvieron en
+     * verde mientras la traducción NO se ejecutaba en producción: por
+     * `FileInterceptor` no llega nunca un MulterError. Llega ya convertido por
+     * `transformException()` de @nestjs/platform-express, en un
+     * BadRequestException/PayloadTooLargeException con el mensaje EN INGLÉS.
+     *
+     * Estos son los que reflejan lo que pasa de verdad.
+     */
+    it("el que YA transformó Nest también sale traducido, y no en inglés", () => {
+      const { host, codigoHttp, cuerpo } = montarHost();
+
+      filtro.catch(new BadRequestException("Too many parts"), host);
+
+      expect(codigoHttp()).toBe(400);
+      expect(cuerpo().message).toBe(
+        "Esta pantalla admite menos partes de las que ha enviado. Es un fallo nuestro: avísanos",
+      );
+    });
+
+    it("el fichero grande transformado por Nest mantiene el 413", () => {
+      const { host, codigoHttp, cuerpo } = montarHost();
+
+      filtro.catch(new PayloadTooLargeException("File too large"), host);
+
+      expect(codigoHttp()).toBe(413);
+      expect(cuerpo().message).toContain("tamaño máximo");
+    });
+
+    it("un 400 nuestro de siempre pasa su mensaje tal cual", () => {
+      const { host, codigoHttp, cuerpo } = montarHost();
+
+      filtro.catch(new BadRequestException("Falta el teléfono"), host);
+
+      expect(codigoHttp()).toBe(400);
+      expect(cuerpo().message).toBe("Falta el teléfono");
     });
   });
 });
