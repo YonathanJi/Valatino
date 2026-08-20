@@ -5,6 +5,12 @@ import { Skeleton } from "@components/ui/Skeleton";
 export const metadata = {
   title: "Catálogo — Productos Latinoamericanos",
   description: "Descubre los mejores productos latinoamericanos enviados a toda España.",
+  /**
+   * El canonical va aquí, en la portada, y NO en el layout raíz: desde el layout
+   * lo heredarían `/carrito`, `/checkout`, `/login` y las dos legales, y las cinco
+   * dirían ser duplicados de la portada. El porqué, largo, en `app/layout.tsx`.
+   */
+  alternates: { canonical: "/" },
 };
 
 export default function StorefrontPage() {

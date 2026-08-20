@@ -1,9 +1,11 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
 import { hermanosDeVariante, tieneVariante } from "@lib/productos/variantes";
+import { ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
 import { formatEUR } from "@lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -47,13 +49,24 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({ params }: Props) {
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const producto = await getProducto(slug);
   if (!producto) return { title: "Producto no encontrado" };
   return {
     title: producto.nombre,
     description: producto.descripcion,
+    alternates: { canonical: rutaDeProducto(producto) },
+    /**
+     * La tarjeta que sale al compartir la ficha por WhatsApp: la foto del
+     * producto, su nombre y su precio.
+     *
+     * ⚠️ Sustituye entera a la `openGraph` del layout raíz, no la completa campo
+     * a campo — por eso `ogDeProducto` devuelve también `siteName` y `locale`.
+     * Si se devolviera solo `images`, la tarjeta se quedaría con el título
+     * genérico de la tienda en vez del nombre del producto.
+     */
+    openGraph: ogDeProducto(producto),
   };
 }
 
