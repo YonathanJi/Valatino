@@ -7,6 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { formatEUR } from "@lib/utils";
+import { ResumenImportes } from "./ResumenImportes";
 
 export function Carrito() {
   const { carrito, isLoading, updateItem, removeItem } = useCarrito();
@@ -108,10 +109,12 @@ export function Carrito() {
             </div>
           ))}
         </div>
-        <div className="border-t pt-4 flex justify-between font-bold text-lg">
-          <span>Total</span>
-          <span className="text-primary">{formatEUR(carrito.total)}</span>
-        </div>
+        <ResumenImportes
+          subtotal={carrito.subtotal}
+          costeEnvio={carrito.costeEnvio}
+          envioGratisDesde={carrito.envioGratisDesde}
+          total={carrito.total}
+        />
         <Button asChild className="w-full" size="lg">
           <Link href="/checkout">Proceder al pago</Link>
         </Button>

@@ -11,6 +11,7 @@ import {
 import { TransferenciaService } from "../pedidos/transferencia.service";
 import { ContabilidadService } from "../contabilidad/contabilidad.service";
 import { MantenimientoService } from "./mantenimiento.service";
+import { EnvioService } from "./envio.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
@@ -19,6 +20,7 @@ import { Modulo, Nivel } from "../auth/decorators/modulo.decorator";
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { GuardarAjustesTransferenciaDto } from "../pedidos/dto/ajustes-transferencia.dto";
 import { GuardarEmisorDto } from "../contabilidad/dto/factura.dto";
+import { GuardarAjustesEnvioDto } from "./dto/ajustes-envio.dto";
 import type { JwtPayload } from "@valatino/types";
 
 /**
@@ -45,6 +47,7 @@ export class AjustesController {
     // El servicio vive en Contabilidad —es su dominio— y el controlador en TI,
     // que es donde se edita. Mismo reparto que `TransferenciaService`.
     private readonly contabilidad: ContabilidadService,
+    private readonly envio: EnvioService,
   ) {}
 
   @Get("transferencia")
@@ -90,6 +93,29 @@ export class AjustesController {
   @Nivel("total")
   guardarEmisor(@Body() dto: GuardarEmisorDto, @CurrentUser() user: JwtPayload) {
     return this.contabilidad.guardarEmisor(dto, user.sub);
+  }
+
+  /**
+   * La tarifa de envío (migración 080).
+   *
+   * ⚠️ Vive aquí, con el IBAN y el emisor, por el mismo motivo: es un dato del
+   * negocio que quien lleva la tienda tiene que poder cambiar sin desplegar. Y
+   * como el IBAN, se le enseña a cada cliente que compra.
+   */
+  @Get("envio")
+  leerEnvio() {
+    return this.envio.ajustes();
+  }
+
+  /**
+   * Exige `total`, y no por costumbre: esto cambia LO QUE PAGA cada cliente que
+   * compre a partir de ahora. Es del mismo orden de consecuencias que cambiar el
+   * IBAN — pequeña en pantalla, grande en la caja.
+   */
+  @Put("envio")
+  @Nivel("total")
+  guardarEnvio(@Body() dto: GuardarAjustesEnvioDto, @CurrentUser() user: JwtPayload) {
+    return this.envio.guardar({ coste: dto.coste, gratis_desde: dto.gratis_desde }, user.sub);
   }
 
   /** En qué modo está la tienda, cuántos pedidos hay y si el stock cuadra. */

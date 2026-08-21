@@ -264,6 +264,18 @@ export class InventarioService {
     documento?: string;
     direccionEnvioId?: string;
     direccion?: DireccionSnapshotPedido;
+    /**
+     * ⚠️⚠️ LOS GASTOS DE ENVÍO QUE SE LE ESTÁN COBRANDO, y se guardan para que
+     * `confirmar_venta` facture EXACTAMENTE eso. Ver la 080 §2: el cobro pasa
+     * aquí y el pedido se crea en el webhook minutos después, y nadie compara
+     * `intent.amount` con `pedidos.total`. Sin este snapshot, editar la tarifa en
+     * el panel a mitad de un checkout dejaría al cliente pagando un importe y al
+     * pedido diciendo otro, en silencio.
+     *
+     * Es el mismo criterio que `carrito_items.precio_unitario`: el dinero se
+     * congela cuando se enseña, no se vuelve a leer cuando se cobra.
+     */
+    costeEnvio?: number;
   }): Promise<void> {
     const { error } = await this.supabase.from("checkout_datos").upsert({
       session_id: params.sessionId,
@@ -272,6 +284,7 @@ export class InventarioService {
       documento: params.documento ?? null,
       direccion_envio_id: params.direccionEnvioId ?? null,
       direccion: params.direccion ?? null,
+      coste_envio: params.costeEnvio ?? null,
       updated_at: new Date().toISOString(),
     });
 
@@ -309,6 +322,9 @@ export class InventarioService {
     numero_pedido: string | null;
     estado: string;
     total: number;
+    /** Los gastos de envío, que están DENTRO de `total`. El correo los pinta
+        como línea propia: sin ellos, las líneas y el total no cuadran. */
+    coste_envio: number;
     metodo_pago: "stripe" | "paypal" | "transferencia";
     metodo_detalle: string | null;
     email_cliente: string | null;
@@ -325,7 +341,7 @@ export class InventarioService {
     const { data: pedido } = await this.supabase
       .from("pedidos")
       .select(
-        "id, numero_pedido, estado, total, metodo_pago, metodo_detalle, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
+        "id, numero_pedido, estado, total, coste_envio, metodo_pago, metodo_detalle, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
       )
       .eq("id", pedidoId)
       .maybeSingle();
@@ -343,6 +359,7 @@ export class InventarioService {
         numero_pedido: string | null;
         estado: string;
         total: number;
+        coste_envio: number;
         metodo_pago: "stripe" | "paypal" | "transferencia";
     metodo_detalle: string | null;
         email_cliente: string | null;

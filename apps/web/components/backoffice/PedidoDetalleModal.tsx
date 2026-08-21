@@ -278,6 +278,26 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                         </td>
                       </tr>
                     ))}
+                    {/*
+                      Los gastos de envío (migración 080). Van fuera de las
+                      líneas y DENTRO del total, así que sin esta fila la ficha
+                      no cuadra: las líneas sumarían menos que el total y quien
+                      la mire pensará que falta un artículo.
+
+                      Solo se pinta si se cobró. Los pedidos de antes de la 080
+                      —y los que caen bajo el umbral de gratuidad— no traen nada
+                      que enseñar.
+                    */}
+                    {Number(p.coste_envio ?? 0) > 0 && (
+                      <tr className="text-xs text-muted-foreground">
+                        <td colSpan={4} className="px-3 pt-3 text-right">
+                          Gastos de envío
+                        </td>
+                        <td className="px-3 pt-3 text-right font-mono">
+                          {formatEUR(Number(p.coste_envio))}
+                        </td>
+                      </tr>
+                    )}
                     <tr>
                       <td colSpan={4} className="p-3 text-right text-muted-foreground">
                         Total

@@ -11,6 +11,19 @@ export interface DatosEmailPedido {
   numeroPedido?: string | null;
   email: string;
   items: ItemPedidoEmail[];
+  /**
+   * Gastos de envío cobrados, IVA incluido. Están DENTRO de `total`.
+   *
+   * ⚠️⚠️ SIN ESTO EL CORREO MIENTE POR OMISIÓN. Las líneas suman los artículos y
+   * el «Total» lleva el porte: un pedido de 9 € de producto con 4,95 € de envío
+   * enseñaría nueve euros de líneas y un total de 13,95 € sin nada que explique
+   * los 4,95 € de diferencia. Es el recibo que le llega al cliente, y es el
+   * primer sitio donde se mira cuando algo no cuadra.
+   *
+   * Ausente o 0 = no se cobró envío, y entonces no se pinta ninguna línea: no
+   * hay que enseñarle «Envío: 0,00 €» a nadie.
+   */
+  costeEnvio?: number | null;
   total: number;
   metodoPago: "stripe" | "paypal" | "transferencia";
   /**
@@ -120,6 +133,10 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
   const numeroPedido = datos.numeroPedido ?? datos.pedidoId.slice(0, 8).toUpperCase();
 
   // Céntimos: 49.99 !== 49.99 en coma flotante según de dónde venga cada cifra
+  // Se normaliza a número aquí y no en la plantilla: `null` y `undefined` son
+  // los dos «no se cobró envío», y comprobarlo dos veces en el HTML es donde se
+  // cuela un «Envío: 0,00 €».
+  const envio = Number(datos.costeEnvio ?? 0);
   const devuelto = datos.importeReembolsado ?? datos.total;
   const esParcial =
     esReembolso && Math.round(devuelto * 100) < Math.round(datos.total * 100);
@@ -155,10 +172,18 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
             </td>
           </tr>
 
-          <!-- Total -->
+          <!-- Envío y total -->
           <tr>
             <td style="padding:16px 40px 0;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                ${
+                  envio > 0
+                    ? `<tr>
+                  <td style="font-size:14px;color:#86868b;padding-bottom:10px;">Envío</td>
+                  <td style="font-size:14px;color:#1d1d1f;text-align:right;font-variant-numeric:tabular-nums;padding-bottom:10px;">${formatEUR(envio)}</td>
+                </tr>`
+                    : ""
+                }
                 <tr>
                   <td style="font-size:16px;color:#1d1d1f;font-weight:600;">Total</td>
                   <td style="font-size:22px;color:#1d1d1f;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;">${formatEUR(datos.total)}</td>

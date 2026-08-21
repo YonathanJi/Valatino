@@ -23,6 +23,7 @@ import { formatEUR } from "@lib/utils";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { apiFetch, ApiError } from "@lib/api/client";
 import { normalizarTelefono } from "@valatino/types";
+import { ResumenImportes } from "@components/storefront/ResumenImportes";
 import type {
   DisponibilidadTransferencia,
   ReservaCheckoutResponse,
@@ -385,10 +386,12 @@ export default function CheckoutPage() {
               <span>{formatEUR(item.subtotal)}</span>
             </div>
           ))}
-          <div className="border-t pt-4 flex justify-between font-bold">
-            <span>Total</span>
-            <span className="text-primary">{formatEUR(carrito.total)}</span>
-          </div>
+          <ResumenImportes
+            subtotal={carrito.subtotal}
+            costeEnvio={carrito.costeEnvio}
+            envioGratisDesde={carrito.envioGratisDesde}
+            total={carrito.total}
+          />
           <p className="text-xs text-muted-foreground" aria-live="polite">
             ⏱️ Reserva válida {tiempoRestante ? `— quedan ${tiempoRestante}` : "por 15 minutos"}
           </p>

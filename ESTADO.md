@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-17
+**Última actualización**: 2026-08-22
 
 ---
 
@@ -48,7 +48,175 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-17
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-22
+
+⚠️⚠️ **HAY UNA COSA SIN HACER Y ES LA PRIMERA: LA MIGRACIÓN 080 ESTÁ ESCRITA PERO NO APLICADA.** Ver «Lo primero al volver» más abajo. Sin aplicarla, el código de la API que la usa (`coste_envio_de`, la columna `pedidos.coste_envio`) no encuentra nada — y el carrito **no revienta**, cobra 0 de envío y lo anota en el log como error. O sea que la tienda sigue exactamente como estaba, enviando gratis, hasta que se aplique.
+
+**861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado.
+
+⚠️ **Los dos builds y los dos `type-check` siguen yendo en verde SECUENCIALMENTE.** Corriendo `turbo build type-check` en la misma invocación el `type-check` de la web falla a veces. Sigue **sin diagnosticar, solo observado** (encaja con que `next build` regenere `.next/types/**` mientras `tsc` los lee). Si sale rojo en CI, mirar aquí antes de buscar un error de tipos real.
+
+⭐⭐ **HOY: EL COSTE DE ENVÍO, que era la avería 🔴🔴 de la lista del 15/08.** Y con el 20/08 sin registrar: el OG de WhatsApp.
+
+**Estado del remoto, comprobado al cerrar** (no de memoria):
+
+| | |
+|---|---|
+| Pedidos | **2** (`260815017972` y `260817017037`, los dos REEMBOLSADO) |
+| Facturas | **7** · 12 eventos (7 `emitida` + 5 `enviada`) · **0 anomalías** |
+| Cadena de huellas | **íntegra en los 7 enlaces** (comprobado enlace a enlace, no de memoria) |
+| Productos | 30 (29 activos) |
+| Arranque fiscal | **sin marcar** — la ventana para rehacer cosas sigue abierta |
+| API | `/health` 200 |
+
+⚠️ **Y OTRA VEZ LA MISMA LECCIÓN, que ya va la tercera: la BD tenía MÁS de lo que decía este fichero.** El cierre del 17/08 se commiteó a las 23:16 y decía «1 pedido, 4 facturas, 8 eventos». La verdad eran **2, 7 y 12**: Jonathan hizo otra compra de prueba a las 23:21, cinco minutos DESPUÉS del commit. Cuadra sola (venta `VALS202600101` de 3,20 € → dos rectificativas de −1,20 y −2,00; base −2,68 y cuota −0,52, que es exactamente lo que declaró la venta), pero **preguntarle a la BD antes de creerse el markdown** sigue siendo la regla.
+
+#### Lo primero al volver: APLICAR LA 080
+
+`supabase/migrations/080_el_coste_del_envio.sql` está escrita, revisada y con **su aritmética probada contra la base real** (ver abajo), pero **no aplicada**. Faltó la vía para ejecutarla:
+
+- ⚠️ **`supabase db push` NO se puede usar.** El historial remoto está desincronizado con los nombres locales: el CLI lee `001`, `002`, `003` y unos cuantos con marca de tiempo, y da las locales `004`–`080` por «no aplicadas». Un `push` reaplicaría de la 004 en adelante, y varias de esas **no son idempotentes** (`cron.schedule`, inserts). Es un tiro en el pie.
+- La vía buena sería `node run.js --dry` / `--go` con el driver `pg` (ver más abajo), que **aplica de verdad dentro de una transacción y la revierte**, que es como se ensaya esto. Necesita la contraseña de la base, y `supabase/.temp/pooler-url` **no la lleva** (el CLI la pide cada vez).
+- La otra vía es `apply_migration` del MCP de Supabase, que sí funciona pero obliga a reescribir el fichero entero por el canal — y en 66 KB de SQL fiscal, una errata de copia es de las que no se ven.
+
+**Lo que hay que hacer**: dar la contraseña de la base (Supabase → Project Settings → Database) y correr el ensayo revertido, y luego el `--go`.
+
+⭐ **Lo que YA está probado contra el remoto, y es la parte que importa**: el reparto del envío entre tipos de IVA, con una consulta pura que no crea nada.
+
+- **12/12 exacto** sobre los dos pedidos reales, con envíos de 0 · 0,01 · 3,95 · 4,95 · 7,00 · 12,34 €.
+- **64/64 exacto** en un barrido sintético de 8 carritos incómodos × 8 importes, con los tres tipos vivos (4 %, 10 %, 21 %).
+- ⭐⭐ **Y el dato que justifica el diseño: el redondeo INGENUO —redondear cada trozo por separado— falla en 24 de esas 64.** O sea que el redondeo acumulado no es higiene teórica, es lo que sostiene que la suma cuadre. 0 trozos negativos, y 64/64 el desglose suma exactamente artículos + envío.
+
+#### La cola
+
+1. 🟡 **§7 de la 080: el 303 en el caso de fallo.** Deliberadamente sin hacer, y con su porqué escrito en la propia migración. `liquidacion_iva` referencia `reembolso_lineas` en cinco sitios; tres necesitarían ver también el porte, y los otros dos no. Pero **esos tres solo entran en juego cuando una rectificativa NO se ha emitido**: si se emitió —el caso normal— el 303 la lee del bloque `doc`, donde el porte ya está, y el número es correcto. Cuando falla, el aviso `devolucion_sin_rectificativa` **sí salta** (lo disparan las líneas de artículos) y el botón de «emitir pendientes» lo arregla; lo único que se queda corto es el importe que ese bloque adelanta. **La dirección del error es la conservadora: declararía DE MÁS.** No se arregló hoy porque `create or replace` obliga a reescribir 430 líneas para cambiar tres CTEs, y transcribir SQL fiscal a mano es cambiar un fallo acotado y avisado por el riesgo de un error de copia silencioso en el 303. Va en su propia migración, con su ensayo.
+2. ⚠️⚠️ **Verifactu con la gestoría. Sigue siendo lo único grande que separa esto del arranque fiscal.** El **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. **La cadena se puede recalcular mientras el arranque no esté marcado; después, no.** Llevar también la fecha con la que se deduce el IVA soportado (la de registro, ver la 068), el `TipoRectificativa` (las de aquí son **por diferencias**) y —nuevo— **el tratamiento del porte**: la 080 lo reparte a prorrata entre los tipos de la mercancía por el art. 78.Dos.1º LIVA, y conviene que lo confirmen antes del arranque.
+3. 🔴 **EL IVA DE CANARIAS, CEUTA Y MELILLA. Destapado hoy y sin tocar.** El checkout acepta **las 52 provincias**, incluidas Las Palmas (35), Santa Cruz (38), Ceuta (51) y Melilla (52). Esos territorios están **fuera del ámbito del IVA** (IGIC / IPSI), así que una venta enviada allí no lleva IVA español — y hoy se le cargaría el 10 % o el 21 %. Es una avería fiscal **distinta** de la del envío pero de la misma familia, y se toca en la misma consulta con la gestoría. Además arrastra la tarifa: enviar a las islas no cuesta lo mismo, y la 080 dejó a propósito una tarifa plana sin zonas para no mezclar las dos decisiones.
+4. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`. Ahí va también la **causa de la rectificación** (art. 15.3), que hoy no se imprime.
+5. 🟡 **Decidir el cortafuegos de Vercel.** Sigue a medias desde el 17/08. El tráfico que entra por el proxy `/api` se agrupa bajo las IPs de salida de Vercel, así que una IP abusiva puede gastar la cuota de otros clientes de su zona. Quien SÍ ve la IP real es Vercel, y su cortafuegos está **accesible y vacío**. ⚠️ Mal calibrada rechaza compras sin que te enteres.
+6. **Migrar `DireccionForm`** al componente compartido de ubicación, con la pantalla delante: es checkout.
+7. **Higiene de producción, pendiente desde el 05/08**: revocar los secretos y borrar `C:\YJIMENEZ\tokens-despliegue.env.txt`, y quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`. El que más prisa tiene sigue siendo `sb_secret_…`, que **salta el RLS**.
+8. La cola de fondo: tests de componentes de la web, accesibilidad, la CSP a obligatoria, y el paso a Stripe `live`.
+
+#### 🔴 Lo que se destapó al mirar la tienda como tienda (2026-08-15) — actualizado
+
+1. ✅ **El coste de envío — HECHO HOY en código, pendiente de aplicar la migración.** Era el 🔴🔴.
+2. ✅ **Compartir un enlace de la tienda** — hecho el 20/08 (`6e8ab9e`) y **verificado hoy en producción**.
+3. **No hay `sitemap.ts`, ni `robots.ts`, ni datos estructurados** (`Product` con precio y disponibilidad). Es la continuación natural del OG y vive en el mismo `lib/seo/`.
+4. **El catálogo no escala**: sin buscador, sin filtro por categoría y sin paginación — `limit=50` fijo. Con 30 productos aguanta; con 100 se rompe sin avisar.
+5. **Sin analítica y sin banner de cookies.**
+6. **Sin reseñas de producto.** `pedido_calificaciones` mide la experiencia de COMPRA, que es otra cosa.
+
+#### Herramienta nueva de esta sesión
+
+Para ejecutar `.sql` contra el remoto sin pasar por el CLI (que no sirve, ver arriba) hay un script en el scratchpad de la sesión: `run.js`, con el driver `pg` instalado aparte para no tocar `node_modules` del proyecto.
+
+```
+node run.js --dry fichero.sql   # BEGIN … ROLLBACK  ← el ensayo
+node run.js --go  fichero.sql   # BEGIN … COMMIT
+```
+
+⚠️ Lee la URL de `supabase/.temp/pooler-url`, **que no lleva contraseña**: hay que añadírsela. El `--dry` es lo que hacía falta y no había: aplica de verdad y lo deshace, así que un error de sintaxis o un guardia que salta se ven sin dejar rastro. **Merece la pena rescatarlo al repo** (`scripts/`), porque este problema se va a repetir en cada migración.
+
+---
+
+## ⭐⭐ HECHO EL 2026-08-22 — El coste de envío (migración 080 + API + web)
+
+**Hasta hoy la tienda enviaba gratis a toda España, y no por una decisión comercial: no existía el concepto.** Ni columna, ni campo en el checkout, ni línea en la factura. `pedidos` solo tenía una columna de dinero —`total`— y valía la suma de los artículos. Se han vendido Quipitos de 0,62 € con el porte pagado por la casa.
+
+### Las tres decisiones, y por qué
+
+1. **Tarifa plana con umbral de gratuidad**, dos números en `ajustes_tienda` con su pantalla en el panel. No hay tabla de zonas a propósito: arrastra la decisión del IVA de Canarias, que es otra avería (punto 3 de la cola).
+2. **El envío sigue el tipo de la mercancía, repartido a prorrata.** Es el art. 78.Dos.1º LIVA: los portes forman parte de la base imponible de la entrega, no son un servicio aparte. Con tres tipos vivos en el catálogo (4 % ×1, 10 % ×21, 21 % ×8) un carrito mixto es lo normal, así que el reparto **no es un caso raro: es el caso**. Cobrarlo todo al 21 % —lo que hacen muchas tiendas— le cobraría al cliente 21 % sobre el porte de unas galletas al 10 %.
+3. **El envío se devuelve solo en la devolución íntegra.** Lo exige el art. 107 RDL 1/2007 en el desistimiento. En una parcial no, porque el transporte se prestó.
+
+### ⭐⭐ La cuenta pendiente que esto salda
+
+La 078 lo dejó escrito con estas palabras: «**No hay coste de envío ni ningún otro concepto fuera de los artículos** […] Si algún día se cobra el envío aparte, esta proporción hay que revisarla: **sería dinero declarado que no se puede devolver**».
+
+Era literal: `reembolso_lineas.pedido_item_id` es `not null`, así que el porte no cabe como línea de devolución. Metido en `pedido_iva` sin más, devolver TODOS los artículos dejaría el porte declarado para siempre y el 303 con una venta que no vuelve a cero.
+
+### El reparto vive en UNA función, y es lo más importante del diseño
+
+`reparto_envio_pedido(pedido_id)` devuelve, por tipo de IVA, lo que aporta de artículos y lo que le toca de envío. **La llaman los tres sitios que lo necesitan**: el desglose (`recalcular_iva_pedido`), las líneas de la factura (`emitir_factura`) y el desglose de la rectificativa (`emitir_rectificativa`).
+
+⚠️⚠️ Escribirlo tres veces habría sido **exactamente el patrón que costó la 074** —el formato del número de factura vivía en tres sitios y la huella certificaba uno mientras la impresión sacaba otro—, y aquí peor: el documento diría un reparto y el 303 otro, sobre el mismo dinero.
+
+### El redondeo acumulado, y el número que lo justifica
+
+Repartir 4,95 € entre tres tipos y redondear cada trozo por separado **no suma 4,95 €**. Mismo céntimo que costó la 078, misma solución:
+
+```
+envio_acum(i) = round(envio × Σ_{j≤i} articulos(j) / articulos_total, 2)
+envio(i)      = envio_acum(i) − envio_acum(i−1)
+```
+
+La suma es exacta **por construcción**: el último acumulado es `round(envio × 1, 2)` = `envio`, y los trozos son sus diferencias.
+
+⭐ **Y no es higiene teórica: en el barrido de 64 combinaciones, el redondeo ingenuo falla en 24.**
+
+### ⚠️⚠️ El arreglo de riesgo que salió por el camino: el porte se congela al cobrar
+
+Buscando dónde poner el cálculo salió que **el importe se cobra en un sitio y el pedido se crea en otro**: `create-payment-intent` cobra `carrito.total`, y el webhook crea el pedido minutos después **recalculando** el total. Y **nadie compara `intent.amount` con `pedidos.total`**.
+
+Con los artículos eso ya estaba resuelto (`carrito_items.precio_unitario` es una copia, no una lectura viva). Con el envío no lo estaría: editar la tarifa en el panel a mitad de un checkout dejaría al cliente pagando 4,95 € y al pedido diciendo 6,95 €, **en silencio**.
+
+Así que el porte se congela en `checkout_datos.coste_envio` al crear el pago, y `confirmar_venta` factura **eso**. `checkout_datos` es exactamente para esto («staging de datos de checkout por sesión para webhooks», 019). Sin snapshot —sesión anterior a la 080, o webhook pasadas las 48 h de la limpieza— se aplica la tarifa vigente, que es lo único que se puede hacer.
+
+### El hueco del porte solo, que es real y alcanzable
+
+La rectificativa la dispara un trigger `after insert on reembolso_lineas` (077 §3). Y hay un camino que devuelve el porte **sin insertar ninguna línea**:
+
+1. Se devuelven TODOS los artículos en reembolsos parciales. El pedido **no se cierra**, porque lo devuelto (artículos) es menor que el total (con porte).
+2. Queda un último reembolso por el resto — que es exactamente el porte. `reembolsar_pedido_total` no encuentra artículos pendientes y no inserta nada. **El trigger no se dispara.**
+
+No es teórico: es la secuencia de cualquiera que devuelva una compra artículo por artículo desde el panel. Se cierra en dos sitios: `reembolsar_pedido_total` llama ella misma a `emitir_rectificativa` cuando devolvió el porte y no dejó líneas —con el **mismo `exception when others`** del trigger, porque cuando eso corre el dinero ya salió de Stripe—, y `emitir_rectificativas_pendientes` aprende a verlo para que el botón de ponerse al día lo recupere.
+
+### La línea de la factura va UNA POR TIPO DE IVA
+
+Y no una sola sin tipo, por tres razones en este orden:
+
+1. El **art. 6.1.f RD 1619/2012** pide que la factura exprese el tipo aplicado. Una línea sin tipo mientras el desglose lleva dos es un documento que no se explica solo — y esto va a la gestoría.
+2. `factura-pdf.service.ts` imprime `${l.iva_pct} %` de cada línea: sin tipo saldría **«undefined %»**. Y el PDF es el sitio con la trampa del `nest-cli.json` que funciona en local y falla en Render: cuanto menos se toque, mejor. **Así el PDF no se ha tocado.**
+3. El desglose queda atribuible línea a línea.
+
+Con un carrito de un solo tipo —el caso corriente— sale UNA línea de envío.
+
+### Lo que cambió fuera de la base
+
+- **`carrito.total` cambió de significado**: antes eran los artículos, ahora artículos + envío. **A propósito que siga llamándose `total`**: los dos sitios que crean el pago (`createPaymentIntent`, `createOrder`) cobran ese número, así que el envío entró en el cobro sin poder olvidarse. El desglose viaja aparte (`subtotal`, `costeEnvio`, `envioGratisDesde`).
+- ⚠️ **La tarifa NO se aplica en TypeScript.** El carrito llama a `coste_envio_de` y usa la respuesta tal cual; el umbral se lee suelto solo para enseñarlo. Hay un test que se pone rojo si alguien reescribe la regla en el cliente: subtotal 9 € bajo un umbral de 40 € y la base responde 0 → el servicio dice 0.
+- ⚠️ **Un fallo de la RPC del envío no tumba el carrito: cobra 0 y lo grita en el log.** De los dos fallos posibles —dejar de cobrar un porte, o dejar la tienda sin carrito— el barato es el primero. Y no queda en silencio.
+- **El correo de confirmación llevaba las de perder**: enseña las líneas y un «Total», así que con envío diría 9 € de producto y 13,95 € de total **sin nada que explicara la diferencia**. Es el recibo del cliente y el primer papel que mira cuando algo no cuadra. Ahora lleva su línea de «Envío», y solo si se cobró (nadie necesita ver «Envío: 0,00 €»).
+- Misma fila añadida en la ficha del pedido del panel y en la del cliente, por lo mismo: las líneas suman menos que el total y quien lo mire pensará que falta un artículo.
+- **`lib/tienda/envio.ts`** con el aviso de «te faltan X € para el envío gratis», fuera del JSX y con 12 tests, por lo mismo que `lib/seo/metadatos.ts`: **falla en silencio**. Un aviso mal calculado no da error, solo empuja a añadir 3 € que no sirven de nada — o calla cuando faltaba un euro.
+- ⚠️ En los tests del correo, `toContain("Envío")` **pasa siempre**: la plantilla ya dice «Dirección de envío» más abajo. Los tres tests de ausencia salieron rojos con el código correcto hasta que la aguja pasó a ser la celda (`>Envío</td>`). Queda anotado en el spec.
+
+### Lo que la migración NO cambia por sí sola
+
+`envio_coste` nace en **0**, que significa envío gratis: exactamente lo que la tienda hace hoy. **Nada cambia hasta que alguien ponga el número en el panel.** Los dos pedidos que ya existen se quedan con `coste_envio = 0`, que es la verdad: se enviaron gratis.
+
+⚠️ Y aquí el default sí es correcto, al contrario que en la 071 (`emisor_nif` sin default, «un dato que parece puesto es un dato que nadie revisa»). La diferencia: un NIF vacío no tiene lectura válida; un coste de envío de 0 tiene una lectura válida, verdadera y conservadora.
+
+---
+
+## ⭐ HECHO EL 2026-08-20 — El OG de WhatsApp (no quedó registrado en su día)
+
+`6e8ab9e`. **Verificado hoy contra producción**, no de memoria:
+
+| | |
+|---|---|
+| Portada | `og:image` → `/portada.png` · 200 · `image/png` 33 KB · `max-age=31536000` |
+| Ficha (`colcafe-clasico-85g`) | `og:title` sin la plantilla «\| Valatino», precio en la descripción, `canonical` correcto |
+| Imagen de la ficha | 200 · **`Content-Type: image/jpeg`** 35 KB · `max-age=3600` |
+
+Las cuatro cosas que solo salieron por medirlas están en el mensaje del commit, que es largo a propósito: las fotos del catálogo son WebP pero la transformación de Supabase con `format=origin` las devuelve en **JPEG de verdad** (y sin ese parámetro sirve bytes JPEG bajo cabecera `image/webp`, que es lo que hace que un crawler estricto descarte la imagen); `resize=contain` y **no** `cover`, porque con `cover` al tarro de Colcafé se le iban la tapa y la base; `recortar()` usaba `\s`, que también casa el espacio duro que `Intl` mete en «4,92 EUR» y WhatsApp podía partir el precio en dos líneas; y `alternates.canonical` **no puede ir en el layout raíz** porque se hereda igual que `openGraph`, así que `/carrito`, `/checkout`, `/login` y las dos legales decían ser duplicados de la portada.
+
+⚠️ `/portada.png` es **provisional**: sin logo, el diseño es la tipografía. Cuando llegue el modelo se sustituye ese fichero y **la URL no cambia**, así que no hay que esperar a que WhatsApp suelte su caché.
+
+---
+
+### Cierre anterior — 2026-08-17
 
 **Todo commiteado y pusheado** (`8f01a8a`), árbol limpio, 0 sin pushear. **787 tests** (448 API + 339 web).
 

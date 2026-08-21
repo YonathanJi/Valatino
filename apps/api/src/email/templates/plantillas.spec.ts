@@ -31,6 +31,61 @@ const datosPedido = (extra: Partial<DatosEmailPedido> = {}): DatosEmailPedido =>
   ...extra,
 });
 
+/**
+ * ⚠️⚠️ EL ENVÍO EN EL RECIBO DEL CLIENTE (migración 080).
+ *
+ * Este es el sitio donde el porte se puede perder sin que salte nada: las líneas
+ * suman los artículos y el «Total» lleva el envío dentro. Si no se pinta la línea
+ * del envío, el cliente recibe un correo que dice 5,00 € en producto y 9,95 € de
+ * total, sin nada que explique la diferencia — y es el primer papel que mira
+ * cuando algo no le cuadra.
+ */
+describe("el envío en la confirmación del pedido", () => {
+  /**
+   * ⚠️ La aguja es la CELDA, no la palabra. Un `toContain("Envío")` a secas pasa
+   * siempre: la plantilla ya dice «Dirección de envío» más abajo. Se comprobó —
+   * los tres tests de ausencia salieron rojos con el código correcto. Buscar la
+   * celda es lo que distingue la línea de importe de cualquier otro rótulo.
+   */
+  const CELDA_ENVIO = ">Envío</td>";
+
+  it("pinta la línea del envío cuando se cobró", () => {
+    const html = renderConfirmacionPedido(datosPedido({ costeEnvio: 4.95, total: 9.95 }));
+    expect(html).toContain(CELDA_ENVIO);
+    expect(html).toContain("4,95");
+    expect(html).toContain("9,95");
+  });
+
+  it("no enseña «Envío 0,00 €» cuando el envío fue gratis", () => {
+    const html = renderConfirmacionPedido(datosPedido({ costeEnvio: 0, total: 5 }));
+    expect(html).not.toContain(CELDA_ENVIO);
+  });
+
+  /** Los pedidos anteriores a la 080 no traen el campo. No se inventa una línea. */
+  it("sin el campo se comporta como si no hubiera envío", () => {
+    const html = renderConfirmacionPedido(datosPedido({ total: 5 }));
+    expect(html).not.toContain(CELDA_ENVIO);
+  });
+
+  it("un coste_envio nulo tampoco pinta línea", () => {
+    const html = renderConfirmacionPedido(datosPedido({ costeEnvio: null, total: 5 }));
+    expect(html).not.toContain(CELDA_ENVIO);
+  });
+
+  /**
+   * El reembolso reutiliza la misma plantilla, y ahí también tiene que cuadrar:
+   * al devolver el pedido entero se devuelve el porte (art. 107 RDL 1/2007), así
+   * que el importe devuelto incluye el envío y el desglose tiene que enseñarlo.
+   */
+  it("en un reembolso total el desglose sigue enseñando el envío", () => {
+    const html = renderConfirmacionPedido(
+      datosPedido({ costeEnvio: 4.95, total: 9.95, esReembolso: true, importeReembolsado: 9.95 }),
+    );
+    expect(html).toContain(CELDA_ENVIO);
+    expect(html).toContain("4,95");
+  });
+});
+
 describe("renderCambioEstado", () => {
   it("no genera correo para los estados que avisa otro camino", () => {
     // PENDIENTE_PAGO es el estado inicial (nadie transiciona hacia él) y

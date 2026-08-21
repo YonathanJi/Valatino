@@ -268,6 +268,19 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
               </ul>
 
               <dl className="mt-4 space-y-1.5 border-t pt-4 text-sm">
+                {/*
+                  El envío va fuera de las líneas y dentro del total (migración
+                  080). Sin esta fila, el cliente suma sus artículos, mira el
+                  total y no le cuadra — y es su propio pedido, así que lo suma.
+                */}
+                {Number(pedido.coste_envio ?? 0) > 0 && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted-foreground">Envío</dt>
+                    <dd className="tabular-nums">
+                      {formatEUR(Number(pedido.coste_envio))}
+                    </dd>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Total del pedido</dt>
                   <dd className="tabular-nums">{formatEUR(total)}</dd>

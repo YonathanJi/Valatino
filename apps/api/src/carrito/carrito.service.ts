@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ConflictException,
   BadRequestException,
@@ -17,8 +18,21 @@ const EMAIL_PEDIDOS_GRANDES = "valatino@hotmail.com";
 const MSG_LIMITE_UNIDADES = `Máximo ${MAX_UNIDADES_POR_PRODUCTO} unidades por producto. Si necesitas más, escríbenos a ${EMAIL_PEDIDOS_GRANDES}`;
 const MSG_SIN_STOCK = "No hay unidades suficientes de este producto en este momento";
 
+/**
+ * Céntimos enteros, y hace falta de verdad.
+ *
+ * `0.1 + 0.2` en coma flotante es `0.30000000000000004`, y un carrito de tres
+ * artículos a 0,95 € da `2.8499999999999996`. Ese número viaja a Stripe como
+ * `Math.round(x * 100)` y ahí no molesta, pero también viaja al JSON del carrito,
+ * donde el navegador lo imprimiría con su cola. Se corta en el único sitio que
+ * suma dinero en este fichero.
+ */
+const redondear = (n: number): number => Math.round(n * 100) / 100;
+
 @Injectable()
 export class CarritoService {
+  private readonly logger = new Logger(CarritoService.name);
+
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async getOrCreate(sessionId: string, userId?: string): Promise<string> {
@@ -70,7 +84,17 @@ export class CarritoService {
     }>;
 
     if (!itemsRaw || itemsRaw.length === 0) {
-      return { id: carritoId, items: [], total: 0 };
+      // Un carrito vacío no paga porte. `coste_envio_de` también devolvería 0,
+      // pero salir aquí ahorra dos viajes a la base en la pantalla que más se
+      // pide: la del icono del carrito.
+      return {
+        id: carritoId,
+        items: [],
+        subtotal: 0,
+        costeEnvio: 0,
+        envioGratisDesde: await this.umbralEnvioGratis(),
+        total: 0,
+      };
     }
 
     const productoIds = itemsRaw.map((i) => i.producto_id);
@@ -101,8 +125,76 @@ export class CarritoService {
       });
     }
 
-    const total = itemsDetalle.reduce((acc, i) => acc + i.subtotal, 0);
-    return { id: carritoId, items: itemsDetalle, total };
+    const subtotal = redondear(itemsDetalle.reduce((acc, i) => acc + i.subtotal, 0));
+
+    /**
+     * ⚠️⚠️ EL ENVÍO LO DECIDE LA BASE, NUNCA ESTE FICHERO. La tarifa vive en
+     * `coste_envio_de` (migración 080 §1) porque este importe es el que se le
+     * COBRA al cliente, y el que factura `confirmar_venta` sale de la misma
+     * función. Aplicar aquí la regla en TypeScript —«si subtotal >= umbral,
+     * gratis»— sería tenerla en dos sitios: el día que difirieran, se cobraría
+     * un importe y se facturaría otro, y el guardia del desglose abortaría
+     * DENTRO del webhook de un pago ya cobrado. Es la lección de la 074.
+     *
+     * El umbral sí se lee suelto, y no es lo mismo: no decide nada, solo se
+     * enseña.
+     */
+    const [costeEnvio, envioGratisDesde] = await Promise.all([
+      this.costeEnvio(subtotal),
+      this.umbralEnvioGratis(),
+    ]);
+
+    return {
+      id: carritoId,
+      items: itemsDetalle,
+      subtotal,
+      costeEnvio,
+      envioGratisDesde,
+      total: redondear(subtotal + costeEnvio),
+    };
+  }
+
+  /** Los gastos de envío de un subtotal, según la tarifa de la tienda. */
+  private async costeEnvio(subtotal: number): Promise<number> {
+    const { data, error } = await this.supabase.rpc("coste_envio_de", {
+      p_subtotal: subtotal,
+    });
+
+    /**
+     * ⚠️ Un fallo aquí NO tumba el carrito, y devuelve 0 a propósito. El carrito
+     * es la pantalla más vista de la tienda y el envío es un cargo ADICIONAL:
+     * quedarse corto deja de cobrar un porte, y reventar deja a la tienda sin
+     * carrito. De los dos fallos, el barato es el primero.
+     *
+     * Y no se queda en silencio: sale por el log como error, porque significa que
+     * la tienda está regalando el envío sin saberlo.
+     */
+    if (error) {
+      this.logger.error(
+        `No se pudo calcular el coste de envío de ${subtotal} €, se cobra 0: ${error.message}`,
+      );
+      return 0;
+    }
+
+    return redondear(Number(data ?? 0));
+  }
+
+  /**
+   * El umbral de envío gratis, solo para enseñarlo. `null` si no hay.
+   *
+   * Se lee de `ajustes_tienda` y no de la RPC porque no decide nada: es el dato
+   * con el que el carrito dice «te faltan 3,40 € para el envío gratis».
+   */
+  private async umbralEnvioGratis(): Promise<number | null> {
+    const { data, error } = await this.supabase
+      .from("ajustes_tienda")
+      .select("envio_gratis_desde")
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    const umbral = (data as { envio_gratis_desde: string | number | null }).envio_gratis_desde;
+    return umbral === null ? null : Number(umbral);
   }
 
   async addItem(

@@ -14,9 +14,10 @@
     "clean": "turbo clean"
   },
   "devDependencies": {
+    "pg": "^8.23.0",
+    "prettier": "^3.3.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.5.0",
-    "prettier": "^3.3.0"
+    "typescript": "^5.5.0"
   },
   "pnpm": {
     "overrides": {

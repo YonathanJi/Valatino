@@ -69,6 +69,7 @@ export class PagosController {
     sessionId: string,
     userId: string | undefined,
     dto: CrearPagoDto,
+    costeEnvio: number,
   ): Promise<void> {
     if (userId && dto.direccion_envio_id) {
       // Usuario autenticado con dirección guardada: verificar propiedad
@@ -105,6 +106,10 @@ export class PagosController {
       documento: dto.documento,
       direccionEnvioId: userId ? dto.direccion_envio_id : undefined,
       direccion: dto.direccion && this.normalizarDireccion(dto.direccion),
+      // El porte que se está a punto de cobrar. Ver la 080 §2 y
+      // `guardarCheckoutDatos`: se congela aquí para que el webhook facture
+      // exactamente lo cobrado.
+      costeEnvio,
     });
   }
 
@@ -146,7 +151,7 @@ export class PagosController {
       throw new BadRequestException("El carrito está vacío");
     }
 
-    await this.validarYGuardarCheckout(sessionId, userId, dto);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
 
     return this.stripeService.createPaymentIntent(carrito.total, {
       session_id: sessionId,
@@ -193,7 +198,7 @@ export class PagosController {
 
     // Misma validación de dirección y datos que los otros métodos: la provincia
     // se recalcula desde el CP y el municipio se comprueba contra ella.
-    await this.validarYGuardarCheckout(sessionId, userId, dto);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
 
     return this.transferenciaService.crearPedido({
       sessionId,
@@ -228,7 +233,7 @@ export class PagosController {
       throw new BadRequestException("El carrito está vacío");
     }
 
-    await this.validarYGuardarCheckout(sessionId, userId, dto);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
 
     // custom_id ≤127 chars en PayPal: solo session+user; el resto se lee de
     // checkout_datos en el webhook

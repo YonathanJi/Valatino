@@ -343,6 +343,8 @@ export class ConfirmacionPedidoService {
         numeroPedido: pedido.numero_pedido,
         email: pedido.email_cliente,
         items: pedido.items,
+        // Aparte del total a propósito: el correo lo pinta como línea propia.
+        costeEnvio: Number(pedido.coste_envio ?? 0),
         total: Number(pedido.total),
         metodoPago: pedido.metodo_pago,
         metodoDetalle: pedido.metodo_detalle,

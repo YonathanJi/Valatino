@@ -575,6 +575,19 @@ export interface Pedido {
   user_id: string | null;
   estado: PedidoEstado;
   total: number;
+  /**
+   * Gastos de envío cobrados en este pedido, IVA incluido, y **dentro de
+   * `total`** (migración 080).
+   *
+   * ⚠️ Opcional en el tipo porque los pedidos anteriores a la 080 no la traen y
+   * porque la web se despliega antes que la API (Vercel llega antes que Render).
+   * Quien lo pinte tiene que tratar la ausencia como 0, no como un hueco.
+   *
+   * ⚠️⚠️ Y las líneas del pedido NO lo incluyen: `Σ pedido_items` + `coste_envio`
+   * = `total`. Una ficha que sume solo las líneas y lo compare con el total no
+   * cuadra, y eso es un bug de pantalla, no del pedido.
+   */
+  coste_envio?: number;
   metodo_pago: string;
   referencia_pago: string | null;
   direccion_envio_id: string | null;
@@ -1099,9 +1112,42 @@ export interface ApiError {
   message: string;
 }
 
+/**
+ * La tarifa de envío de la tienda (migración 080 §1), tal y como la ve el panel.
+ *
+ * ⚠️ Los dos importes con IVA incluido, como todo el catálogo.
+ */
+export interface AjustesEnvio {
+  /** Lo que se cobra de envío. 0 = envío gratis. */
+  coste: number;
+  /** Subtotal desde el que sale gratis, o `null` si no hay umbral. */
+  gratis_desde: number | null;
+  /** `coste > 0`, resuelto aquí para no tener que deducirlo en cada pantalla. */
+  cobra_envio: boolean;
+  actualizado_el: string | null;
+}
+
 export interface CarritoConItems {
   id: string;
   items: CarritoItemDetalle[];
+  /** Suma de los artículos, IVA incluido. */
+  subtotal: number;
+  /** Gastos de envío que se le van a cobrar. 0 = envío gratis. */
+  costeEnvio: number;
+  /**
+   * Subtotal desde el que el envío sale gratis, o `null` si no hay umbral.
+   *
+   * Va aquí para que el carrito pueda decir «te faltan 3,40 € para el envío
+   * gratis» sin una segunda llamada. Es el dato que hace que el umbral sirva de
+   * algo: un umbral que el cliente no ve no cambia lo que compra.
+   */
+  envioGratisDesde: number | null;
+  /**
+   * ⚠️ LO QUE SE COBRA: `subtotal + costeEnvio`. Cambió de significado en la 080
+   * —antes era solo los artículos— y es a propósito que siga llamándose `total`:
+   * los dos sitios que crean el pago (`createPaymentIntent` y `createOrder`)
+   * cobran esto, y así el envío entró en el cobro sin poder olvidarse.
+   */
   total: number;
 }
 
