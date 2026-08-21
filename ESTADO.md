@@ -128,6 +128,16 @@ where proname = 'X' and pronamespace = 'public'::regnamespace;
 
 **Rollback comprobado después**: 2 pedidos, 7 facturas, contadores en `VALS→102 VALR→104 VALF→101` (sin consumir), tarifa otra vez en 0, ni un carrito ni un `checkout_datos` de prueba. El ensayo no dejó nada.
 
+#### ⚠️⚠️ Un patrón que salió DOS VECES en esta sesión, y merece la pena fijarlo
+
+**Una comprobación cuya aguja casa con otra cosa parecida no comprueba nada, y encima sale en verde.** Pasó dos veces el 22/08, con el mismo perfil las dos:
+
+1. En los tests del correo, `toContain("Envío")` **pasa siempre**: la plantilla ya dice «Dirección de envío» más abajo. Los tres tests de ausencia estaban en verde sin probar nada. Se cazó porque salieron ROJOS al ejecutarlos, y la aguja pasó a ser la celda (`>Envío</td>`).
+
+2. En un poll de despliegue, `grep '"subtotal":1.86,'` casó con el subtotal del **carrito** en vez del de la **línea**, que era lo que se esperaba. Dijo «ARREGLO LIVE» a los 4 segundos con el fallo todavía en producción. Se arregló parseando el JSON y mirando `items[0].subtotal`.
+
+⭐ **La disciplina que habría cazado las dos, y que no cuesta nada: comprobar que la comprobación SALE ROJA antes de que exista el arreglo.** Una aserción que nunca se ha visto fallar no es una aserción, es un adorno. Es la misma lección que la del 17/08 con los límites del multipart —el primer intento de reproducirlos con un `req` falso «demostraba» un fallo que no existía— y la de la 077, cuyos tests estaban en verde probando un camino muerto.
+
 #### La cola
 
 1. 🟡 **§7 de la 080: el 303 en el caso de fallo.** Deliberadamente sin hacer, y con su porqué escrito en la propia migración. `liquidacion_iva` referencia `reembolso_lineas` en cinco sitios; tres necesitarían ver también el porte, y los otros dos no. Pero **esos tres solo entran en juego cuando una rectificativa NO se ha emitido**: si se emitió —el caso normal— el 303 la lee del bloque `doc`, donde el porte ya está, y el número es correcto. Cuando falla, el aviso `devolucion_sin_rectificativa` **sí salta** (lo disparan las líneas de artículos) y el botón de «emitir pendientes» lo arregla; lo único que se queda corto es el importe que ese bloque adelanta. **La dirección del error es la conservadora: declararía DE MÁS.** No se arregló hoy porque `create or replace` obliga a reescribir 430 líneas para cambiar tres CTEs, y transcribir SQL fiscal a mano parecía cambiar un fallo acotado y avisado por el riesgo de un error de copia **silencioso** en el 303.
