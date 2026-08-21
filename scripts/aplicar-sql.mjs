@@ -27,14 +27,32 @@
  *
  * ── La conexión ──────────────────────────────────────────────────────────────
  *
- * Se lee de `DATABASE_URL` si está en el entorno. Si no, se compone con la URL
- * del pooler que deja el CLI (`supabase/.temp/pooler-url`) y la contraseña de
- * `SUPABASE_DB_PASSWORD`.
+ * La contraseña se busca en TRES sitios, en este orden:
+ *
+ *   1. `DATABASE_URL` completa en el entorno.
+ *   2. `supabase/.temp/db-password` — un fichero con la contraseña y nada más.
+ *   3. La variable `SUPABASE_DB_PASSWORD`.
+ *
+ * ⭐ **El fichero es la vía recomendada, y el motivo es de seguridad, no de
+ * comodidad.** Una contraseña escrita en un chat o pegada en una línea de
+ * comandos deja rastro en sitios que nadie limpia: el historial del terminal
+ * (`ConsoleHost_history.txt` en PowerShell), la transcripción de la conversación,
+ * y de ahí a donde se copie. En un fichero está en UN sitio, se sabe cuál, y se
+ * borra cuando sobra.
+ *
+ * ⚠️ `supabase/.temp/` está en `.gitignore` **entero** (línea 18), así que ese
+ * fichero no puede colarse en un commit ni por descuido. Comprobado con
+ * `git check-ignore`, no supuesto.
+ *
+ * ⚠️ Y OJO CON LA VARIABLE DE ENTORNO, que es la trampa: exportarla en TU
+ * terminal no la ve un proceso que ya estaba arrancado, y `setx` escribe en el
+ * registro pero solo lo heredan los procesos que nazcan DESPUÉS. O sea que si
+ * quien lanza esto es otra herramienta que ya estaba abierta, la variable no
+ * llega y el fallo parece de red. El fichero no tiene ese problema.
  *
  * ⚠️ `pooler-url` **NO lleva la contraseña**: el CLI la pide cada vez y no la
- * guarda. Sin `SUPABASE_DB_PASSWORD` esto no puede conectar, y el fallo es un
- * «client password must be a string» que no dice nada — por eso se comprueba
- * antes y se explica.
+ * guarda. Sin ella el driver falla con «client password must be a string», que no
+ * dice nada — por eso se comprueba antes y se explica.
  *
  * Requiere el driver `pg`, que está como `devDependency` de la raíz. No lo usa
  * la aplicación —la API habla por el cliente de Supabase, no por Postgres
@@ -75,22 +93,59 @@ function conexion() {
   }
 
   const url = fs.readFileSync(poolerPath, "utf8").trim();
-  const pass = process.env.SUPABASE_DB_PASSWORD;
+
+  // El fichero primero: es la vía recomendada (ver la cabecera). `trim()` porque
+  // un editor deja un salto de línea al final y una contraseña con `\n` pegado
+  // falla como «autenticación rechazada», que manda a dudar de la contraseña
+  // buena.
+  const ficheroPass = path.join(raiz, "supabase/.temp/db-password");
+  const pass = fs.existsSync(ficheroPass)
+    ? fs.readFileSync(ficheroPass, "utf8").trim()
+    : process.env.SUPABASE_DB_PASSWORD;
 
   if (!pass) {
     throw new Error(
-      "Falta SUPABASE_DB_PASSWORD.\n" +
-        "  `supabase/.temp/pooler-url` no guarda la contraseña (el CLI la pide cada vez).\n" +
-        "  Está en Supabase → Project Settings → Database → Database password.\n" +
-        "  Sin ella el driver falla con «client password must be a string», que no explica nada.",
+      "No hay contraseña de base de datos. Dos formas, y la primera es la buena:\n" +
+        "\n" +
+        "  1. Un fichero con la contraseña y nada más (está en .gitignore):\n" +
+        "     supabase/.temp/db-password\n" +
+        "\n" +
+        "  2. O la variable SUPABASE_DB_PASSWORD en el entorno de ESTE proceso.\n" +
+        "\n" +
+        "  La contraseña está en Supabase → Project Settings → Database.\n" +
+        "  `supabase/.temp/pooler-url` no la guarda: el CLI la pide cada vez.",
     );
   }
+
+  // Se guarda para poder taparla en la salida. Ver `censurar`.
+  secreto = pass;
 
   // Se inyecta en la parte de credenciales, que viene como `usuario@host`.
   // `encodeURIComponent` porque una contraseña con `@`, `/` o `#` rompería la
   // URL y el error saldría como «host no encontrado», que manda a mirar la red.
   return url.replace(/^(postgresql:\/\/[^:@/]+)@/, `$1:${encodeURIComponent(pass)}@`);
 }
+
+/**
+ * ⚠️⚠️ TAPA LA CONTRASEÑA EN TODO LO QUE SE IMPRIME, y no es paranoia: la salida
+ * de este script se pega en informes y en conversaciones —es literalmente para lo
+ * que sirve—, y algunos errores de conexión de `pg` y de Node arrastran la cadena
+ * de conexión entera dentro del mensaje. Una vez pegada, la contraseña ya está
+ * fuera y hay que rotarla.
+ *
+ * Se tapan las dos formas en que puede aparecer: tal cual y con
+ * `encodeURIComponent` aplicado, que es como viaja dentro de la URL.
+ */
+let secreto = null;
+
+const censurar = (texto) => {
+  let t = String(texto);
+  if (!secreto) return t;
+  for (const forma of [secreto, encodeURIComponent(secreto)]) {
+    if (forma) t = t.split(forma).join("«contraseña oculta»");
+  }
+  return t;
+};
 
 const [modo, ...ficheros] = process.argv.slice(2);
 
@@ -103,12 +158,27 @@ if (!["--dry", "--go"].includes(modo) || ficheros.length === 0) {
   process.exit(2);
 }
 
+let cadena;
+try {
+  cadena = conexion();
+} catch (e) {
+  // Sin volcado de pila: esto es una instrucción para quien lo lee, no un fallo
+  // del programa. Un stack trace hace que parezca roto y esconde el mensaje.
+  console.error(censurar(e.message));
+  process.exit(2);
+}
+
 const cliente = new Client({
-  connectionString: conexion(),
+  connectionString: cadena,
   ssl: { rejectUnauthorized: false },
 });
 
-await cliente.connect();
+try {
+  await cliente.connect();
+} catch (e) {
+  console.error(`No se pudo conectar: ${censurar(e.message)}`);
+  process.exit(1);
+}
 
 let fallo = null;
 try {
@@ -131,10 +201,10 @@ try {
   }
 } catch (e) {
   fallo = e;
-  console.error(`\nFALLO: ${e.message}`);
+  console.error(`\nFALLO: ${censurar(e.message)}`);
   if (e.position) console.error(`  posición: ${e.position}`);
-  if (e.hint) console.error(`  pista: ${e.hint}`);
-  if (e.where) console.error(`  dónde: ${e.where}`);
+  if (e.hint) console.error(`  pista: ${censurar(e.hint)}`);
+  if (e.where) console.error(`  dónde: ${censurar(e.where)}`);
 } finally {
   if (fallo || modo === "--dry") {
     await cliente.query("rollback");

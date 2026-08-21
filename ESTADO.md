@@ -76,10 +76,22 @@
 `supabase/migrations/080_el_coste_del_envio.sql` está escrita, revisada y con **su aritmética probada contra la base real** (ver abajo), pero **no aplicada**. Faltó la vía para ejecutarla:
 
 - ⚠️ **`supabase db push` NO se puede usar.** El historial remoto está desincronizado con los nombres locales: el CLI lee `001`, `002`, `003` y unos cuantos con marca de tiempo, y da las locales `004`–`080` por «no aplicadas». Un `push` reaplicaría de la 004 en adelante, y varias de esas **no son idempotentes** (`cron.schedule`, inserts). Es un tiro en el pie.
-- La vía buena sería `node run.js --dry` / `--go` con el driver `pg` (ver más abajo), que **aplica de verdad dentro de una transacción y la revierte**, que es como se ensaya esto. Necesita la contraseña de la base, y `supabase/.temp/pooler-url` **no la lleva** (el CLI la pide cada vez).
+- La vía buena es **`scripts/aplicar-sql.mjs`**, que ya está en el repo: `--dry` **aplica de verdad dentro de una transacción y la revierte**, que es como se ensaya esto. Necesita la contraseña de la base, y `supabase/.temp/pooler-url` **no la lleva** (el CLI la pide cada vez).
 - La otra vía es `apply_migration` del MCP de Supabase, que sí funciona pero obliga a reescribir el fichero entero por el canal — y en 66 KB de SQL fiscal, una errata de copia es de las que no se ven.
 
-**Lo que hay que hacer**: dar la contraseña de la base (Supabase → Project Settings → Database), correr el ensayo revertido y luego el `--go`.
+**Lo que hay que hacer**: poner la contraseña de la base (Supabase → Project Settings → Database) en **`supabase/.temp/db-password`**, y luego:
+
+```powershell
+node scripts/aplicar-sql.mjs --dry supabase/migrations/080_el_coste_del_envio.sql   # ensayo
+node scripts/aplicar-sql.mjs --go  supabase/migrations/080_el_coste_del_envio.sql   # aplicar
+node scripts/aplicar-sql.mjs --dry scripts/ensayo-080-envio.sql                     # comprobar
+```
+
+⚠️ **El fichero, y no pegar la contraseña en un comando ni en un chat.** No es comodidad: una contraseña escrita en la línea de comandos queda en el historial de PowerShell (`ConsoleHost_history.txt`), y en una conversación queda en la transcripción — dos sitios que nadie limpia. `supabase/.temp/` está en `.gitignore` **entero**, así que ahí no se puede colar en un commit (comprobado con `git check-ignore`, no supuesto).
+
+⚠️ **Y la variable de entorno tiene una trampa**: exportarla en tu terminal no la ve un proceso que ya estaba arrancado, y `setx` solo lo heredan los procesos que nazcan después. Si lo lanza otra herramienta ya abierta, la variable no llega y el fallo parece de red. El fichero no tiene ese problema.
+
+⭐ El script **tapa la contraseña en todo lo que imprime** (tal cual y con `encodeURIComponent`, que es como viaja en la URL), porque su salida está hecha para pegarse en informes y algunos errores de conexión de `pg` arrastran la cadena entera. Probado con una contraseña falsa: el rechazo de autenticación sale limpio.
 
 ⚠️⚠️ **LA REGLA DE ORDEN, Y ESTA VEZ ESTÁ ESCRITA ANTES DE ROMPER NADA: LA MIGRACIÓN VA PRIMERO, EL `git push` DESPUÉS.** El commit `1bd83b5` está **sin pushear a propósito**. Pushear dispara Vercel y Render, y el código desplegado espera la 080:
 
@@ -117,14 +129,14 @@ Es el mismo problema de ventana de despliegue del 27/07 y del 05/08 con `NEXT_PU
 
 #### Herramienta nueva de esta sesión
 
-Para ejecutar `.sql` contra el remoto sin pasar por el CLI (que no sirve, ver arriba) hay un script en el scratchpad de la sesión: `run.js`, con el driver `pg` instalado aparte para no tocar `node_modules` del proyecto.
+Para ejecutar `.sql` contra el remoto sin pasar por el CLI (que no sirve, ver arriba) está **`scripts/aplicar-sql.mjs`**, con `pg` como `devDependency` de la raíz.
 
 ```
-node run.js --dry fichero.sql   # BEGIN … ROLLBACK  ← el ensayo
-node run.js --go  fichero.sql   # BEGIN … COMMIT
+node scripts/aplicar-sql.mjs --dry fichero.sql   # BEGIN … ROLLBACK  ← el ensayo
+node scripts/aplicar-sql.mjs --go  fichero.sql   # BEGIN … COMMIT
 ```
 
-⚠️ Lee la URL de `supabase/.temp/pooler-url`, **que no lleva contraseña**: hay que añadírsela. El `--dry` es lo que hacía falta y no había: aplica de verdad y lo deshace, así que un error de sintaxis o un guardia que salta se ven sin dejar rastro. **Merece la pena rescatarlo al repo** (`scripts/`), porque este problema se va a repetir en cada migración.
+⚠️ Lee la URL de `supabase/.temp/pooler-url`, **que no lleva contraseña**, y la contraseña de `supabase/.temp/db-password` (o de `SUPABASE_DB_PASSWORD`, con la trampa de la herencia de entorno que se explica arriba). El `--dry` es lo que hacía falta y no había: aplica de verdad y lo deshace, así que un error de sintaxis o un guardia que salta se ven sin dejar rastro. Ya está en `scripts/`, junto con `ensayo-080-envio.sql`.
 
 ---
 
