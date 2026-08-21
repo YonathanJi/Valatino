@@ -44,19 +44,6 @@ export function tieneVariante(p: Producto): p is ProductoConVariante {
   return Boolean(p.familia?.trim() && p.variante?.trim() && p.variante_tipo);
 }
 
-/** «3 sabores», «2 formatos», «1 formato» */
-const PLURAL_VARIANTE: Record<TipoVariante, string> = {
-  // Plural explícito y no `tipo + "s"`: en español las palabras acabadas en
-  // consonante lo hacen en `-es`, y añadir una `s` daba «3 sabors» en la tarjeta
-  // del catálogo. Lo cazó el test en su primera ejecución.
-  sabor: "sabores",
-  formato: "formatos",
-};
-
-export function etiquetaVariantes(tipo: TipoVariante, cuantas: number): string {
-  return `${cuantas} ${cuantas === 1 ? tipo : PLURAL_VARIANTE[tipo]}`;
-}
-
 /**
  * Envases habituales, para no tener que teclear la etiqueta a mano.
  *
@@ -67,6 +54,28 @@ export const ENVASES_FORMATO = ["C/U", "Caja", "Paquete", "Bolsa"] as const;
 
 /** El envase suelto, sin cantidad: una unidad no lleva «de cuántas». */
 const ENVASE_UNIDAD = "C/U";
+
+/**
+ * Cómo se DICE una variante, que no es cómo se guarda.
+ *
+ * `C/U` es la forma corta de «cada uno» y se usa en el almacén y en el
+ * formulario, pero en la tienda no dice nada: el cliente ve un bote y una caja de
+ * 24, y «C/U» no le explica que ese es el bote suelto. Se dice **«Unidad»**.
+ *
+ * ⚠️⚠️ SOLO CAMBIA LO QUE SE ENSEÑA. El valor guardado en `productos.variante`
+ * sigue siendo `C/U` y NO se toca: es lo que agrupa las familias, lo que compara
+ * el `<select>` del formulario y lo que `partirEtiquetaFormato` sabe leer al
+ * editar. Traducir el dato en vez de la etiqueta rompería las tres cosas y
+ * dejaría los 6 productos que hoy la tienen sin poder agruparse.
+ *
+ * ⚠️ Compara en mayúsculas porque el dato canónico es `C/U` pero nada impide que
+ * llegue un `c/u` escrito a mano; el resto se devuelve tal cual, que es lo que
+ * hay que hacer con «Caja 24 unidades» y con cualquier sabor.
+ */
+export function varianteVisible(variante: string): string {
+  const limpio = variante.trim();
+  return limpio.toUpperCase() === ENVASE_UNIDAD ? "Unidad" : limpio;
+}
 
 /**
  * Construye la etiqueta que verá el cliente juntando envase y cantidad.
@@ -242,7 +251,7 @@ export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null):
 
   return {
     imagen,
-    alt: elegida ? `${familia} · ${elegida.variante}` : familia,
+    alt: elegida ? `${familia} · ${varianteVisible(elegida.variante)}` : familia,
     href: `/productos/${visible.slug ?? visible.id}`,
     precio: elegida ? Number(elegida.precio) : precioMin,
     esDesde: !elegida && Math.max(...precios) !== precioMin,
@@ -252,7 +261,9 @@ export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null):
      * casi idénticas en 40 px, así que sin este texto la tarjeta no diría qué
      * has elegido. En sabores la foto ya distingue y el texto solo confirma.
      */
-    subtitulo: elegida ? elegida.variante : productos.map((p) => p.variante).join(" · "),
+    subtitulo: elegida
+      ? varianteVisible(elegida.variante)
+      : productos.map((p) => varianteVisible(p.variante)).join(" · "),
     // Sin elegida, la tarjeta habla de la familia: solo está agotada si lo están
     // TODAS. Con elegida, manda su stock aunque haya hermanas disponibles.
     agotado: elegida ? elegida.stock_disponible <= 0 : !productos.some((p) => p.stock_disponible > 0),

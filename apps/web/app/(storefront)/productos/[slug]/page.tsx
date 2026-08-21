@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
-import { hermanosDeVariante, tieneVariante } from "@lib/productos/variantes";
+import { hermanosDeVariante, tieneVariante, varianteVisible } from "@lib/productos/variantes";
 import { ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
 import { formatEUR } from "@lib/utils";
 
@@ -117,11 +117,11 @@ export default async function ProductoPage({ params }: Props) {
             <div className="space-y-2">
               <p className="text-sm font-medium">
                 <span className="capitalize">{producto.variante_tipo}</span>:{" "}
-                <span className="text-muted-foreground">{producto.variante}</span>
+                <span className="text-muted-foreground">{varianteVisible(producto.variante)}</span>
               </p>
               <div className="flex flex-wrap gap-2">
                 {hermanos.map((h) => {
-                  const valor = h.variante ?? h.nombre;
+                  const valor = h.variante ? varianteVisible(h.variante) : h.nombre;
                   const esActual = h.id === producto.id;
                   return esActual ? (
                     <span

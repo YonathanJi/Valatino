@@ -6,10 +6,10 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { BotonCarrito } from "./BotonCarrito";
 import {
-  etiquetaVariantes,
   miniaturaDe,
   vistaDeFamilia,
   type GrupoVariantes,
+  varianteVisible,
 } from "@lib/productos/variantes";
 import { formatEUR } from "@lib/utils";
 
@@ -70,11 +70,6 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
               className="object-cover transition-transform duration-300 group-hover:scale-105"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             />
-            {/* Dice el EJE, que es lo único que las fotos no pueden decir: cuatro
-                miniaturas no aclaran si lo que cambia es el sabor o el tamaño. */}
-            <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2.5 py-0.5 text-xs font-medium border">
-              {etiquetaVariantes(tipo, productos.length)}
-            </span>
             {vista.agotado && (
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                 <span className="text-white font-semibold text-sm">Agotado</span>
@@ -87,7 +82,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
             cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,
             no el de la familia. */}
         {elegida && !vista.agotado && (
-          <BotonCarrito productoId={elegida.id} nombre={`${base} ${elegida.variante}`} />
+          <BotonCarrito productoId={elegida.id} nombre={`${base} ${varianteVisible(elegida.variante)}`} />
         )}
       </div>
 
@@ -114,8 +109,10 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
                  * dos etiquetadas, un lector de pantalla leería «Fresa, Fresa».
                  * Y el «(agotado)» va aquí porque el aspa gris no se oye.
                  */
-                aria-label={sinStock ? `${p.variante} (agotado)` : p.variante}
-                title={p.variante}
+                aria-label={
+                  sinStock ? `${varianteVisible(p.variante)} (agotado)` : varianteVisible(p.variante)
+                }
+                title={varianteVisible(p.variante)}
                 className={`relative h-10 w-10 shrink-0 overflow-hidden rounded-md border transition-all ${
                   activa
                     ? "border-primary ring-2 ring-primary ring-offset-1"

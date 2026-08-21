@@ -2,12 +2,12 @@ import type { Producto, TipoVariante } from "@valatino/types";
 import {
   agruparPorVariante,
   etiquetaFormato,
-  etiquetaVariantes,
   hermanosDeVariante,
   IMAGEN_PLACEHOLDER,
   miniaturaDe,
   partirEtiquetaFormato,
   tieneVariante,
+  varianteVisible,
   vistaDeFamilia,
 } from "./variantes";
 
@@ -75,11 +75,41 @@ describe("tieneVariante", () => {
   });
 });
 
-describe("etiquetaVariantes", () => {
-  it("pluraliza en español", () => {
-    expect(etiquetaVariantes("sabor", 3)).toBe("3 sabores");
-    expect(etiquetaVariantes("formato", 2)).toBe("2 formatos");
-    expect(etiquetaVariantes("formato", 1)).toBe("1 formato");
+/**
+ * ⚠️⚠️ LA DISTINCIÓN QUE ESTOS TESTS PROTEGEN: `C/U` es cómo se GUARDA y «Unidad»
+ * es cómo se DICE. El valor de `productos.variante` no se traduce nunca — es lo
+ * que agrupa las familias, lo que compara el `<select>` del formulario y lo que
+ * `partirEtiquetaFormato` sabe leer—, así que si alguien "arregla" el dato en vez
+ * de la etiqueta, los tests de agrupado y de `etiquetaFormato` se caen con él.
+ */
+describe("varianteVisible", () => {
+  it("dice «Unidad» donde el dato pone C/U", () => {
+    expect(varianteVisible("C/U")).toBe("Unidad");
+  });
+
+  it("aguanta un c/u escrito a mano", () => {
+    expect(varianteVisible("c/u")).toBe("Unidad");
+    expect(varianteVisible(" C/u ")).toBe("Unidad");
+  });
+
+  it("no toca los demás formatos", () => {
+    expect(varianteVisible("Caja 24 unidades")).toBe("Caja 24 unidades");
+    expect(varianteVisible("Paquete 6 unidades")).toBe("Paquete 6 unidades");
+  });
+
+  it("no toca los sabores", () => {
+    expect(varianteVisible("Fresa")).toBe("Fresa");
+    expect(varianteVisible("Chocolate")).toBe("Chocolate");
+  });
+
+  /**
+   * ⚠️ El dato sigue siendo `C/U`, y esto lo fija: `etiquetaFormato` construye la
+   * etiqueta que se GUARDA, y traducirla ahí rompería el round-trip con
+   * `partirEtiquetaFormato`. Las dos funciones conviven a propósito.
+   */
+  it("no se contagia a la etiqueta que se guarda", () => {
+    expect(etiquetaFormato("C/U")).toBe("C/U");
+    expect(partirEtiquetaFormato("C/U")).toEqual({ envase: "C/U", unidades: null });
   });
 });
 
@@ -262,6 +292,31 @@ describe("vistaDeFamilia", () => {
     it("el subtítulo enumera las presentaciones", () => {
       const { grupo } = galletas();
       expect(vistaDeFamilia(grupo, null).subtitulo).toBe("Chocolate · Fresa");
+    });
+
+    /**
+     * ⚠️⚠️ ESTE ES EL CASO QUE SE VIO EN LA TIENDA. La tarjeta de Sparkies decía
+     * «Caja 24 unidades · C/U», y «C/U» no le explica a nadie que eso es la
+     * bolsita suelta. Ahora dice «Unidad», y el dato guardado sigue siendo `C/U`.
+     */
+    it("en el subtítulo, C/U se dice «Unidad»", () => {
+      const caja = conVariante("Sparkies", "Sparkies", "Caja 24 unidades", "formato", {
+        precio: 10,
+        imagenes: ["/caja.jpg", "/familia.jpg"],
+      });
+      const suelta = conVariante("Sparkies", "Sparkies", "C/U", "formato", {
+        precio: 0.5,
+        imagenes: ["/suelta.jpg"],
+      });
+      const g = agruparPorVariante([caja, suelta])[0]!;
+      if (g.clase !== "grupo") throw new Error("debería agrupar");
+
+      expect(vistaDeFamilia(g.grupo, null).subtitulo).toBe("Caja 24 unidades · Unidad");
+      expect(vistaDeFamilia(g.grupo, suelta.id).subtitulo).toBe("Unidad");
+      expect(vistaDeFamilia(g.grupo, suelta.id).alt).toBe("Sparkies · Unidad");
+
+      // Y el dato, intacto: es lo que agrupa la familia.
+      expect(suelta.variante).toBe("C/U");
     });
 
     it("con un solo precio no dice «desde»", () => {
