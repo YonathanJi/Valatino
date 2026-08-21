@@ -79,7 +79,15 @@
 - La vía buena sería `node run.js --dry` / `--go` con el driver `pg` (ver más abajo), que **aplica de verdad dentro de una transacción y la revierte**, que es como se ensaya esto. Necesita la contraseña de la base, y `supabase/.temp/pooler-url` **no la lleva** (el CLI la pide cada vez).
 - La otra vía es `apply_migration` del MCP de Supabase, que sí funciona pero obliga a reescribir el fichero entero por el canal — y en 66 KB de SQL fiscal, una errata de copia es de las que no se ven.
 
-**Lo que hay que hacer**: dar la contraseña de la base (Supabase → Project Settings → Database) y correr el ensayo revertido, y luego el `--go`.
+**Lo que hay que hacer**: dar la contraseña de la base (Supabase → Project Settings → Database), correr el ensayo revertido y luego el `--go`.
+
+⚠️⚠️ **LA REGLA DE ORDEN, Y ESTA VEZ ESTÁ ESCRITA ANTES DE ROMPER NADA: LA MIGRACIÓN VA PRIMERO, EL `git push` DESPUÉS.** El commit `1bd83b5` está **sin pushear a propósito**. Pushear dispara Vercel y Render, y el código desplegado espera la 080:
+
+- El **carrito** aguanta: la RPC `coste_envio_de` no existiría, y está escrito para cobrar 0 y gritarlo en el log en vez de reventar. La tienda seguiría vendiendo.
+- La **pantalla de la tarifa** (TI → Ajustes) **no**: lee `envio_coste` de `ajustes_tienda`, y sin la columna devuelve 400. Sale un error en el panel.
+- Y el **correo** y las **fichas de pedido** leerían `coste_envio` sin encontrarla.
+
+Es el mismo problema de ventana de despliegue del 27/07 y del 05/08 con `NEXT_PUBLIC_API_URL`, y por una vez se ve venir: **aplicar la 080, comprobarla, y entonces pushear.**
 
 ⭐ **Lo que YA está probado contra el remoto, y es la parte que importa**: el reparto del envío entre tipos de IVA, con una consulta pura que no crea nada.
 
