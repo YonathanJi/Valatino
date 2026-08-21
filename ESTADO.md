@@ -50,7 +50,7 @@
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-08-22
 
-⚠️⚠️ **HAY UNA COSA SIN HACER Y ES LA PRIMERA: LA MIGRACIÓN 080 ESTÁ ESCRITA PERO NO APLICADA.** Ver «Lo primero al volver» más abajo. Sin aplicarla, el código de la API que la usa (`coste_envio_de`, la columna `pedidos.coste_envio`) no encuentra nada — y el carrito **no revienta**, cobra 0 de envío y lo anota en el log como error. O sea que la tienda sigue exactamente como estaba, enviando gratis, hasta que se aplique.
+✅ **LA MIGRACIÓN 080 ESTÁ APLICADA Y VERIFICADA** (2026-08-22). Lo único que queda es el `git push`, que dispara Vercel y Render. Ver «Lo primero al volver».
 
 **861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado.
 
@@ -71,45 +71,68 @@
 
 ⚠️ **Y OTRA VEZ LA MISMA LECCIÓN, que ya va la tercera: la BD tenía MÁS de lo que decía este fichero.** El cierre del 17/08 se commiteó a las 23:16 y decía «1 pedido, 4 facturas, 8 eventos». La verdad eran **2, 7 y 12**: Jonathan hizo otra compra de prueba a las 23:21, cinco minutos DESPUÉS del commit. Cuadra sola (venta `VALS202600101` de 3,20 € → dos rectificativas de −1,20 y −2,00; base −2,68 y cuota −0,52, que es exactamente lo que declaró la venta), pero **preguntarle a la BD antes de creerse el markdown** sigue siendo la regla.
 
-#### Lo primero al volver: APLICAR LA 080
+#### Lo primero al volver: el `git push`, y nada más
 
-`supabase/migrations/080_el_coste_del_envio.sql` está escrita, revisada y con **su aritmética probada contra la base real** (ver abajo), pero **no aplicada**. Faltó la vía para ejecutarla:
+La 080 **está aplicada y verificada contra el remoto**. Lo único pendiente es pushear los cuatro commits, que dispara Vercel y Render. La regla de orden ya se cumplió: **la migración fue primero**, así que el despliegue no encuentra columnas que falten.
 
-- ⚠️ **`supabase db push` NO se puede usar.** El historial remoto está desincronizado con los nombres locales: el CLI lee `001`, `002`, `003` y unos cuantos con marca de tiempo, y da las locales `004`–`080` por «no aplicadas». Un `push` reaplicaría de la 004 en adelante, y varias de esas **no son idempotentes** (`cron.schedule`, inserts). Es un tiro en el pie.
-- La vía buena es **`scripts/aplicar-sql.mjs`**, que ya está en el repo: `--dry` **aplica de verdad dentro de una transacción y la revierte**, que es como se ensaya esto. Necesita la contraseña de la base, y `supabase/.temp/pooler-url` **no la lleva** (el CLI la pide cada vez).
-- La otra vía es `apply_migration` del MCP de Supabase, que sí funciona pero obliga a reescribir el fichero entero por el canal — y en 66 KB de SQL fiscal, una errata de copia es de las que no se ven.
+Después del push, la tienda solo espera que alguien ponga el número en **TI → Ajustes → Gastos de envío**. Hasta entonces `envio_coste` es 0 y todo funciona igual que hoy.
 
-**Lo que hay que hacer**: poner la contraseña de la base (Supabase → Project Settings → Database) en **`supabase/.temp/db-password`**, y luego:
+#### ⭐⭐ Cómo se aplicó, y la técnica que hay que recordar
 
-```powershell
-node scripts/aplicar-sql.mjs --dry supabase/migrations/080_el_coste_del_envio.sql   # ensayo
-node scripts/aplicar-sql.mjs --go  supabase/migrations/080_el_coste_del_envio.sql   # aplicar
-node scripts/aplicar-sql.mjs --dry scripts/ensayo-080-envio.sql                     # comprobar
+⚠️⚠️ **`supabase db push` NO SE PUEDE USAR EN ESTE PROYECTO, y conviene no descubrirlo a la mala.** El historial del remoto está desincronizado con los nombres de los ficheros locales: el CLI lee unas pocas entradas (`001`, `002`, `003` y varias con marca de tiempo) y da las locales `004`–`080` por «no aplicadas». Un `push` reaplicaría de la 004 en adelante, y varias de esas **no son idempotentes** (`cron.schedule` duplicaría tareas, y hay inserts). Comprobado con `supabase migration list`.
+
+⚠️ **Y tampoco se pudo usar el ensayo revertido de `scripts/aplicar-sql.mjs`**: la contraseña de la base **no se puede consultar en Supabase** —solo restablecer, en Project Settings → Database— y no estaba a mano. Dato útil para la próxima: **restablecerla no rompe nada en este proyecto**, comprobado uno a uno (0 referencias a `DATABASE_URL` en `render.yaml`, 0 usos de `PrismaClient` en tiempo de ejecución —el `schema.prisma` solo genera tipos—, 0 en el CI y 0 en `apps/api/.env`). La API habla con Supabase por su API REST con la `service_role`, no por Postgres.
+
+Así que se aplicó con `apply_migration` del MCP de Supabase, que obliga a reescribir el SQL por el canal en vez de leer el fichero.
+
+⭐⭐ **Y eso tenía un riesgo real —una errata de copia en 66 KB de SQL fiscal es invisible— que se cerró con una comprobación que merece la pena recordar porque sirve siempre:**
+
+```sql
+select md5(prosrc) from pg_proc
+where proname = 'X' and pronamespace = 'public'::regnamespace;
 ```
 
-⚠️ **El fichero, y no pegar la contraseña en un comando ni en un chat.** No es comodidad: una contraseña escrita en la línea de comandos queda en el historial de PowerShell (`ConsoleHost_history.txt`), y en una conversación queda en la transcripción — dos sitios que nadie limpia. `supabase/.temp/` está en `.gitignore` **entero**, así que ahí no se puede colar en un commit (comprobado con `git check-ignore`, no supuesto).
+**Postgres guarda el cuerpo de cada función LITERALMENTE en `prosrc`**: no lo reformatea, no lo normaliza. Así que el md5 del texto entre los delimitadores `$$` del fichero y el md5 de `prosrc` **tienen que coincidir byte a byte**. Se validó primero contra una función ya desplegada (`emitir_rectificativa` de la 078, md5 `a93f392e…` en las dos partes) y luego se usó de verdad.
 
-⚠️ **Y la variable de entorno tiene una trampa**: exportarla en tu terminal no la ve un proceso que ya estaba arrancado, y `setx` solo lo heredan los procesos que nazcan después. Si lo lanza otra herramienta ya abierta, la variable no llega y el fallo parece de red. El fichero no tiene ese problema.
+⚠️ **Ojo con `length(prosrc)`: cuenta CARACTERES, no bytes.** Con `ñ`, acentos y emojis en los comentarios da un número distinto del tamaño en bytes del fichero, y parece un descuadre cuando no lo hay. El md5 es lo que vale.
 
-⭐ El script **tapa la contraseña en todo lo que imprime** (tal cual y con `encodeURIComponent`, que es como viaja en la URL), porque su salida está hecha para pegarse en informes y algunos errores de conexión de `pg` arrastran la cadena entera. Probado con una contraseña falsa: el rechazo de autenticación sale limpio.
+**Resultado: 9/9 funciones idénticas byte a byte, y una sola sobrecarga de cada una** (o sea que no quedó ninguna firma vieja colgando, que es el otro fallo clásico de reemplazar funciones con `default`s).
 
-⚠️⚠️ **LA REGLA DE ORDEN, Y ESTA VEZ ESTÁ ESCRITA ANTES DE ROMPER NADA: LA MIGRACIÓN VA PRIMERO, EL `git push` DESPUÉS.** El commit `1bd83b5` está **sin pushear a propósito**. Pushear dispara Vercel y Render, y el código desplegado espera la 080:
+| Comprobado | Resultado |
+|---|---|
+| `md5(prosrc)` de las 9 funciones vs. el fichero | **9/9 idéntico** · 1 sobrecarga cada una |
+| Columnas nuevas (6) y CHECK nuevos (3) | todas en su sitio, con sus tipos y defaults |
+| Los 2 pedidos que ya existían | `coste_envio = 0` y su desglose cuadrando con su total |
+| Facturas / cadena / anomalías | 7 · intacta · **0** |
+| Tarifa tras aplicar | **0,00 sin umbral** — o sea inerte, la tienda no cambió |
 
-- El **carrito** aguanta: la RPC `coste_envio_de` no existiría, y está escrito para cobrar 0 y gritarlo en el log en vez de reventar. La tienda seguiría vendiendo.
-- La **pantalla de la tarifa** (TI → Ajustes) **no**: lee `envio_coste` de `ajustes_tienda`, y sin la columna devuelve 400. Sale un error en el panel.
-- Y el **correo** y las **fichas de pedido** leerían `coste_envio` sin encontrarla.
+#### ⭐⭐ El ensayo de punta a punta: 24/24, con los números reales
 
-Es el mismo problema de ventana de despliegue del 27/07 y del 05/08 con `NEXT_PUBLIC_API_URL`, y por una vez se ve venir: **aplicar la 080, comprobarla, y entonces pushear.**
+`scripts/ensayo-080-envio.sql`, corrido en **transacción revertida** contra el remoto. Carrito MIXTO (10 % + 21 %), que es el caso que importa:
 
-⭐ **Lo que YA está probado contra el remoto, y es la parte que importa**: el reparto del envío entre tipos de IVA, con una consulta pura que no crea nada.
+| Bloque | Qué salió |
+|---|---|
+| **A · tarifa** | 6/6 en los bordes: 9,00 → 4,95 · **39,99 → 4,95** · **40,00 → 0** · 55,00 → 0 · 0 → 0 · null → 0 |
+| **B · venta** | artículos **2,20** + envío **4,95** = total **7,15**, y el desglose suma 7,15 |
+| **B · reparto** | 1,00 al 10 % → **2,25** · 1,20 al 21 % → **2,70** · suma **4,95 exacta** |
+| **C · factura** | `VALS202600102`, base 6,17 + cuota 0,98 = **7,15** = lo cobrado |
+| **C · líneas** | **4 líneas: 2 artículos + DOS de envío, una por tipo**, y las cuatro declarando su `iva_pct` |
+| **D · porte** | marcado como devuelto en `re_ensayo_080` |
+| **D · vuelta a cero** | 10 %: declarado 2,95/0,30 · rectificado −2,95/−0,30 → **0,00/0,00** · 21 %: 3,22/0,68 · −3,22/−0,68 → **0,00/0,00** |
+| **D · rectificativa** | `VALR202600104` con 4 líneas en negativo, **las dos del envío incluidas** |
+| **D · eventos** | solo `emitida`. Ninguna anomalía |
 
-- **12/12 exacto** sobre los dos pedidos reales, con envíos de 0 · 0,01 · 3,95 · 4,95 · 7,00 · 12,34 €.
-- **64/64 exacto** en un barrido sintético de 8 carritos incómodos × 8 importes, con los tres tipos vivos (4 %, 10 %, 21 %).
-- ⭐⭐ **Y el dato que justifica el diseño: el redondeo INGENUO —redondear cada trozo por separado— falla en 24 de esas 64.** O sea que el redondeo acumulado no es higiene teórica, es lo que sostiene que la suma cuadre. 0 trozos negativos, y 64/64 el desglose suma exactamente artículos + envío.
+⭐ Que la **vuelta a cero sea exacta en los dos tipos** es la prueba de que §6 funciona: es justo el agujero que avisó la 078 («dinero declarado que no se puede devolver»), y se cierra sin haber tocado `reembolso_lineas`.
+
+⚠️ **Y el ensayo necesitó un truco que sin él daba un FALSO NEGATIVO**: la factura y la rectificativa las emiten **triggers de constraint DIFERIDOS**, que corren al commit — y en una transacción revertida el commit no llega nunca. Sin `set constraints all immediate` los bloques C y D salen VACÍOS y se lee como «no se emite la factura», que es lo contrario de la verdad. Está escrito en el fichero del ensayo.
+
+**Rollback comprobado después**: 2 pedidos, 7 facturas, contadores en `VALS→102 VALR→104 VALF→101` (sin consumir), tarifa otra vez en 0, ni un carrito ni un `checkout_datos` de prueba. El ensayo no dejó nada.
 
 #### La cola
 
-1. 🟡 **§7 de la 080: el 303 en el caso de fallo.** Deliberadamente sin hacer, y con su porqué escrito en la propia migración. `liquidacion_iva` referencia `reembolso_lineas` en cinco sitios; tres necesitarían ver también el porte, y los otros dos no. Pero **esos tres solo entran en juego cuando una rectificativa NO se ha emitido**: si se emitió —el caso normal— el 303 la lee del bloque `doc`, donde el porte ya está, y el número es correcto. Cuando falla, el aviso `devolucion_sin_rectificativa` **sí salta** (lo disparan las líneas de artículos) y el botón de «emitir pendientes» lo arregla; lo único que se queda corto es el importe que ese bloque adelanta. **La dirección del error es la conservadora: declararía DE MÁS.** No se arregló hoy porque `create or replace` obliga a reescribir 430 líneas para cambiar tres CTEs, y transcribir SQL fiscal a mano es cambiar un fallo acotado y avisado por el riesgo de un error de copia silencioso en el 303. Va en su propia migración, con su ensayo.
+1. 🟡 **§7 de la 080: el 303 en el caso de fallo.** Deliberadamente sin hacer, y con su porqué escrito en la propia migración. `liquidacion_iva` referencia `reembolso_lineas` en cinco sitios; tres necesitarían ver también el porte, y los otros dos no. Pero **esos tres solo entran en juego cuando una rectificativa NO se ha emitido**: si se emitió —el caso normal— el 303 la lee del bloque `doc`, donde el porte ya está, y el número es correcto. Cuando falla, el aviso `devolucion_sin_rectificativa` **sí salta** (lo disparan las líneas de artículos) y el botón de «emitir pendientes» lo arregla; lo único que se queda corto es el importe que ese bloque adelanta. **La dirección del error es la conservadora: declararía DE MÁS.** No se arregló hoy porque `create or replace` obliga a reescribir 430 líneas para cambiar tres CTEs, y transcribir SQL fiscal a mano parecía cambiar un fallo acotado y avisado por el riesgo de un error de copia **silencioso** en el 303.
+
+   ⚠️ **PERO ESE ARGUMENTO YA NO SE SOSTIENE IGUAL, y hay que decirlo**: la comprobación de `md5(prosrc)` de más arriba hace que un error de copia **deje de ser silencioso** — se demuestra byte a byte si el resultado coincide con el fichero. Lo que queda es el trabajo de reescribirla con cuidado, no el riesgo de no enterarse. Cuando se haga: reescribir `liquidacion_iva` entera con los tres CTEs tocados, aplicarla, y comprobar el md5 contra el fichero antes de dar nada por bueno. Con su ensayo revertido, que además ya tiene herramienta.
 2. ⚠️⚠️ **Verifactu con la gestoría. Sigue siendo lo único grande que separa esto del arranque fiscal.** El **QR** en la factura y confirmar que el **orden de campos de la huella** es el que exige la AEAT. **La cadena se puede recalcular mientras el arranque no esté marcado; después, no.** Llevar también la fecha con la que se deduce el IVA soportado (la de registro, ver la 068), el `TipoRectificativa` (las de aquí son **por diferencias**) y —nuevo— **el tratamiento del porte**: la 080 lo reparte a prorrata entre los tipos de la mercancía por el art. 78.Dos.1º LIVA, y conviene que lo confirmen antes del arranque.
 3. 🔴 **EL IVA DE CANARIAS, CEUTA Y MELILLA. Destapado hoy y sin tocar.** El checkout acepta **las 52 provincias**, incluidas Las Palmas (35), Santa Cruz (38), Ceuta (51) y Melilla (52). Esos territorios están **fuera del ámbito del IVA** (IGIC / IPSI), así que una venta enviada allí no lleva IVA español — y hoy se le cargaría el 10 % o el 21 %. Es una avería fiscal **distinta** de la del envío pero de la misma familia, y se toca en la misma consulta con la gestoría. Además arrastra la tarifa: enviar a las islas no cuesta lo mismo, y la 080 dejó a propósito una tarifa plana sin zonas para no mezclar las dos decisiones.
 4. **El logo y el pulido del PDF** — Jonathan pasa el modelo. ⚠️ Requisitos y la trampa del `nest-cli.json` (funciona en local y falla en Render) están en `factura-pdf.service.ts`. Ahí va también la **causa de la rectificación** (art. 15.3), que hoy no se imprime.
@@ -120,7 +143,7 @@ Es el mismo problema de ventana de despliegue del 27/07 y del 05/08 con `NEXT_PU
 
 #### 🔴 Lo que se destapó al mirar la tienda como tienda (2026-08-15) — actualizado
 
-1. ✅ **El coste de envío — HECHO HOY en código, pendiente de aplicar la migración.** Era el 🔴🔴.
+1. ✅ **El coste de envío — HECHO HOY, migración aplicada y verificada.** Era el 🔴🔴. Solo falta pushear y poner el número en el panel.
 2. ✅ **Compartir un enlace de la tienda** — hecho el 20/08 (`6e8ab9e`) y **verificado hoy en producción**.
 3. **No hay `sitemap.ts`, ni `robots.ts`, ni datos estructurados** (`Product` con precio y disponibilidad). Es la continuación natural del OG y vive en el mismo `lib/seo/`.
 4. **El catálogo no escala**: sin buscador, sin filtro por categoría y sin paginación — `limit=50` fijo. Con 30 productos aguanta; con 100 se rompe sin avisar.
