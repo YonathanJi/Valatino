@@ -121,7 +121,13 @@ export class CarritoService {
         imagenes: prod.imagenes,
         cantidad: item.cantidad,
         precioUnitario: Number(item.precio_unitario),
-        subtotal: Number(item.precio_unitario) * item.cantidad,
+        // ⚠️ Redondeado, igual que el subtotal del carrito. `0.62 * 3` en coma
+        // flotante es `1.8599999999999999`, y ese número viajaba tal cual en el
+        // JSON. `formatEUR` lo tapaba al pintarlo, así que no se veía — pero
+        // desde que el carrito enseña una fila de «Subtotal» hay dos importes
+        // que el cliente puede sumar, y un campo de dinero de una API que va a
+        // un cobro no puede llevar cola binaria.
+        subtotal: redondear(Number(item.precio_unitario) * item.cantidad),
       });
     }
 

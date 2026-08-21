@@ -195,4 +195,21 @@ describe("el envío en el carrito", () => {
     expect(carrito.subtotal).toBe(6.65);
     expect(carrito.total).toBe(11.6);
   });
+
+  /**
+   * ⚠️ Y TAMBIÉN EN CADA LÍNEA, que es donde se escapaba. Se vio en producción:
+   * `0.62 × 3` salía como `1.8599999999999999` en el JSON del carrito.
+   *
+   * `formatEUR` lo tapaba al pintarlo, así que nadie lo veía. Dejó de ser
+   * inofensivo cuando el carrito empezó a enseñar una fila de «Subtotal»: ahora
+   * hay dos importes en pantalla que el cliente puede sumar, y un campo de dinero
+   * de una API que acaba en un cobro no puede llevar cola binaria.
+   */
+  it("tampoco la arrastra en el subtotal de cada línea", async () => {
+    const { servicio } = montar({ costeEnvio: 0, lineas: [[0.62, 3]] });
+    const carrito = await servicio.getCarrito(SESSION);
+
+    expect(carrito.items[0]?.subtotal).toBe(1.86);
+    expect(String(carrito.items[0]?.subtotal)).toBe("1.86");
+  });
 });
