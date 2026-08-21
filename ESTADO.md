@@ -50,7 +50,17 @@
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-08-22
 
-✅ **LA MIGRACIÓN 080 ESTÁ APLICADA Y VERIFICADA** (2026-08-22). Lo único que queda es el `git push`, que dispara Vercel y Render. Ver «Lo primero al volver».
+✅✅ **EL COSTE DE ENVÍO ESTÁ VIVO EN PRODUCCIÓN Y COBRANDO** (2026-08-22). Migración aplicada, código desplegado, y **Jonathan ya puso la tarifa desde el panel a las 01:44: 3,40 € de envío, gratis desde 50 €**. Comprobado contra la tienda real:
+
+| Carrito | Envío | Total | |
+|---|---|---|---|
+| 40,00 € | 3,40 € | 43,40 € | «faltan 10,00 para el envío gratis» |
+| **50,00 € (justo en el umbral)** | **0,00** | 50,00 € | envío gratis |
+| 60,00 € | 0,00 | 60,00 € | envío gratis |
+
+Y la RPC en los bordes: 49,99 → 3,40 · **50,00 → 0,00** · 50,01 → 0,00.
+
+⚠️ **Ya NO hay nada inerte: a partir de ahora cada pedido paga su porte.** El primer pedido real con envío será el primero que pruebe la cadena fiscal completa con porte (factura con línea de envío por tipo de IVA). Merece la pena mirar esa primera factura en pantalla.
 
 **861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado.
 
@@ -71,11 +81,11 @@
 
 ⚠️ **Y OTRA VEZ LA MISMA LECCIÓN, que ya va la tercera: la BD tenía MÁS de lo que decía este fichero.** El cierre del 17/08 se commiteó a las 23:16 y decía «1 pedido, 4 facturas, 8 eventos». La verdad eran **2, 7 y 12**: Jonathan hizo otra compra de prueba a las 23:21, cinco minutos DESPUÉS del commit. Cuadra sola (venta `VALS202600101` de 3,20 € → dos rectificativas de −1,20 y −2,00; base −2,68 y cuota −0,52, que es exactamente lo que declaró la venta), pero **preguntarle a la BD antes de creerse el markdown** sigue siendo la regla.
 
-#### Lo primero al volver: el `git push`, y nada más
+#### Lo primero al volver: mirar la primera factura con envío
 
-La 080 **está aplicada y verificada contra el remoto**. Lo único pendiente es pushear los cuatro commits, que dispara Vercel y Render. La regla de orden ya se cumplió: **la migración fue primero**, así que el despliegue no encuentra columnas que falten.
+No queda nada pendiente de hacer. Lo único que merece una pantalla es **la primera factura de un pedido con porte**: la migración la emite con una línea de «Gastos de envío» POR TIPO DE IVA, y eso se probó en ensayo revertido pero todavía no con una venta real. Si sale bien, la Capa 2 vuelve a estar entera.
 
-Después del push, la tienda solo espera que alguien ponga el número en **TI → Ajustes → Gastos de envío**. Hasta entonces `envio_coste` es 0 y todo funciona igual que hoy.
+⚠️ Y con la tarifa puesta, el reparto del porte entra en `pedido_iva` de cada venta nueva. La ventana del arranque fiscal sigue abierta, así que si algo del reparto no gustara, todavía se puede rehacer.
 
 #### ⭐⭐ Cómo se aplicó, y la técnica que hay que recordar
 
@@ -168,6 +178,8 @@ Para ejecutar `.sql` contra el remoto sin pasar por el CLI (que no sirve, ver ar
 node scripts/aplicar-sql.mjs --dry fichero.sql   # BEGIN … ROLLBACK  ← el ensayo
 node scripts/aplicar-sql.mjs --go  fichero.sql   # BEGIN … COMMIT
 ```
+
+⚠️⚠️ **Y UN FALLO DE ENTORNO QUE COSTÓ CUATRO COMPROBACIONES SEGUIDAS EL 22/08, para no repetirlo: `/tmp` de Git Bash y el `python` de Windows NO ven el mismo sistema de ficheros.** Git Bash mapea `/tmp` a su propio directorio; el `python.exe` de Windows lee `/tmp/x.json` como una ruta literal con barras invertidas que no existe. Un script que escribe con `curl -o /tmp/x` y lo lee con `python` falla **en silencio** si el error va a `/dev/null`, y entonces el poll se queda dando vueltas o sale con la comprobación vacía. **Usar rutas absolutas de Windows** (el scratchpad de la sesión) en cuanto se mezclen `curl` y `python`.
 
 ⚠️ Lee la URL de `supabase/.temp/pooler-url`, **que no lleva contraseña**, y la contraseña de `supabase/.temp/db-password` (o de `SUPABASE_DB_PASSWORD`, con la trampa de la herencia de entorno que se explica arriba). El `--dry` es lo que hacía falta y no había: aplica de verdad y lo deshace, así que un error de sintaxis o un guardia que salta se ven sin dejar rastro. Ya está en `scripts/`, junto con `ensayo-080-envio.sql`.
 
