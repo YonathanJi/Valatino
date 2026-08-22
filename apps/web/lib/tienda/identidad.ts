@@ -42,17 +42,41 @@ export const IDENTIDAD_VACIA: IdentidadPublica = {
  * caso normal, no el raro.
  *
  * Con el corte a 5 s, una API dormida cuesta 5 segundos y la página sale con la
- * identidad vacía en vez de no salir. `revalidate` la arregla en la siguiente
- * visita pasados los 5 minutos.
+ * identidad vacía en vez de no salir. Luego `revalidate` la repinta — pero eso
+ * solo empezó a ser cierto al arreglar lo de abajo: el mismo corte que salvaba el
+ * build impedía que la regeneración trajera nunca los datos.
  */
 const CORTE_MS = 5_000;
+
+/**
+ * ⚠️⚠️ Y EL CORTE SOLO EXISTE DURANTE EL BUILD. Medido en producción el
+ * 2026-08-22, unas horas después de poner esto: las tres páginas legales seguían
+ * diciendo «todavía no están configurados» mucho después de vencer el
+ * `revalidate`, con la API respondiendo 200 en 1,5 s. No era que faltara esperar:
+ *
+ *   · `x-vercel-cache` pasaba de STALE a HIT con `age: 0` → el ISR SÍ regeneraba;
+ *   · y la página regenerada seguía saliendo vacía → el `fetch` fallaba en el
+ *     servidor, siempre, y el `catch` lo convertía en silencio.
+ *
+ * Lo que lo delató fue la comparación: `productos/[slug]` hace exactamente el
+ * mismo `fetch` a la misma API con `next: { revalidate }` y sí trae datos en
+ * producción. La única diferencia era este `signal`. La regeneración de ISR corre
+ * en segundo plano, después de haber respondido, con el bucle de eventos
+ * congelado entre medias: el temporizador de `AbortSignal.timeout` se dispara en
+ * cuanto el bucle revive y aborta la petición antes de que llegue a nada.
+ *
+ * Durante el build no pasa —el bucle está vivo— y ahí es donde el corte hace
+ * falta, porque es donde está el límite de 60 s por página. Así que se queda
+ * exactamente ahí y en ningún otro sitio.
+ */
+const EN_BUILD = process.env.NEXT_PHASE === "phase-production-build";
 
 export async function getIdentidad(): Promise<IdentidadPublica> {
   try {
     const res = await fetch(`${API_URL}/tienda/identidad`, {
       // Cinco minutos. Son datos que cambian una vez al año.
       next: { revalidate: 300 },
-      signal: AbortSignal.timeout(CORTE_MS),
+      signal: EN_BUILD ? AbortSignal.timeout(CORTE_MS) : undefined,
     });
     if (!res.ok) return IDENTIDAD_VACIA;
     return (await res.json()) as IdentidadPublica;

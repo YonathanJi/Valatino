@@ -159,6 +159,104 @@ describe("FacturaPdfService", () => {
     expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
   });
 
+  /**
+   * ⭐ LA LÍNEA DEL ENVÍO, QUE DESDE LA 082 ES UNA SOLA.
+   *
+   * Hasta la 082 el porte salía repartido en una línea por tipo de IVA («2,20 al
+   * 10 %» + «1,20 al 21 %»), y el dueño pidió verlo como una sola cifra. El
+   * reparto no desaparece: viaja dentro de la línea, en `reparto`, y el PDF lo
+   * imprime en letra pequeña bajo la tabla.
+   *
+   * ⚠️⚠️ ESTE BLOQUE EXISTE PORQUE NADA MÁS LO CAZABA. La 080 dejó escrito que sin
+   * tipo el PDF sacaría «undefined %», y tenía razón: con `iva_pct: null` la
+   * plantilla `${l.iva_pct} %` imprime **«null %»** en un documento fiscal.
+   * TypeScript no se entera —interpolar null compila— y los tests de antes
+   * tampoco, porque solo miraban `%PDF-` y el tamaño. Se vio ROJO con «null %»
+   * impreso antes de tocar el servicio.
+   */
+  describe("la línea del envío (082)", () => {
+    /**
+     * ⚠️ Copiada tal cual de lo que devuelve la base con la 082 aplicada, para el
+     * pedido 260822018018. No es un fixture inventado: trae los detalles que uno
+     * no escribe a mano —el `iva_pct` como `10.00`, el `null` del tipo, y un
+     * reparto cuyos 2,20 + 1,20 dan 3,40 exacto—.
+     */
+    const LINEA_ENVIO_MIXTO = {
+      nombre: "Gastos de envío",
+      cantidad: 1,
+      precio_unitario: 3.4,
+      iva_pct: null,
+      importe: 3.4,
+      concepto: "envio",
+      reparto: [
+        { iva_pct: 10, importe: 2.2 },
+        { iva_pct: 21, importe: 1.2 },
+      ],
+    };
+
+    const CON_ENVIO_MIXTO = {
+      ...FACTURA_REAL,
+      lineas: [...FACTURA_REAL.lineas, LINEA_ENVIO_MIXTO],
+      desglose: [
+        { base: 4.75, cuota: 0.47, iva_pct: 10 },
+        { base: 0.99, cuota: 0.21, iva_pct: 21 },
+      ],
+      base_total: 5.74,
+      cuota_total: 0.68,
+      total: 6.42,
+    } as unknown as FacturaEmitida;
+
+    it("NUNCA imprime «null %» ni «undefined %» en la columna del tipo", async () => {
+      const texto = textoDe(await servicio.generar(CON_ENVIO_MIXTO));
+
+      expect(texto).not.toContain("null");
+      expect(texto).not.toContain("undefined");
+    });
+
+    it("saca el porte en UNA sola línea con el total", async () => {
+      const texto = textoDe(await servicio.generar(CON_ENVIO_MIXTO));
+
+      // Una sola vez, no dos: es justo lo que se pidió cambiar.
+      expect(texto.match(/Gastos de env/g)).toHaveLength(1);
+      expect(texto).toContain("3,40");
+    });
+
+    it("dice en letra pequeña cómo se repartió, para quien tenga que cuadrarlo", async () => {
+      // El cliente ve una línea; la gestoría necesita los números. Van abajo, no
+      // en la tabla: el art. 6.1.f lo cubre el desglose, esto es cortesía.
+      const texto = textoDe(await servicio.generar(CON_ENVIO_MIXTO));
+
+      expect(texto).toContain("2,20");
+      expect(texto).toContain("1,20");
+      expect(texto).toMatch(/reparte/i);
+    });
+
+    it("cuando el porte cae en UN solo tipo, imprime el tipo y no la nota", async () => {
+      // El caso corriente de una tienda que solo vende comida. Aquí `iva_pct` sí
+      // viene, y la nota de reparto sobra: sería ruido.
+      const texto = textoDe(
+        await servicio.generar({
+          ...FACTURA_REAL,
+          lineas: [
+            ...FACTURA_REAL.lineas,
+            {
+              nombre: "Gastos de envío",
+              cantidad: 1,
+              precio_unitario: 3.4,
+              iva_pct: 10,
+              importe: 3.4,
+              concepto: "envio",
+              reparto: [{ iva_pct: 10, importe: 3.4 }],
+            },
+          ],
+        } as unknown as FacturaEmitida),
+      );
+
+      expect(texto).toContain("10 %");
+      expect(texto).not.toMatch(/reparte/i);
+    });
+  });
+
   it("aguanta nombres de producto largos sin romper la maqueta", async () => {
     // La columna de concepto envuelve a dos líneas y las demás se anclan a la
     // misma `y`. Si eso se rompiera, las cantidades saldrían desalineadas.

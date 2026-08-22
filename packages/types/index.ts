@@ -1399,13 +1399,36 @@ export const FACTURA_TIPO_LABELS: Record<FacturaTipo, string> = {
   rectificativa: "Rectificativa",
 };
 
+/**
+ * Cuánto del porte cayó en cada tipo de IVA, dentro de la línea del envío (082).
+ * En una rectificativa los importes van en negativo, como el de la línea.
+ */
+export interface FacturaLineaReparto {
+  iva_pct: number;
+  importe: number;
+}
+
 /** Una línea congelada de la factura. El precio va **con IVA incluido**. */
 export interface FacturaLinea {
   nombre: string;
   cantidad: number;
   precio_unitario: number;
-  iva_pct: number;
+  /**
+   * ⚠️ NULL DE VERDAD, Y NO POR DESCUIDO: desde la 082 el porte sale en UNA sola
+   * línea, y cuando el pedido mezcla tipos esa línea no tiene uno solo que
+   * declarar. Poner ahí el tipo mayoritario sería un dato falso en un documento
+   * fiscal; el desglose va entonces en `reparto` y en el bloque de totales.
+   *
+   * ⚠️⚠️ Estrechar esto NO basta para protegerse: `${l.iva_pct} %` compila igual
+   * con null e imprime «null %». Lo que lo impide es el test de
+   * `factura-pdf.service.spec.ts`, no el tipo.
+   */
+  iva_pct: number | null;
   importe: number;
+  /** `'envio'` en la línea del porte; las de artículo no traen la clave. */
+  concepto?: "envio";
+  /** Solo en la línea del porte. Sus importes suman exactamente `importe`. */
+  reparto?: FacturaLineaReparto[];
 }
 
 /** Base y cuota por tipo, **copiadas** de `pedido_iva` y nunca recalculadas. */

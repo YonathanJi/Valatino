@@ -60,7 +60,7 @@
 
 Y la RPC en los bordes: 49,99 → 3,40 · **50,00 → 0,00** · 50,01 → 0,00.
 
-⚠️ **Ya NO hay nada inerte: a partir de ahora cada pedido paga su porte.** El primer pedido real con envío será el primero que pruebe la cadena fiscal completa con porte (factura con línea de envío por tipo de IVA). Merece la pena mirar esa primera factura en pantalla.
+⚠️ **Ya NO hay nada inerte: a partir de ahora cada pedido paga su porte.** El primer pedido real con envío será el primero que pruebe la cadena fiscal completa con porte. *(Ese formato cambió el mismo día: ver la 082 — el porte va ahora en UNA sola línea.)* Merece la pena mirar esa primera factura en pantalla.
 
 **861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado.
 
@@ -88,10 +88,10 @@ Jonathan la hizo él mismo la madrugada del 22/08, después de poner la tarifa. 
 | | |
 |---|---|
 | Pedido `260822018018` | artículos **16,20** + envío **3,40** = **19,60** · cuadra |
-| Factura `VALS202600100` | 7 líneas, con **DOS de envío: 2,20 al 10 % y 1,20 al 21 %** (suman 3,40 exacto) |
+| Factura `VALS202600100` | 7 líneas, con **DOS de envío: 2,20 al 10 % y 1,20 al 21 %** (suman 3,40 exacto) — ⚠️ **formato anterior a la 082**, y así se queda: una factura emitida no se reformatea |
 | `VALF202600100` | el canje a completa, mismo contenido |
 | `VALR202600100` (parcial, 1,70 €) | **SIN** línea de envío — correcto: en una devolución parcial el porte no se devuelve |
-| `VALR202600101` (cierre, 17,90 €) | **CON** las dos líneas de envío en negativo |
+| `VALR202600101` (cierre, 17,90 €) | **CON** las dos líneas de envío en negativo (mismo formato viejo) |
 | Vuelta a cero | 10 %: 11,55/1,15 → **0,00/0,00** · 21 %: 5,70/1,20 → **0,00/0,00** |
 | Anomalías | **0** |
 
@@ -149,10 +149,10 @@ where proname = 'X' and pronamespace = 'public'::regnamespace;
 | **B · venta** | artículos **2,20** + envío **4,95** = total **7,15**, y el desglose suma 7,15 |
 | **B · reparto** | 1,00 al 10 % → **2,25** · 1,20 al 21 % → **2,70** · suma **4,95 exacta** |
 | **C · factura** | `VALS202600102`, base 6,17 + cuota 0,98 = **7,15** = lo cobrado |
-| **C · líneas** | **4 líneas: 2 artículos + DOS de envío, una por tipo**, y las cuatro declarando su `iva_pct` |
+| **C · líneas** | **4 líneas: 2 artículos + DOS de envío, una por tipo**, y las cuatro declarando su `iva_pct` — ⚠️ **con la 082 salen 3**, y la del envío con `iva_pct` NULL. Quien reejecute el ensayo y compare con esta fila verá una diferencia que **no es una avería** |
 | **D · porte** | marcado como devuelto en `re_ensayo_080` |
 | **D · vuelta a cero** | 10 %: declarado 2,95/0,30 · rectificado −2,95/−0,30 → **0,00/0,00** · 21 %: 3,22/0,68 · −3,22/−0,68 → **0,00/0,00** |
-| **D · rectificativa** | `VALR202600104` con 4 líneas en negativo, **las dos del envío incluidas** |
+| **D · rectificativa** | `VALR202600104` con 4 líneas en negativo, **las dos del envío incluidas** — con la 082 son 3, con una sola de envío |
 | **D · eventos** | solo `emitida`. Ninguna anomalía |
 
 ⭐ Que la **vuelta a cero sea exacta en los dos tipos** es la prueba de que §6 funciona: es justo el agujero que avisó la 078 («dinero declarado que no se puede devolver»), y se cierra sin haber tocado `reembolso_lineas`.
@@ -245,6 +245,74 @@ node scripts/aplicar-sql.mjs --go  fichero.sql   # BEGIN … COMMIT
 
 ---
 
+## ⭐⭐ HECHO EL 2026-08-22 (cont.) — El envío en UNA sola línea (082), y el `AbortSignal` que impedía repintar las legales
+
+Dos cosas, y la segunda no estaba planeada.
+
+### 1 · El porte, en una línea
+
+Jonathan miró la primera factura real con envío y pidió lo contrario de lo que se había diseñado por la mañana: **«que salga el envío total y ya, menos complicado para el cliente».**
+
+| | antes | ahora |
+|---|---|---|
+| Factura de un carrito mixto | `Gastos de envío 10 % 2,20` + `Gastos de envío 21 % 1,20` | `Gastos de envío — 3,40` |
+
+⚠️⚠️ **La 080 lo prohibía por escrito, con tres razones.** No basta con cambiar el código: si el argumento se queda de pie, la próxima sesión lo revierte creyendo que arregla algo. Las tres, respondidas:
+
+1. **«El art. 6.1.f RD 1619/2012 pide que la factura exprese el tipo aplicado.»** Se sigue cumpliendo, pero por el bloque de totales, no por la línea: el PDF imprime `Base imponible al 10 %` y `al 21 %` con sus cuotas, copiadas de `pedido_iva`. Eso es lo que diferencia la base de cada tipo, que es lo que el reglamento exige. Y **el porte no es una operación aparte**: el art. 78.Dos.1º LIVA lo mete dentro de la base de la entrega, así que darle un tipo propio siempre fue comodidad de presentación.
+2. **«El PDF imprimiría "undefined %".»** ⭐ **Era cierto, y se vio.** El test nuevo salió rojo con `Gastos de envío · 1 · null % · 3,40` impreso en el PDF. Arreglado en el mismo cambio: la columna pinta `—` cuando no hay un tipo único.
+3. **«El desglose queda atribuible línea a línea.»** Es la única que se pierde de verdad, y se compensa sin devolverle complejidad al cliente: **el reparto viaja dentro de la línea congelada** (clave `reparto`), y el PDF lo imprime en 7,5 pt bajo la tabla, solo cuando cae en más de un tipo. El cliente ve una cifra; quien cuadre el papel tiene los sumandos.
+
+⭐ **Y de paso se cerró una duplicación que nadie vigilaba**: la 080 armaba la línea DOS veces, con el mismo jsonb copiado a mano en `emitir_factura` y en `emitir_rectificativa`. Nada comprobaba que siguieran iguales — tocar una y olvidar la otra daba una venta con un formato y su devolución con otro. Ahora las dos piden la línea a **`linea_envio_factura`**, y el cambio no fue «editar dos sitios» sino dejar uno.
+
+**Lo que NO se tocó, y está comprobado, no supuesto:**
+
+- `reparto_envio_pedido`, `pedido_iva` y `recalcular_iva_pedido` — **el IVA declarado no cambia ni un céntimo.** Esto es presentación.
+- La huella de Verifactu: `factura_huella` hashea nif, número, fecha, tipo, cuota, total y la huella anterior (072:199). **No cubre `lineas`.** La cadena ni se entera. ⚠️ Ojo: el `comment on table` de la 072 dice que la huella cubre «el documento completo» y **eso es falso** — leerlo y creerlo daba un susto que no existe.
+- El guardia del cuadre de `emitir_factura`: compara el **desglose** contra `pedidos.total`, no suma las líneas.
+- **Las facturas ya emitidas.** Son inmutables por trigger y así se quedan: `VALS/VALF202600100` y `VALR202600101` conservan sus dos líneas para siempre. Convivirán dos formatos en el libro, y es lo correcto.
+- **Ni una pantalla de la web, ni un correo.** Se mapeó el repo entero antes de tocar: el panel, la ficha del cliente, el carrito, el checkout y el correo de confirmación **ya pintaban una sola línea** leyendo `pedidos.coste_envio`. El PDF era el único sitio del proyecto que renderiza `facturas_emitidas.lineas`. O sea que el papel y las pantallas llevaban desde la mañana contradiciéndose, y esto los alinea.
+
+#### ⚠️⚠️ Lo que este cambio enseña sobre los tests de aquí
+
+**Ni un solo test de Jest se habría puesto rojo.** De los 44 spec del repo, los 9 que hablan de «envío» son de la tarifa, de la dirección o del correo: **ninguno construía una factura con línea de envío.** El cambio habría entrado en CI en verde y el «null %» habría salido impreso en un papel camino de la gestoría.
+
+Y `factura-pdf.service.spec.ts` tampoco: casi todas sus aserciones eran `%PDF-` y `length > 1000`, que un PDF con «null %» pasa sin despeinarse. **El propio fichero ya lo confesaba en su línea 8** — y aun así el hueco siguió ahí hasta que hizo falta.
+
+Tampoco TypeScript: `${l.iva_pct} %` **compila igual con `null`**. Abrir el tipo a `number | null` no protege de nada. Lo que lo impide es el test, no el tipo, y así queda escrito en `packages/types`.
+
+⭐ Por eso `scripts/ensayo-080-envio.sql` ha dejado de ser solo columnas para leer: ahora tiene **un bloque que lanza** con cuatro comprobaciones (una línea · el importe es el porte entero · el reparto suma eso mismo · el tipo solo cuando hay uno). **Las cuatro se vieron discriminar antes de darlas por buenas**: la 1 saltó de verdad contra `VALS202600100`, que tiene el formato viejo, y las otras tres se probaron contra tres versiones corrompidas a propósito de la línea, fallando cada una solo con su avería.
+
+#### Cómo se aplicó (la técnica, mejorada)
+
+Sigue sin poderse `supabase db push` ni el ensayo revertido de `aplicar-sql.mjs` (la contraseña no está a mano). Pero retranscribir 465 líneas de SQL fiscal por el canal del MCP es donde vive la errata invisible, así que esta vez:
+
+1. El fichero `082` se montó **con un script**, extrayendo las dos funciones de la 080 y aplicándoles el parche — nunca a mano.
+2. Y en la base **se parcheó lo que la base ya tenía**: `pg_get_functiondef` → `replace()` → `execute`, con guardias que lanzan si algún fragmento no encaja.
+3. Luego `md5(prosrc)` contra el md5 del cuerpo del fichero.
+
+⭐ Son **dos caminos independientes** —un parche en Python sobre el repo, otro en SQL sobre la base— que tienen que converger en el mismo byte. **3 de 3 idénticos.** Es más fuerte que la comprobación de la mañana: allí se verificaba que lo escrito llegó entero; aquí, además, que lo escrito era lo que se quería escribir.
+
+### 2 · Las tres páginas legales seguían vacías, y no era cuestión de esperar
+
+Ayer quedaron desplegadas diciendo «todavía no están configurados» y se dijo que **se curaría solo** con el `revalidate` de 5 minutos. **No se curó.** El poll expiró a los 15 minutos con los tres contadores a cero.
+
+Lo que la medición dijo, y por qué importa el orden:
+
+- `x-vercel-cache` pasaba de `STALE` a `HIT` con `age: 0` → **el ISR sí regeneraba**. No era falta de tiempo.
+- La API respondía **200 en 1,5 s** con el NIF y el correo dentro.
+- Y la página **recién regenerada seguía saliendo vacía** → el `fetch` fallaba en el servidor, siempre, y el `catch` lo convertía en silencio.
+
+⭐ **Lo delató la comparación, no la inspección**: `productos/[slug]` hace el mismo `fetch` a la misma API con el mismo `next: { revalidate }` y **sí trae datos en producción**. La única diferencia era el `signal: AbortSignal.timeout(5000)` que se puso ayer para salvar el build.
+
+La regeneración de ISR corre en segundo plano, después de haber respondido, con el bucle de eventos congelado entre medias: el temporizador se dispara en cuanto el bucle revive y aborta la petición antes de que llegue a nada. Durante el build no pasa —el bucle está vivo— **y es justo donde el corte hace falta**, porque ahí está el límite de 60 s por página. Así que ahora el `signal` existe **solo durante el build** (`NEXT_PHASE`).
+
+⚠️⚠️ **La lección, que es la de ayer con otra cara.** Ayer: «un `try/catch` no protege del TIEMPO, solo de los errores». Hoy: **el mismo `catch` que salvó el build es el que ocultó que la página nunca se arreglaba.** Un fallo tragado no desaparece — se convierte en una pantalla que miente educadamente. Y solo se vio porque la comprobación del despliegue tenía una **sensibilidad medida de antemano** (NIF=0 antes, NIF=0 después): sin esa línea base, «la página carga y se ve bien» habría pasado por éxito.
+
+⚠️ **Esto es inferencia, no mecanismo demostrado.** Lo demostrado es que el `fetch` falla en cada regeneración y que la única diferencia con el que funciona es el `signal`. Si tras desplegar las páginas siguen vacías **una vez pasados los 5 minutos y con datos cambiados en el panel**, la causa es otra y hay que volver aquí.
+
+---
+
 ## ⭐⭐ HECHO EL 2026-08-22 — El coste de envío (migración 080 + API + web)
 
 **Hasta hoy la tienda enviaba gratis a toda España, y no por una decisión comercial: no existía el concepto.** Ni columna, ni campo en el checkout, ni línea en la factura. `pedidos` solo tenía una columna de dinero —`total`— y valía la suma de los artículos. Se han vendido Quipitos de 0,62 € con el porte pagado por la casa.
@@ -297,9 +365,11 @@ La rectificativa la dispara un trigger `after insert on reembolso_lineas` (077 �
 
 No es teórico: es la secuencia de cualquiera que devuelva una compra artículo por artículo desde el panel. Se cierra en dos sitios: `reembolsar_pedido_total` llama ella misma a `emitir_rectificativa` cuando devolvió el porte y no dejó líneas —con el **mismo `exception when others`** del trigger, porque cuando eso corre el dinero ya salió de Stripe—, y `emitir_rectificativas_pendientes` aprende a verlo para que el botón de ponerse al día lo recupere.
 
-### La línea de la factura va UNA POR TIPO DE IVA
+### ~~La línea de la factura va UNA POR TIPO DE IVA~~ — ⚠⚠ **DEROGADO EL MISMO DÍA POR LA 082**
 
-Y no una sola sin tipo, por tres razones en este orden:
+**No busques aquí el comportamiento actual: hoy el porte sale en UNA sola línea con el total.** Jonathan lo pidió al ver la primera factura real («que salga el envío total y ya, menos complicado para el cliente»), y las tres razones de abajo están respondidas una a una en la cabecera de la 082 — la 2 era cierta y se arregló en el mismo cambio. Se deja escrito porque es exactamente el razonamiento que llevaría a «arreglarlo» de vuelta.
+
+Lo que se argumentó entonces, y no una sola sin tipo, por tres razones en este orden:
 
 1. El **art. 6.1.f RD 1619/2012** pide que la factura exprese el tipo aplicado. Una línea sin tipo mientras el desglose lleva dos es un documento que no se explica solo — y esto va a la gestoría.
 2. `factura-pdf.service.ts` imprime `${l.iva_pct} %` de cada línea: sin tipo saldría **«undefined %»**. Y el PDF es el sitio con la trampa del `nest-cli.json` que funciona en local y falla en Render: cuanto menos se toque, mejor. **Así el PDF no se ha tocado.**

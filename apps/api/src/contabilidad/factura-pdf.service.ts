@@ -247,7 +247,18 @@ export class FacturaPdfService {
       doc.text(l.nombre, MARGEN, y, { width: anchoConcepto - 8 });
       const yDespues = doc.y;
       doc.text(String(l.cantidad), xCant, y, { width: anchoCant, align: "right" });
-      doc.text(`${l.iva_pct} %`, xIva, y, { width: anchoIva, align: "right" });
+      /**
+       * ⚠️⚠️ EL `??` NO ES DEFENSIVO, ES EL CASO NORMAL DESDE LA 082: la línea del
+       * envío llega SIN tipo cuando el porte se reparte entre varios, porque no
+       * tiene uno solo que declarar. Aquí había `${l.iva_pct} %` a secas y con un
+       * null imprimía **«null %»** en un documento fiscal — sin fallar, sin
+       * compilar en rojo y sin que ningún test lo viera. La nota de abajo dice
+       * entonces cómo se repartió.
+       */
+      doc.text(l.iva_pct == null ? "—" : `${l.iva_pct} %`, xIva, y, {
+        width: anchoIva,
+        align: "right",
+      });
       doc.text(this.euros(l.precio_unitario), xUnit, y, { width: anchoUnit, align: "right" });
       doc.text(this.euros(l.importe), xImporte, y, { width: anchoImporte, align: "right" });
       doc.y = yDespues;
@@ -266,6 +277,30 @@ export class FacturaPdfService {
      */
     doc.font("Helvetica-Oblique").fontSize(7.5).fillColor("#666");
     doc.text("Los precios de las líneas incluyen IVA.", MARGEN, doc.y, { width: ANCHO });
+
+    /**
+     * ⭐ CÓMO SE REPARTIÓ EL PORTE, SOLO CUANDO CAE EN MÁS DE UN TIPO.
+     *
+     * Es la contrapartida de haber unificado la línea (082). El cliente ve una
+     * cifra —que es lo que se pidió— y quien tenga que cuadrar el papel tiene los
+     * sumandos sin que nadie se los tenga que calcular: las bases de abajo llevan
+     * el porte dentro y sin esto no hay forma de separarlo mirando la factura.
+     *
+     * ⚠️ Va aquí abajo y en 7,5 pt A PROPÓSITO: en la tabla volvería a ser lo que
+     * el dueño quitó. Y solo con varios tipos: con uno la línea ya lo declara y
+     * esto sería ruido.
+     */
+    const reparto = f.lineas.find((l) => l.iva_pct == null && (l.reparto?.length ?? 0) > 1)?.reparto;
+    if (reparto) {
+      const trozos = reparto.map((r) => `${this.euros(r.importe)} al ${r.iva_pct} %`).join(" · ");
+      doc.text(
+        `El envío se reparte entre los tipos de IVA del pedido: ${trozos}. Ya está sumado en las bases de abajo.`,
+        MARGEN,
+        doc.y,
+        { width: ANCHO },
+      );
+    }
+
     doc.fillColor("#000");
     doc.moveDown(0.8);
   }

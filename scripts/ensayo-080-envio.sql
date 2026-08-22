@@ -11,7 +11,7 @@
 -- Lo que comprueba, en orden:
 --   A · la tarifa: el umbral y el coste
 --   B · la venta: total = artículos + envío, y el desglose cuadrado
---   C · la factura: la línea de envío UNA POR TIPO, y que cuadra con lo cobrado
+--   C · la factura: el envío en UNA SOLA línea (082), y que cuadra con lo cobrado
 --   D · la devolución íntegra: la rectificativa vuelve a CERO EXACTO
 --
 -- ⚠️⚠️ EL DETALLE QUE HACE QUE ESTO FUNCIONE, Y QUE SIN ÉL DARÍA UN FALSO
@@ -133,18 +133,79 @@ from facturas_emitidas f
 join _ensayo e on e.pedido_id = f.pedido_id
 join pedidos p on p.id = f.pedido_id;
 
--- Las líneas, con el envío separado. Cada una tiene que llevar su iva_pct: es lo
--- que el PDF imprime y lo que pide el art. 6.1.f RD 1619/2012.
+-- Las líneas. ⬇️ 082: el envío va en UNA SOLA con el total, y su `iva_pct` es NULL
+-- cuando el porte cae en varios tipos — no tiene uno solo que declarar. El
+-- reparto viaja dentro, en la clave `reparto`, y del art. 6.1.f se encarga el
+-- desglose por tipo del bloque de totales, que no cambia.
 select 'C · lineas' as bloque,
        l->>'nombre' as nombre,
        l->>'iva_pct' as iva_pct,
        l->>'importe' as importe,
        coalesce(l->>'concepto', 'articulo') as concepto,
-       (l ? 'iva_pct') as declara_tipo
+       l->>'reparto' as reparto
 from facturas_emitidas f
 join _ensayo e on e.pedido_id = f.pedido_id
 cross join lateral jsonb_array_elements(f.lineas) l
 order by coalesce(l->>'concepto','articulo'), l->>'iva_pct';
+
+-- ⬇️⬇️ ESTO SÍ LANZA, Y ES LO ÚNICO DE TODO EL ENSAYO QUE PUEDE SALIR ROJO.
+--
+-- ⚠️⚠️ Todo lo demás de este fichero son columnas que lee una persona —
+-- `cuadra_con_lo_cobrado`, `vuelve_a_cero`— y una persona puede no mirarlas. Ya
+-- pasó: sin `set constraints all immediate` los bloques C y D salían VACÍOS y se
+-- leyó como «no se emite la factura». Un ensayo que solo sabe imprimir no
+-- comprueba nada. Lo que no puede pasar desapercibido va aquí dentro.
+do $comprobar_c$
+declare
+  v_lineas   int;
+  v_importe  numeric;
+  v_suma_rep numeric;
+  v_tipos    int;
+  v_tipo     numeric;
+  v_coste    numeric;
+begin
+  select count(*), max((l->>'importe')::numeric),
+         max(jsonb_array_length(l->'reparto')),
+         max((l->>'iva_pct')::numeric),
+         max((select sum((x->>'importe')::numeric) from jsonb_array_elements(l->'reparto') x))
+    into v_lineas, v_importe, v_tipos, v_tipo, v_suma_rep
+  from facturas_emitidas f
+  join _ensayo e on e.pedido_id = f.pedido_id
+  cross join lateral jsonb_array_elements(f.lineas) l
+  where f.tipo <> 'rectificativa' and l->>'concepto' = 'envio';
+
+  select p.coste_envio into v_coste
+  from pedidos p join _ensayo e on e.pedido_id = p.id;
+
+  -- 1 · UNA sola línea. Es literalmente el cambio de la 082.
+  if v_lineas <> 1 then
+    raise exception 'C: la factura trae % lineas de envio y tiene que traer 1 (082)', v_lineas;
+  end if;
+
+  -- 2 · con el porte entero, no con una parte.
+  if v_importe is distinct from v_coste then
+    raise exception 'C: la linea de envio dice % y el pedido cobro %', v_importe, v_coste;
+  end if;
+
+  -- 3 · y el reparto que lleva dentro tiene que sumar eso mismo. Si esto falla,
+  --     el desglose y el papel se han separado y el 303 no cuadrará.
+  if v_suma_rep is distinct from v_importe then
+    raise exception 'C: el reparto suma % y la linea dice %', v_suma_rep, v_importe;
+  end if;
+
+  -- 4 · el tipo, solo cuando hay uno. Con varios va NULL a propósito: poner el
+  --     mayoritario sería un dato falso en un documento fiscal.
+  if v_tipos > 1 and v_tipo is not null then
+    raise exception 'C: el porte cae en % tipos y la linea declara el %', v_tipos, v_tipo;
+  end if;
+  if v_tipos = 1 and v_tipo is null then
+    raise exception 'C: el porte cae en un solo tipo y la linea no lo declara';
+  end if;
+
+  raise notice 'C · OK: 1 linea de envio de %, reparto en % tipos que suma igual',
+    v_importe, v_tipos;
+end
+$comprobar_c$;
 
 -- ── D · La devolución íntegra ────────────────────────────────────────────────
 -- Devuelve el pedido entero. El porte se devuelve con él (art. 107 RDL 1/2007),
@@ -193,7 +254,7 @@ left join (
 ) rect on rect.iva_pct = iv.iva_pct
 order by iv.iva_pct;
 
--- La rectificativa lleva su línea de envío en negativo.
+-- La rectificativa lleva su línea de envío en negativo, también UNA sola (082).
 select 'D · lineas rectificativa' as bloque,
        f.numero,
        l->>'nombre' as nombre,
