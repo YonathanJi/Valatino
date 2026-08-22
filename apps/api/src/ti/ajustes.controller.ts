@@ -12,6 +12,7 @@ import { TransferenciaService } from "../pedidos/transferencia.service";
 import { ContabilidadService } from "../contabilidad/contabilidad.service";
 import { MantenimientoService } from "./mantenimiento.service";
 import { EnvioService } from "./envio.service";
+import { IdentidadService } from "../tienda/identidad.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { RolesGuard } from "../auth/guards/roles.guard";
 import { ModulosGuard } from "../auth/guards/modulos.guard";
@@ -21,6 +22,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { GuardarAjustesTransferenciaDto } from "../pedidos/dto/ajustes-transferencia.dto";
 import { GuardarEmisorDto } from "../contabilidad/dto/factura.dto";
 import { GuardarAjustesEnvioDto } from "./dto/ajustes-envio.dto";
+import { GuardarAjustesContactoDto } from "./dto/ajustes-contacto.dto";
 import type { JwtPayload } from "@valatino/types";
 
 /**
@@ -48,6 +50,7 @@ export class AjustesController {
     // que es donde se edita. Mismo reparto que `TransferenciaService`.
     private readonly contabilidad: ContabilidadService,
     private readonly envio: EnvioService,
+    private readonly identidad: IdentidadService,
   ) {}
 
   @Get("transferencia")
@@ -116,6 +119,35 @@ export class AjustesController {
   @Nivel("total")
   guardarEnvio(@Body() dto: GuardarAjustesEnvioDto, @CurrentUser() user: JwtPayload) {
     return this.envio.guardar({ coste: dto.coste, gratis_desde: dto.gratis_desde }, user.sub);
+  }
+
+  /**
+   * Los canales por los que el cliente puede preguntar (migración 081).
+   *
+   * ⚠️ Vive aquí, con el IBAN y el emisor, porque es lo mismo: dato del negocio
+   * que hay que poder cambiar sin desplegar. Y la identidad que acompaña a estos
+   * canales en el aviso legal NO se edita aquí — es la del emisor de facturas y
+   * tiene su propia pantalla, porque es el mismo dato y duplicarlo sería la vía
+   * de que la factura diga un NIF y el aviso legal diga otro.
+   */
+  @Get("contacto")
+  contacto() {
+    return this.identidad.publica();
+  }
+
+  /**
+   * Exige `total` porque esto se publica: el correo y el teléfono que se guarden
+   * aquí salen en el pie de la tienda y en el aviso legal, a la vista de
+   * cualquiera. Y son además la dirección a la que se dirigen las solicitudes del
+   * RGPD, así que dejarla mal puesta no es un detalle de pantalla.
+   */
+  @Put("contacto")
+  @Nivel("total")
+  guardarContacto(
+    @Body() dto: GuardarAjustesContactoDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.identidad.guardarContacto(dto, user.sub);
   }
 
   /** En qué modo está la tienda, cuántos pedidos hay y si el stock cuadra. */

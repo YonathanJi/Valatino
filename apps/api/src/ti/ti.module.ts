@@ -7,6 +7,7 @@ import { MantenimientoService } from "./mantenimiento.service";
 import { EnvioService } from "./envio.service";
 import { PedidosModule } from "../pedidos/pedidos.module";
 import { ContabilidadModule } from "../contabilidad/contabilidad.module";
+import { TiendaModule } from "../tienda/tienda.module";
 
 @Module({
   // PedidosModule por TransferenciaService: la cuenta de cobro se edita aquí
@@ -14,7 +15,11 @@ import { ContabilidadModule } from "../contabilidad/contabilidad.module";
   //
   // ContabilidadModule por ContabilidadService: los datos fiscales del emisor se
   // editan en esta pantalla y los usa la facturación. Mismo reparto.
-  imports: [AuthModule, PedidosModule, ContabilidadModule],
+  //
+  // TiendaModule por IdentidadService: los canales de contacto se editan en esta
+  // pantalla y los publica el pie de la tienda. Mismo reparto que los dos de
+  // arriba.
+  imports: [AuthModule, PedidosModule, ContabilidadModule, TiendaModule],
   controllers: [CargosController, AjustesController],
   providers: [CargosService, MantenimientoService, EnvioService],
 })

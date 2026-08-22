@@ -11,6 +11,7 @@ import { PageHeader } from "@components/backoffice/PageHeader";
 import { MantenimientoPanel } from "@components/backoffice/MantenimientoPanel";
 import { EmisorPanel } from "@components/backoffice/EmisorPanel";
 import { EnvioPanel } from "@components/backoffice/EnvioPanel";
+import { ContactoPanel } from "@components/backoffice/ContactoPanel";
 import { useNivel } from "@components/backoffice/PermisosProvider";
 import { formatearIban, ibanValido, normalizarIban } from "@valatino/types";
 import type { AjustesTransferencia } from "@valatino/types";
@@ -235,6 +236,8 @@ export function AjustesPanel() {
       </section>
 
       <EnvioPanel />
+
+      <ContactoPanel />
 
       <EmisorPanel />
 

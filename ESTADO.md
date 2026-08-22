@@ -81,9 +81,32 @@ Y la RPC en los bordes: 49,99 → 3,40 · **50,00 → 0,00** · 50,01 → 0,00.
 
 ⚠️ **Y OTRA VEZ LA MISMA LECCIÓN, que ya va la tercera: la BD tenía MÁS de lo que decía este fichero.** El cierre del 17/08 se commiteó a las 23:16 y decía «1 pedido, 4 facturas, 8 eventos». La verdad eran **2, 7 y 12**: Jonathan hizo otra compra de prueba a las 23:21, cinco minutos DESPUÉS del commit. Cuadra sola (venta `VALS202600101` de 3,20 € → dos rectificativas de −1,20 y −2,00; base −2,68 y cuota −0,52, que es exactamente lo que declaró la venta), pero **preguntarle a la BD antes de creerse el markdown** sigue siendo la regla.
 
-#### Lo primero al volver: mirar la primera factura con envío
+#### ⭐⭐ La primera venta real con envío YA SE HIZO, y salió perfecta
 
-No queda nada pendiente de hacer. Lo único que merece una pantalla es **la primera factura de un pedido con porte**: la migración la emite con una línea de «Gastos de envío» POR TIPO DE IVA, y eso se probó en ensayo revertido pero todavía no con una venta real. Si sale bien, la Capa 2 vuelve a estar entera.
+Jonathan la hizo él mismo la madrugada del 22/08, después de poner la tarifa. Limpió los pedidos de prueba viejos, compró, devolvió una parte y luego el resto. Comprobado contra el remoto:
+
+| | |
+|---|---|
+| Pedido `260822018018` | artículos **16,20** + envío **3,40** = **19,60** · cuadra |
+| Factura `VALS202600100` | 7 líneas, con **DOS de envío: 2,20 al 10 % y 1,20 al 21 %** (suman 3,40 exacto) |
+| `VALF202600100` | el canje a completa, mismo contenido |
+| `VALR202600100` (parcial, 1,70 €) | **SIN** línea de envío — correcto: en una devolución parcial el porte no se devuelve |
+| `VALR202600101` (cierre, 17,90 €) | **CON** las dos líneas de envío en negativo |
+| Vuelta a cero | 10 %: 11,55/1,15 → **0,00/0,00** · 21 %: 5,70/1,20 → **0,00/0,00** |
+| Anomalías | **0** |
+
+⭐ O sea que la 080 funciona con dinero real y en la secuencia difícil (parcial primero, cierre después), que es justo donde el porte podía contarse de más o de menos. Ya no queda nada del envío pendiente de ver en pantalla.
+
+⚠️ **Y otra vez la lección, esta vez contra mi propia medición**: a las 01:00 medí «2 pedidos de 3,72 y 3,20» y lo di por el estado actual. A las 11:45 la base decía «1 pedido de 19,60». No me había equivocado: **la tienda siguió viva mientras yo no miraba.** Una medición tiene fecha, y a las diez horas es historia.
+
+#### Lo primero al volver: decidir el ámbito de envío, que ahora está contradicho
+
+Los términos reescritos hoy dicen **«enviamos a España peninsular y Baleares»**, y el checkout sigue aceptando **las 52 provincias**. Hay que alinearlo, y la decisión es de negocio:
+
+- **Restringir los CP en el checkout** para que coincida con lo prometido. Horas de trabajo, y de paso **desactiva el riesgo del IVA de Canarias/Ceuta/Melilla** sin implementar nada (punto 3 de la cola).
+- **O abrir de verdad a las islas**, y entonces hay que resolver antes el IGIC/IPSI, que es días de trabajo y consulta con la gestoría.
+
+Mientras no se haga una de las dos, la promesa de los términos protege a la tienda pero no impide la venta problemática.
 
 ⚠️ Y con la tarifa puesta, el reparto del porte entra en `pedido_iva` de cada venta nueva. La ventana del arranque fiscal sigue abierta, así que si algo del reparto no gustara, todavía se puede rehacer.
 
@@ -147,6 +170,28 @@ where proname = 'X' and pronamespace = 'public'::regnamespace;
 2. En un poll de despliegue, `grep '"subtotal":1.86,'` casó con el subtotal del **carrito** en vez del de la **línea**, que era lo que se esperaba. Dijo «ARREGLO LIVE» a los 4 segundos con el fallo todavía en producción. Se arregló parseando el JSON y mirando `items[0].subtotal`.
 
 ⭐ **La disciplina que habría cazado las dos, y que no cuesta nada: comprobar que la comprobación SALE ROJA antes de que exista el arreglo.** Una aserción que nunca se ha visto fallar no es una aserción, es un adorno. Es la misma lección que la del 17/08 con los límites del multipart —el primer intento de reproducirlos con un `req` falso «demostraba» un fallo que no existía— y la de la 077, cuyos tests estaban en verde probando un camino muerto.
+
+#### ⭐⭐ HECHO EL 2026-08-22 (tarde) — El bloque de confianza (migración 081)
+
+Salió de una auditoría por lentes independientes. **Las tres cosas eran la misma**: un desconocido intentando averiguar si esto es una tienda real. Miraba los textos legales, buscaba quién vende, intentaba preguntar — y las tres puertas estaban cerradas.
+
+1. 🔴 **Las dos páginas legales le decían al cliente que la tienda no estaba lanzada.** Terminaban, en producción, con «Este texto es provisional y será revisado por asesoría legal antes del lanzamiento». Es la peor frase posible en la página donde alguien entra justo a tranquilizarse antes de pagar.
+
+2. 🔴 **No había aviso legal ni identidad del vendedor en ninguna parte** (art. 10 LSSI-CE). Cero apariciones de NIF, nombre o domicilio en toda la web pública; el pie era «© 2026 Valatino» y dos enlaces.
+
+3. 🔴🔴 **El único contacto publicado era un agujero negro.** La política de privacidad mandaba ejercer los derechos del RGPD a `soporte@valatino.es`, y **valatino.es no tiene registros MX**: ese buzón no recibe nada. Una obligación legal enrutada a la nada durante meses, invisible porque **nadie prueba el correo ENTRANTE** — solo el saliente, que sí funciona. El único buzón vivo estaba detrás del login, o sea invisible para quien aún no ha comprado.
+
+**Lo que se ha hecho**: migración 081 (canales de contacto en `ajustes_tienda` + `identidad_publica()`), endpoint público `GET /tienda/identidad`, páginas `/aviso-legal` y `/contacto`, reescritura de las dos legales, el pie con nombre y NIF impresos, y su pantalla en TI → Ajustes.
+
+⭐ **La identidad NO se duplica**: sale de las MISMAS columnas `emisor_*` que firman cada factura (071). Escribir el NIF en el JSX habría creado un segundo sitio donde vive, y el día que difirieran nadie lo vería — porque nadie mira el aviso legal.
+
+⭐ **La frontera de lo público vive en la base, no en un `select`.** `identidad_publica()` devuelve exactamente lo que puede salir a internet. `ajustes_tienda` guarda también el IBAN de cobro y el titular de la cuenta, así que un `select *` escrito con prisa en un endpoint público los publicaría; con la función, esa equivocación no es posible.
+
+⚠️ **Esto publica el NIF y el domicilio de una persona física.** La LSSI lo exige y son los mismos datos que ya van impresos en cada factura, pero sí es información nueva para un buscador. Si algún día se quiere separar el domicilio publicado del fiscal, lo que hay que añadir es una columna `publica_direccion` que caiga a la fiscal cuando esté vacía.
+
+⚠️ **Y los textos legales eran FALSOS, que era peor que incompletos**: decían «Aceptamos tarjeta (Stripe) y PayPal» cuando también hay Bizum y transferencia, y no mencionaban el envío. Lo que necesita revisión profesional queda marcado **en comentarios de código** al principio de cada página, no impreso al cliente.
+
+⚠️ **El párrafo de cookies es verdad HOY y deja de serlo con la primera analítica.** Dice que no se piden cookies de análisis porque no las hay (comprobado: cero rastreadores). El día que se añada medición hay que hacer dos cosas inseparables: reescribirlo y montar el banner. Poner el rastreador sin el banner infringe el art. 22.2 LSSI y además deja esa página mintiendo.
 
 #### La cola
 

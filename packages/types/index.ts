@@ -1113,6 +1113,37 @@ export interface ApiError {
 }
 
 /**
+ * Quién vende y cómo se le pregunta (migración 081).
+ *
+ * ⚠️ Esto SALE A INTERNET sin sesión: lo pinta el pie de la tienda y la página de
+ * aviso legal. Lo exige el art. 10 de la LSSI-CE, que pide identidad del
+ * prestador «de forma permanente, fácil, directa y gratuita».
+ *
+ * Los campos son nullable porque la tienda puede estar a medio configurar y las
+ * pantallas tienen que poder decirlo en vez de romperse; `identificada` y
+ * `contactable` resuelven esa pregunta para que nadie la deduzca a mano.
+ */
+export interface IdentidadPublica {
+  /** Nombre o razón social de quien vende. El mismo que firma las facturas. */
+  nombre: string | null;
+  nif: string | null;
+  direccion: string | null;
+  codigo_postal: string | null;
+  ciudad: string | null;
+  provincia: string | null;
+  pais: string | null;
+  /** El correo que DE VERDAD recibe. Puede no ser del dominio de la tienda. */
+  email: string | null;
+  /** Solo dígitos y con prefijo de país, listo para `wa.me/<numero>`. */
+  whatsapp: string | null;
+  telefono: string | null;
+  /** ¿Están los tres datos que exige la LSSI (nombre, NIF y domicilio)? */
+  identificada: boolean;
+  /** ¿Hay algún canal por el que preguntar antes de comprar? */
+  contactable: boolean;
+}
+
+/**
  * La tarifa de envío de la tienda (migración 080 §1), tal y como la ve el panel.
  *
  * ⚠️ Los dos importes con IVA incluido, como todo el catálogo.

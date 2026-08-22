@@ -16,6 +16,7 @@ import { ComprasModule } from "./compras/compras.module";
 import { ContabilidadModule } from "./contabilidad/contabilidad.module";
 import { ClientesModule } from "./clientes/clientes.module";
 import { GestionHumanaModule } from "./gestion-humana/gestion-humana.module";
+import { TiendaModule } from "./tienda/tienda.module";
 import { TiModule } from "./ti/ti.module";
 import { EventosModule } from "./eventos/eventos.module";
 import { CalificacionesModule } from "./calificaciones/calificaciones.module";
@@ -54,6 +55,7 @@ const WEBHOOKS = [
     ClientesModule,
     GestionHumanaModule,
     TiModule,
+    TiendaModule,
     EventosModule,
     CalificacionesModule,
   ],
