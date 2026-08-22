@@ -62,7 +62,7 @@ Y la RPC en los bordes: 49,99 → 3,40 · **50,00 → 0,00** · 50,01 → 0,00.
 
 ⚠️ **Ya NO hay nada inerte: a partir de ahora cada pedido paga su porte.** El primer pedido real con envío será el primero que pruebe la cadena fiscal completa con porte. *(Ese formato cambió el mismo día: ver la 082 — el porte va ahora en UNA sola línea.)* Merece la pena mirar esa primera factura en pantalla.
 
-**861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado.
+**861 tests** (480 API + 381 web), `type-check` 3/3 y los dos builds en verde. Todo commiteado. *(Cifra de esa entrega; el estado de hoy al cerrar son **894** — ver «Estado al cerrar» en la sección de la 082.)*
 
 ⚠️ **Los dos builds y los dos `type-check` siguen yendo en verde SECUENCIALMENTE.** Corriendo `turbo build type-check` en la misma invocación el `type-check` de la web falla a veces. Sigue **sin diagnosticar, solo observado** (encaja con que `next build` regenere `.next/types/**` mientras `tsc` los lee). Si sale rojo en CI, mirar aquí antes de buscar un error de tipos real.
 
@@ -99,7 +99,26 @@ Jonathan la hizo él mismo la madrugada del 22/08, después de poner la tarifa. 
 
 ⚠️ **Y otra vez la lección, esta vez contra mi propia medición**: a las 01:00 medí «2 pedidos de 3,72 y 3,20» y lo di por el estado actual. A las 11:45 la base decía «1 pedido de 19,60». No me había equivocado: **la tienda siguió viva mientras yo no miraba.** Una medición tiene fecha, y a las diez horas es historia.
 
-#### Lo primero al volver: decidir el ámbito de envío, que ahora está contradicho
+#### ⚠⚠ Lo primero al volver (1 de 2): las tres páginas legales SIGUEN VACÍAS
+
+**Esto se queda abierto y no hay que darlo por arreglado.** El `4d6328b` lleva el cambio que debería curarlo —quitar el `AbortSignal` fuera del build— pero **22 minutos después del push las tres seguían a NIF=0**:
+
+```
+/aviso-legal          NIF=0   (debería ser 1: Z4194001W)
+/contacto             correo=0 (debería ser 1: valatino@hotmail.com)
+/politica-privacidad  NIF=0
+control /terminos     http=200   <- el probe no está roto
+```
+
+⚠️ **Y no se pudo distinguir «Vercel todavía no ha desplegado» de «el arreglo no sirve»**, porque el commit **no cambia nada visible en el cliente**: `identidad.ts` es código de servidor y lo de `packages/types` son tipos que se borran al compilar. El hash del CSS y los chunks son idénticos con y sin el cambio, así que no hay huella del despliegue que mirar desde fuera. Se intentó con `buildId`, chunks y CSS: los tres inservibles para esto.
+
+**El orden para retomarlo, sin saltarse el primer paso:**
+
+1. **Mirar en el panel de Vercel si el despliegue de `4d6328b` terminó.** Si no había terminado, la prueba nunca llegó a correr y basta con repetir el probe.
+2. Si sí había terminado y siguen a 0, **la hipótesis del `AbortSignal` es falsa** y hay que volver a la casilla de salida. Lo que SÍ está demostrado y no hay que remedir: el ISR regenera (`x-vercel-cache` STALE→HIT con `age: 0`), la API responde 200 en 1,5 s con los datos dentro, y `productos/[slug]` hace el mismo `fetch` y sí los trae. Lo único no demostrado es la causa.
+3. ⭐ **Y para la próxima: dejar una huella deliberada.** Un comentario HTML con el hash del commit en el pie, o cualquier cosa visible, convierte «¿está desplegado?» en un `grep`. Sin eso, un arreglo invisible en el cliente **no se puede verificar desde fuera**, y esta tarde se perdió media hora en descubrirlo.
+
+#### Lo primero al volver (2 de 2): decidir el ámbito de envío, que ahora está contradicho
 
 Los términos reescritos hoy dicen **«enviamos a España peninsular y Baleares»**, y el checkout sigue aceptando **las 52 provincias**. Hay que alinearlo, y la decisión es de negocio:
 
@@ -309,7 +328,17 @@ La regeneración de ISR corre en segundo plano, después de haber respondido, co
 
 ⚠️⚠️ **La lección, que es la de ayer con otra cara.** Ayer: «un `try/catch` no protege del TIEMPO, solo de los errores». Hoy: **el mismo `catch` que salvó el build es el que ocultó que la página nunca se arreglaba.** Un fallo tragado no desaparece — se convierte en una pantalla que miente educadamente. Y solo se vio porque la comprobación del despliegue tenía una **sensibilidad medida de antemano** (NIF=0 antes, NIF=0 después): sin esa línea base, «la página carga y se ve bien» habría pasado por éxito.
 
-⚠️ **Esto es inferencia, no mecanismo demostrado.** Lo demostrado es que el `fetch` falla en cada regeneración y que la única diferencia con el que funciona es el `signal`. Si tras desplegar las páginas siguen vacías **una vez pasados los 5 minutos y con datos cambiados en el panel**, la causa es otra y hay que volver aquí.
+⚠️ **Esto es inferencia, no mecanismo demostrado**, y a día de hoy **sigue sin confirmarse**: 22 minutos después del push las tres páginas seguían a cero, y no hubo forma de saber desde fuera si el despliegue había terminado. Ver «Lo primero al volver (1 de 2)» arriba, que lleva el orden exacto para retomarlo.
+
+### Estado al cerrar
+
+`4d6328b`, pusheado. **894 tests** (498 API + 396 web), `type-check` 3/3 y los dos builds en verde, árbol limpio.
+
+⚠️ **Para VER el cambio hace falta un pedido nuevo.** Las cuatro facturas que ya existen conservan su formato viejo a propósito.
+
+⚠️ **Y hubo una ventana pequeña**: la base emitió la línea nueva (`iva_pct` null) desde que se aplicó la 082, y el PDF arreglado no llegó a Render hasta unos minutos después. Una factura descargada en esos minutos habría dicho «null %». **Se cura sola volviendo a descargarla**, porque el PDF se genera al vuelo desde la fila congelada, y **ninguna factura se manda por correo automáticamente** — `enviarFacturaAlCliente` solo se llama desde el botón del panel (comprobado). Para la próxima migración que cambie a la vez la base y el render: **desplegar el render primero**.
+
+⭐ **Comprobado además en la propia base, no solo con grep**: el único objeto de Postgres que menciona `lineas` es la vista `libro_facturas_expedidas`, y solo la reexpone como columna — no lee `iva_pct` de dentro. Así que el `null` no puede romper el libro, ni el 303, ni ninguna vista.
 
 ---
 
