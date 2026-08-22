@@ -1,30 +1,29 @@
 import Link from "next/link";
 import { PageTransition } from "@components/ui/PageTransition";
 import { StorefrontShell } from "@components/storefront/StorefrontShell";
-import { getIdentidad, domicilioEnUnaLinea } from "@lib/tienda/identidad";
 
 /**
- * ⚠️⚠️ EL PIE ES DONDE LA LSSI SE CUMPLE O NO SE CUMPLE. El art. 10 de la Ley
- * 34/2002 exige que la identidad de quien vende esté disponible «de forma
- * permanente, fácil, directa y gratuita», y «permanente» quiere decir desde
- * cualquier página — no escondida detrás de un enlace que hay que adivinar.
+ * ⚠️⚠️ AQUÍ NO SE LLAMA A LA API, Y ES UNA CICATRIZ: el primer intento pintaba en
+ * el pie el nombre y el NIF del titular leyéndolos de `/tienda/identidad`. Es
+ * bonito y **rompió el build entero**.
  *
- * Hasta el 2026-08-22 aquí solo había «© 2026 Valatino» y dos enlaces. Ni nombre,
- * ni NIF, ni forma de preguntar nada.
+ * El motivo: un layout corre en CADA página, así que esa llamada se hacía 38
+ * veces al generar el sitio. Con la API caída, cada página esperaba a que el
+ * `fetch` fallara y se pasaba del límite de 60 s de generación estática de Next;
+ * tres reintentos por página y el build se rindió. La portada, el login y el
+ * checkout —que nunca habían necesitado la API para construirse— pasaron a
+ * depender de ella.
  *
- * ⭐ Y el nombre del titular va IMPRESO en el pie, no solo enlazado, porque es lo
- * que hace la diferencia comercial: quien duda de si la tienda es real no va a
- * abrir el aviso legal, va a mirar el pie por encima. Ver ahí un nombre y un NIF
- * cambia lo que decide sin que tenga que hacer clic.
+ * ⚠️ Y no era solo un problema local: la API vive en el plan gratuito de Render,
+ * **que duerme**. Un despliegue de Vercel con la API fría habría fallado igual, y
+ * el fallo habría aparecido en el peor sitio: al desplegar, no al programar.
  *
- * ⚠️ `getIdentidad()` no lanza nunca (lo garantiza su test): esto lo pinta TODA
- * la tienda, así que un hipo de la API no puede tumbar el catálogo por no poder
- * escribir un pie de página.
+ * ⭐ Lo que la LSSI exige es que la identidad sea de acceso «permanente, fácil y
+ * directo», y eso lo cumple **un enlace desde todas las páginas** — que es lo que
+ * hay aquí. Los datos se pintan en `/aviso-legal`, `/contacto` y la política de
+ * privacidad, que son tres páginas y sí pueden permitirse la llamada.
  */
-export default async function StorefrontLayout({ children }: { children: React.ReactNode }) {
-  const identidad = await getIdentidad();
-  const domicilio = domicilioEnUnaLinea(identidad);
-
+export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
     <StorefrontShell>
       <div className="flex min-h-screen flex-col">
@@ -34,13 +33,6 @@ export default async function StorefrontLayout({ children }: { children: React.R
 
         <footer className="border-t py-8 text-center text-sm text-muted-foreground">
           <p>© 2026 Valatino · Sabores de Latinoamérica en España</p>
-
-          {identidad.identificada && (
-            <p className="mt-1 text-xs">
-              {identidad.nombre} · NIF {identidad.nif}
-              {domicilio ? ` · ${domicilio}` : ""}
-            </p>
-          )}
 
           <nav className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1">
             <Link href="/contacto" className="hover:text-foreground">

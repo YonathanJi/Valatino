@@ -193,6 +193,21 @@ Salió de una auditoría por lentes independientes. **Las tres cosas eran la mis
 
 ⚠️ **El párrafo de cookies es verdad HOY y deja de serlo con la primera analítica.** Dice que no se piden cookies de análisis porque no las hay (comprobado: cero rastreadores). El día que se añada medición hay que hacer dos cosas inseparables: reescribirlo y montar el banner. Poner el rastreador sin el banner infringe el art. 22.2 LSSI y además deja esa página mintiendo.
 
+#### ⚠️⚠️ Y una cicatriz del 22/08 que conviene no repetir: red en un layout
+
+El primer intento del pie pintaba el nombre y el NIF leyéndolos de `/tienda/identidad`. Es bonito y **rompió el build entero**.
+
+Un layout corre en CADA página, así que esa llamada se hacía **38 veces** al generar el sitio. Con la API caída, cada página esperaba a que el `fetch` fallara y se pasaba del **límite de 60 s** de generación estática de Next; tres reintentos por página y el build se rindió. La portada, el login y el checkout —que nunca habían necesitado la API para construirse— pasaron a depender de ella.
+
+⚠️ **Y no era un problema solo local.** La API vive en el **plan gratuito de Render, que duerme**. Un despliegue de Vercel con la API fría habría fallado igual, y el fallo habría salido en el peor sitio: al desplegar, no al programar.
+
+**Las dos lecciones, por orden:**
+
+1. **Nada de red en un layout** salvo que se acepte que todas las páginas dependan de ella al construirse. Lo que la LSSI pide —acceso «permanente, fácil y directo»— lo cumple un ENLACE desde todas las páginas; los datos se pintan en las tres que van de eso.
+2. **Todo `fetch` de build lleva `AbortSignal.timeout`.** Un `try/catch` no basta: no protege del *tiempo*, solo del error. Un fetch a una API dormida no falla rápido, y en Windows además reintenta IPv6 y luego IPv4.
+
+⭐ Lo que salió bien: **el build local lo cazó antes del push**. Merece la pena seguir construyendo en local antes de desplegar, aunque el CI también lo haga.
+
 #### La cola
 
 1. 🟡 **§7 de la 080: el 303 en el caso de fallo.** Deliberadamente sin hacer, y con su porqué escrito en la propia migración. `liquidacion_iva` referencia `reembolso_lineas` en cinco sitios; tres necesitarían ver también el porte, y los otros dos no. Pero **esos tres solo entran en juego cuando una rectificativa NO se ha emitido**: si se emitió —el caso normal— el 303 la lee del bloque `doc`, donde el porte ya está, y el número es correcto. Cuando falla, el aviso `devolucion_sin_rectificativa` **sí salta** (lo disparan las líneas de artículos) y el botón de «emitir pendientes» lo arregla; lo único que se queda corto es el importe que ese bloque adelanta. **La dirección del error es la conservadora: declararía DE MÁS.** No se arregló hoy porque `create or replace` obliga a reescribir 430 líneas para cambiar tres CTEs, y transcribir SQL fiscal a mano parecía cambiar un fallo acotado y avisado por el riesgo de un error de copia **silencioso** en el 303.

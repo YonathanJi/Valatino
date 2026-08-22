@@ -4,10 +4,12 @@ import type { IdentidadPublica } from "@valatino/types";
 /**
  * Quién vende y cómo se le pregunta, para el pie, el aviso legal y el contacto.
  *
- * ⚠️⚠️ NUNCA LANZA, y eso no es pereza: esto lo pinta el PIE DE PÁGINA, o sea
- * todas las páginas de la tienda. Si un hipo de la API propagara la excepción,
- * la tienda entera dejaría de responder por no poder pintar un aviso legal — que
- * es exactamente al revés de lo que interesa.
+ * ⚠️⚠️ NUNCA LANZA. Si un hipo de la API propagara la excepción, la página de
+ * aviso legal —que existe justo para dar confianza— sería la que no carga.
+ *
+ * ⚠️ Y NO SE LLAMA DESDE EL LAYOUT. Se intentó, para pintar el NIF en el pie de
+ * todas las páginas, y rompió el build: un layout corre en cada página, así que
+ * eran 38 llamadas de red al generar el sitio. Ver el comentario del layout.
  *
  * Cuando falla devuelve la identidad vacía, que es el MISMO caso que «todavía sin
  * configurar»: las pantallas ya saben decirlo y no hay una segunda rama que
@@ -28,16 +30,39 @@ export const IDENTIDAD_VACIA: IdentidadPublica = {
   contactable: false,
 };
 
+/**
+ * ⚠️⚠️ EL `TIMEOUT` NO ES UN ADORNO, ES LO QUE IMPIDE QUE ESTO TUMBE UN BUILD.
+ *
+ * Next genera estas páginas estáticamente, y le da a cada una **60 segundos**
+ * antes de darla por fallida. Un `fetch` a una API caída no falla rápido: en
+ * Windows se queda intentando IPv6 y luego IPv4, y con los reintentos internos
+ * puede pasar del minuto. Pasó de verdad el 2026-08-22 —el build se rindió tras
+ * tres intentos por página— y habría vuelto a pasar en Vercel, porque la API vive
+ * en el plan gratuito de Render y **duerme**: un despliegue con la API fría es el
+ * caso normal, no el raro.
+ *
+ * Con el corte a 5 s, una API dormida cuesta 5 segundos y la página sale con la
+ * identidad vacía en vez de no salir. `revalidate` la arregla en la siguiente
+ * visita pasados los 5 minutos.
+ */
+const CORTE_MS = 5_000;
+
 export async function getIdentidad(): Promise<IdentidadPublica> {
   try {
     const res = await fetch(`${API_URL}/tienda/identidad`, {
-      // Cinco minutos. Son datos que cambian una vez al año, y el pie los pide en
-      // cada página: sin caché sería una llamada a la API por visita.
+      // Cinco minutos. Son datos que cambian una vez al año.
       next: { revalidate: 300 },
+      signal: AbortSignal.timeout(CORTE_MS),
     });
     if (!res.ok) return IDENTIDAD_VACIA;
     return (await res.json()) as IdentidadPublica;
   } catch {
+    /**
+     * ⚠️ Se traga TODO —red caída, timeout, JSON roto— y devuelve la identidad
+     * vacía, que las pantallas ya saben tratar porque es el mismo caso que
+     * «todavía sin configurar». Dejar que esto lance convertiría un hipo de la
+     * API en una página que no existe.
+     */
     return IDENTIDAD_VACIA;
   }
 }
