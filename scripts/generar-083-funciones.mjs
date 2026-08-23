@@ -1251,42 +1251,73 @@ begin
   end if;
 end $comprobar$;
 
--- ⚠️⚠️ LA REVOCACIÓN SE COMPRUEBA, NO SE SUPONE. Regla de la 062 §5: hay DOS
--- fuentes de permiso —la herencia de PUBLIC y el grant por defecto de Supabase— y
--- el REVOKE no protesta si te dejas una. Presente en la 068, la 075 y la 078 §3.
-do $comprobar$
-declare
-  v_fn   text;
-  v_rol  text;
-begin
-  foreach v_fn in array array[
-    'public.${NUEVO}(uuid)',
-    'public.recalcular_iva_pedido(uuid)',
-    'public.linea_envio_factura(uuid, integer)',
-    'public.reparto_descuento_lineas(uuid)',
-    'public.congelar_descuento_lineas(uuid)',
-    'public.codigo_descuento_aplicable(text, numeric)',
-    'public.coste_envio_de(numeric, text)',
-    'public.importe_a_devolver(uuid, jsonb)',
-    'public.linea_descuento_factura(uuid, integer)',
-    'public.devolucion_desglose(uuid, text)',
-    'public.devoluciones_pendientes_de_rectificativa()'
-  ]
-  loop
-    foreach v_rol in array array['anon', 'authenticated']
-    loop
-      if has_function_privilege(v_rol, v_fn, 'EXECUTE') then
-        raise exception 'El rol % todavía puede ejecutar %: la revocación no surtió efecto.', v_rol, v_fn;
-      end if;
-    end loop;
-  end loop;
-end $comprobar$;
+@@REVOCACION@@
 `);
 
 // La cabecera con los md5, ya conocidos.
 trozos[0] += md5s.join("\n") + "\n-- ═══════════════════════════════════════════════════════════════════════════════\n";
 
-fs.writeFileSync(SALIDA, trozos.join("\n"), "utf8");
+/**
+ * -- §10 · LA REVOCACION SE COMPRUEBA, Y LA LISTA NO SE ESCRIBE A MANO --------
+ *
+ * Regla de la 062 §5: hay DOS fuentes de permiso -la herencia de PUBLIC y el grant
+ * por defecto de Supabase- y el `revoke` NO PROTESTA si te dejas una. Asi que se
+ * comprueba con `has_function_privilege`, como en la 068, la 075 y la 078 §3.
+ *
+ * Y LA LISTA SE DERIVA DE LOS `revoke` QUE DE VERDAD SE EMITEN, leyendo el SQL ya
+ * montado. Estaba a mano y habian divergido: 17 funciones revocadas y solo 11
+ * comprobadas. Las 6 que este trabajo PARCHEA -emitir_factura, emitir_rectificativa,
+ * emitir_rectificativas_pendientes, liquidacion_iva, registrar_reembolso_lineas y
+ * reembolsar_pedido_total- se revocaban sin que nadie verificara que surtio efecto.
+ *
+ * Es la misma clase de fallo que esta migracion lleva encontrandose toda la sesion:
+ * dos listas que tienen que decir lo mismo y nadie las obliga. Ahora la comprobacion
+ * no puede quedarse corta, porque sale de lo que se ejecuta.
+ */
+// Sin literal de escape a propósito: este fichero se edita a través de varias capas
+// de comillas (heredoc, JSON) y un salto de línea escrito como escape se convirtió
+// dos veces en un salto real, rompiendo el JS. `fromCharCode` no tiene ese problema.
+const NL = String.fromCharCode(10);
+
+const sql = trozos.join(NL);
+
+const revocadas = [
+  ...new Set(
+    [...sql.matchAll(/revoke execute on function (public\.[a-z_]+\([^)]*\))/g)].map((m) => m[1]),
+  ),
+].sort();
+
+if (revocadas.length === 0) {
+  throw new Error("No se encontro ni un `revoke`: el §10 quedaria vacio y no comprobaria nada.");
+}
+
+const bloque10 = [
+  "",
+  "do $comprobar$",
+  "declare",
+  "  v_fn  text;",
+  "  v_rol text;",
+  "begin",
+  "  foreach v_fn in array array[",
+  revocadas.map((f) => "    '" + f + "'").join("," + NL),
+  "  ]",
+  "  loop",
+  "    foreach v_rol in array array['anon', 'authenticated']",
+  "    loop",
+  "      if has_function_privilege(v_rol, v_fn, 'EXECUTE') then",
+  "        raise exception",
+  "          'El rol % todavia puede ejecutar %: la revocacion no surtio efecto. Ver 062 §5.',",
+  "          v_rol, v_fn;",
+  "      end if;",
+  "    end loop;",
+  "  end loop;",
+  "",
+  "  raise notice '§10 · revocacion comprobada en % funciones', " + revocadas.length + ";",
+  "end $comprobar$;",
+  "",
+].join(NL);
+
+fs.writeFileSync(SALIDA, sql.replace("@@REVOCACION@@", bloque10), "utf8");
 await cliente.end();
 
 console.log(`✅ generado ${path.relative(raiz, SALIDA)}`);

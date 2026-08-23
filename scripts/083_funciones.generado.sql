@@ -2176,33 +2176,42 @@ begin
   end if;
 end $comprobar$;
 
--- ⚠️⚠️ LA REVOCACIÓN SE COMPRUEBA, NO SE SUPONE. Regla de la 062 §5: hay DOS
--- fuentes de permiso —la herencia de PUBLIC y el grant por defecto de Supabase— y
--- el REVOKE no protesta si te dejas una. Presente en la 068, la 075 y la 078 §3.
+
 do $comprobar$
 declare
-  v_fn   text;
-  v_rol  text;
+  v_fn  text;
+  v_rol text;
 begin
   foreach v_fn in array array[
-    'public.reparto_conceptos_pedido(uuid)',
-    'public.recalcular_iva_pedido(uuid)',
-    'public.linea_envio_factura(uuid, integer)',
-    'public.reparto_descuento_lineas(uuid)',
-    'public.congelar_descuento_lineas(uuid)',
     'public.codigo_descuento_aplicable(text, numeric)',
+    'public.congelar_descuento_lineas(uuid)',
     'public.coste_envio_de(numeric, text)',
-    'public.importe_a_devolver(uuid, jsonb)',
-    'public.linea_descuento_factura(uuid, integer)',
     'public.devolucion_desglose(uuid, text)',
-    'public.devoluciones_pendientes_de_rectificativa()'
+    'public.devoluciones_pendientes_de_rectificativa()',
+    'public.emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, date, text)',
+    'public.emitir_rectificativa(uuid, text, uuid)',
+    'public.emitir_rectificativas_pendientes(uuid)',
+    'public.importe_a_devolver(uuid, jsonb)',
+    'public.linea_descuento_factura(uuid, int)',
+    'public.linea_envio_factura(uuid, integer)',
+    'public.liquidacion_iva(date, date)',
+    'public.recalcular_iva_pedido(uuid)',
+    'public.reembolsar_pedido_total(uuid, uuid, text)',
+    'public.registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid)',
+    'public.reparto_conceptos_pedido(uuid)',
+    'public.reparto_descuento_lineas(uuid)'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']
     loop
       if has_function_privilege(v_rol, v_fn, 'EXECUTE') then
-        raise exception 'El rol % todavía puede ejecutar %: la revocación no surtió efecto.', v_rol, v_fn;
+        raise exception
+          'El rol % todavia puede ejecutar %: la revocacion no surtio efecto. Ver 062 §5.',
+          v_rol, v_fn;
       end if;
     end loop;
   end loop;
+
+  raise notice '§10 · revocacion comprobada en % funciones', 17;
 end $comprobar$;
+
