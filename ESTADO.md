@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-22
+**Última actualización**: 2026-08-23
 
 ---
 
@@ -48,7 +48,125 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-22
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-23
+
+⚠️⚠️ **LA 083 ESTÁ ESCRITA Y ENSAYADA DE PUNTA A PUNTA, PERO *NO APLICADA*.** Nada de lo de hoy ha tocado el remoto: la línea base sigue en **2 pedidos, 7 ítems, 9 facturas, 7 reembolsos**, contadores en `VALS→102 VALF→102 VALR→105` sin consumir, y `arranque_fiscal_el` sin marcar. Todo lo de abajo está probado en **transacción revertida** contra la base de verdad.
+
+**LO PRIMERO AL VOLVER, y en este orden, que importa:**
+
+1. ⚠️⚠️ **DESPLEGAR RENDER (la API) ANTES DE APLICAR LA MIGRACIÓN.** Es la lección que pagó la 082 —la base emitió la línea nueva y el PDF arreglado llegó minutos después, y una factura descargada en esa ventana decía «null %»—. La 083 hace que `emitir_factura` meta la línea del descuento en `lineas`, y el PDF tiene que saber sacarla del cuerpo de la tabla y pintarla en el bloque de totales.
+2. Aplicar: `node scripts/aplicar-sql.mjs --go supabase/migrations/083_codigos_de_descuento.sql scripts/083_funciones.generado.sql`
+3. **Comprobar que la tienda sigue exactamente igual.** Aquí es donde «cero códigos = cero cambios» se cobra: sin ninguna fila en `codigos_descuento` ningún pedido puede llevar descuento.
+4. Y **solo entonces** crear el primer código en TI → Ajustes.
+
+⚠️ **La contraseña de la base está en `supabase/.temp/db-password`** (gitignored), sacada de `Contraseñas.txt`. Con ella `aplicar-sql.mjs --dry` está vivo, y **es la herramienta que hay que usar y no el `apply_migration` del MCP**: el MCP hace COMMIT y no tiene ensayo revertido.
+
+#### ⭐⭐ HOY: LOS CÓDIGOS DE DESCUENTO (083), CON LOS DOS TIPOS QUE PIDIÓ JONATHAN
+
+Un **porcentaje** sobre los artículos y un **envío gratis**, y solo esos dos. Trece commits, `fc5216f` → el de la pantalla.
+
+**Lo que hace la base** (§1–§11, en `083_codigos_de_descuento.sql` + `scripts/083_funciones.generado.sql`):
+
+| | |
+|---|---|
+| `codigos_descuento` | la tabla, con RLS y sin políticas: solo la alcanzan las funciones `security definer` |
+| `reparto_conceptos_pedido` | sucede a `reparto_envio_pedido`, que se **dropeó** (sin wrapper, a propósito) |
+| `reparto_descuento_lineas` + `congelar_descuento_lineas` | el descuento baja a **cada línea** y se congela |
+| `codigo_descuento_aplicable` | el ÚNICO sitio que decide si un código vale, y redacta el motivo del rechazo |
+| `coste_envio_de(subtotal, codigo)` | aprende el código de envío gratis. Firma ampliada → hubo `drop function` |
+| `importe_a_devolver` | el ÚNICO sitio que valora una devolución |
+| `linea_descuento_factura` | la línea del descuento, UNA sola y en negativo |
+| `devolucion_desglose` + `devoluciones_pendientes_de_rectificativa` | el dinero y el conjunto de una devolución, cada uno en un solo sitio |
+
+⭐⭐ **Y EL GUARDIA DEL DESGLOSE NO CAMBIÓ NI UNA LETRA**, que era el criterio de éxito que la propia 080 dejó escrito. El comentario del guardia —redactado en la **062**, antes de que existiera el envío— nombra este trabajo: «Si algún día cambia cómo se calcula el total del pedido —unos gastos de envío, **un descuento**—, esto salta aquí».
+
+#### ⭐⭐ LAS TRES DECISIONES QUE SOSTIENEN TODO
+
+1. **SOLO PORCENTAJE, sin importe fijo.** Con un porcentaje ponderado por artículos, `pedido_iva.base >= 0` es cierto **por construcción**: no hacen falta topes ni regla del céntimo sobrante. Un «−5 €» lo pierde —sobre 0,10 al 4 % y 5,40 al 21 % deja la base del 4 % en negativo y **aborta dentro del webhook de un pago ya cobrado**—. Fuera por escrito, con la razón.
+2. **EL ENVÍO GRATIS NO ES UN DESCUENTO**: pone `coste_envio` a 0, que es un estado que la tienda ya vive en cada pedido que pasa del umbral. Comprobado en el código: `linea_envio_factura` termina en `where r.envio > 0`, devuelve NULL y la factura **omite** la línea. Cero cambios en la cadena fiscal.
+3. **EL DESCUENTO SE CONGELA POR LÍNEA** (`pedido_items.descuento_imputado`) y no se deriva al leer. `reembolso_lineas.pedido_item_id` es NOT NULL: la devolución solo sabe hablar de líneas.
+
+#### ⚠️⚠️ EL DINERO QUE SE ESTABA REGALANDO
+
+`reembolso_lineas.importe` era `cantidad × precio_unitario` —PVP de catálogo— con la fórmula copiada en **tres** escritores. Y `ReembolsosService.validarSeleccion` lo calculaba **otra vez** en TypeScript, y ese es el número que va a Stripe.
+
+Medido: 2 unidades de 2,50 con 1,00 de cupón imputado → el cliente paga **4,00** y el panel mandaba **5,00**.
+
+⭐ Ninguna fila histórica cambió de valor, y no por suerte: con `descuento_imputado = 0` las dos fórmulas son la misma (`precio_unitario` es `numeric(10,2)`, así que `precio × entero` es exacto y los dos `round` no redondean nada).
+
+#### ⚠️⚠️ Y EL 303 YA SE CONTRADECÍA CON EL PANEL, ANTES DE HOY
+
+La 080 dejó el §7 diciendo «a `liquidacion_iva` le falta el porte, y el error es conservador». Verdad, pero no todo: **`emitir_rectificativas_pendientes` ya tenía el predicado bueno** —la 080 le puso la rama de «devolución de solo porte»— y `liquidacion_iva` **no**, en ninguno de sus tres sitios. El botón «emitir las que faltan» veía una devolución que el aviso del 303 no contaba. No un importe corto: **un conjunto distinto**. Es literalmente lo que la 075 se prohibió con `venta_sin_factura`.
+
+⚠️ Y una corrección a lo que dije al proponerlo: con el §6 puesto, el error del §7 **seguía** siendo conservador. Lo que justifica arreglarlo no es la dirección del error, es la contradicción.
+
+#### ⭐⭐⭐ LA LECCIÓN DE LA SESIÓN: OCHO COMPROBACIONES QUE NO COMPROBABAN NADA
+
+Van **ocho** en una sola migración. Todas encontradas por la misma pregunta —«¿y esto sabe salir rojo?»— y ninguna se habría visto de otra forma:
+
+1. **El mensaje que mentía**: `«envio = 2,27 (esperado 2,27)»`, imposible. El valor esperado estaba escrito dos veces y perturbé una.
+2. **El bloque F era una tautología**: comparaba `Σ descuento_imputado` contra `reparto_conceptos_pedido.descuento`, que **es** esa suma desde la reestructura del §2. Un número contra sí mismo.
+3. **El caso de prueba no detectaba un error de orden**: con UNA línea por tipo el acumulado da lo mismo se ordene como se ordene. Hizo falta 1,11 + 1,11 al 10 % y 1,11 al 21 % **intercaladas**.
+4. **El bloque K no distinguía el acumulado de la fórmula aislada**: con dos trozos los errores de redondeo se cancelan SIEMPRE, salvo en un medio céntimo exacto. Hizo falta neto 19,01 sobre 2 unidades (19,01/2 = 9,505 → aislado da 19,02).
+5. **El bloque E medía mi propia reconstrucción**, no la factura: nunca llamó a `emitir_factura`, así que el día que el §7 estuviera bien habría seguido en verde diciendo que faltaba.
+6. **La lista del §10 estaba a mano** y había divergido: 17 funciones revocadas, 11 comprobadas.
+7. **La comprobación del reintento mentía**: decía «el reintento contó el uso otra vez» también cuando el uso no se había contado nunca.
+8. **Tres tests de la API miraban `rpcParams[0]`** y se rompieron al añadir una RPC antes, sin que hubiera nada mal.
+
+⭐ El patrón es siempre el mismo: **dos cosas que tienen que decir lo mismo y nadie las obliga.** El arreglo nunca fue «añadir lo que falta», fue quitar la segunda copia.
+
+#### El ensayo: 15 bloques (A–O), todos vistos en rojo
+
+`scripts/ensayo-083-descuento.sql`, autoverificable —cada bloque LANZA, no imprime tablas— porque `aplicar-sql.mjs` **no muestra los `raise notice`**: con esta herramienta el silencio es el resultado.
+
+```
+node scripts/aplicar-sql.mjs --dry \
+  supabase/migrations/083_codigos_de_descuento.sql \
+  scripts/083_funciones.generado.sql \
+  scripts/ensayo-083-descuento.sql
+```
+
+⚠️ El bloque E **emite factura de verdad**, y para eso hace falta `set constraints all immediate`: los triggers son DIFERIDOS y en una transacción revertida el commit no llega nunca. Sin esa línea el bloque sale vacío y se lee como «no se emite la factura».
+
+⚠️ El bloque O va **de punta a punta por `confirmar_venta`** y comprueba además el **reintento del webhook**: dos llamadas devuelven el mismo pedido y NO mueven los usos. Y demuestra algo que hay que entender: si el descuento no llegara al pedido, `total` y el desglose valdrían los dos 18,40 —cuadran entre sí, ningún guardia salta— y lo único mal sería que Stripe cobró 15,40. **El guardia no protege de eso.**
+
+#### ⚠️⚠️ CÓMO SE ESCRIBIÓ, Y ES LO QUE HAY QUE REUSAR
+
+**Nada se transcribió a mano.** `scripts/generar-083-funciones.mjs` extrae las 9 funciones del **`prosrc` vivo** —el texto desplegado, no lo que dicen las migraciones, que tienen definiciones muertas: la 080 definió `emitir_factura` y la 082 la redefinió— y les aplica parches por regex o por cadena literal **con el número de coincidencias verificado**. Si alguna no casa exactamente las veces esperadas, **el generador aborta y no genera nada**.
+
+Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caracteres y esto le toca tres regiones.
+
+⚠️ Y el §10 va un paso más: **la lista de funciones a comprobar se DERIVA de los `revoke` que de verdad se emiten**, leyendo el SQL ya montado. No puede quedarse corta.
+
+⚠️ De paso quedó medido que **Supabase SÍ concede `EXECUTE` a `anon` por defecto** en una función nueva: quitando un `revoke`, el bloque del §10 lo canta. La regla de la 062 §5 no era defensiva.
+
+⚠️ Nota de fontanería: en ese generador los saltos de línea van con `String.fromCharCode(10)` y no con el escape. Se edita a través de varias capas de comillas y un escape se convirtió dos veces en un salto real, rompiendo el JS.
+
+#### Estado al cerrar
+
+**528 tests API + 396 web = 924**, los dos `type-check` y los dos builds en verde, corridos **por separado** (juntos el `type-check` de la web falla a veces y sigue sin diagnosticar). Árbol limpio.
+
+#### Lo que queda
+
+| | |
+|---|---|
+| **Tienda** | la caja del código en el carrito/checkout, pintar el descuento y `avisoDescuento`, y ocultar «faltan X para el envío gratis» cuando el código ya lo dio |
+| ⚠️ **Decisión de Jonathan** | **la presentación de la RECTIFICATIVA.** Sus líneas de artículo usan `sum(rl.importe)`, que desde el §6 ya es el neto: el total es correcto pero el papel dice «1 ud · 5,00 € · −4,00 €» y no se explica solo. Las dos opciones —dejarlo, o espejo de la venta con líneas a PVP más la del descuento en positivo— son presentación, y la 082 dejó el precedente de que eso lo decide él mirando el papel. **Recomendación: el espejo**, que además ahora encaja porque el bloque de totales ya sabe pintar la fila. |
+| **Deuda nombrada** | llevar el código en la **metadata del pago** (por intent, no por sesión) para que sobreviva a la limpieza de 48 h de `checkout_datos`. Hoy, sin snapshot, el descuento cae a 0 y el pedido diría más de lo cobrado — se anota `venta_sin_snapshot_checkout` para que no sea silencioso, pero la cura de fondo es esa. Y es la única defensa real contra que nadie compare `intent.amount` con `pedidos.total` |
+| **Gestoría** | el descuento añade el art. 78.Tres.2, la frontera con el 80.Uno.2 y su tratamiento en VeriFactu. **Es la MISMA llamada que la del porte** (art. 78.Dos.1º), y antes de marcar `arranque_fiscal_el` |
+
+#### Hallazgos incidentales, que no son de esta migración
+
+- ⚠️ **`cancelar_transferencia_reemplazada` tiene DOS sobrecargas vivas** (3 y 4 argumentos). Es el «fallo clásico de reemplazar funciones con `default`s» que la 080 comprobó en las suyas y salió limpia. La de 3 no conoce `p_reemplazado_por`. **A la cola.**
+- ⚠️ **`totalReembolsado()` usa el MÁXIMO de `transacciones_pago.importe`, no la suma.** Con dos devoluciones parciales, `restanteCents` puede quedar más alto de lo debido. No lo introduce este trabajo; conviene verificarlo antes de crear el primer cupón.
+- ⚠️ **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con un guion, desde el 22/08 a las 14:29. Es la dirección pública del RGPD. Pasa `IsEmail` porque un guion al final de la parte local es legal — y el propio DTO había predicho este fallo por escrito: «Que EXISTA no lo puede saber ninguna validación». **Sigue sin corregir.**
+- ⚠️ **Las tres páginas legales SIGUEN VACÍAS**, y hoy se cerró el paso 1 que quedaba: **`4d6328b` se desplegó READY el 22/08 a las 11:09Z** (consultado a la API de Vercel). Llevaba 23 h vivo. El build compila `process.env.NEXT_PHASE` como lectura **en ejecución**, así que el `signal` es `void 0` en producción; la API responde 200 en 0,9 s y el ISR regenera (`/checkout` con `Age: 0` y aún NIF=0). **La hipótesis del `AbortSignal` es FALSA.** Vuelve a la casilla de salida, y esta vez instrumentando el `catch` antes de tocar nada: es el que convierte el fallo en silencio.
+- ⚠️ **El umbral de envío gratis está en 30 €, no en 50** como decía este fichero en ocho sitios. Cambiado por Jonathan el 22/08 a las 14:29.
+- ⚠️ **Los cinco secretos siguen sin revocar** y `C:\YJIMENEZ\tokens-despliegue.env.txt` sin borrar. Hoy hubo que abrirlo para consultar Vercel. La `sb_secret_…` salta el RLS.
+
+---
+
+### Cierre anterior — 2026-08-22
 
 ✅✅ **EL COSTE DE ENVÍO ESTÁ VIVO EN PRODUCCIÓN Y COBRANDO** (2026-08-22). Migración aplicada, código desplegado, y **Jonathan ya puso la tarifa desde el panel a las 01:44: 3,40 € de envío, gratis desde 50 €**. Comprobado contra la tienda real:
 

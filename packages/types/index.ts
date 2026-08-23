@@ -1990,3 +1990,41 @@ export const CABECERA_PROXY_SECRETO = "x-valatino-proxy";
  * colar desde fuera: si un cliente la manda, se la pisamos.
  */
 export const CABECERA_IP_CLIENTE = "x-valatino-ip";
+
+// ============================================================
+// Códigos de descuento (083) — TI
+// ============================================================
+
+/** Los dos tipos que existen, y solo esos dos. Ver la cabecera de la 083. */
+export type TipoCodigoDescuento = "porcentaje" | "envio_gratis";
+
+/**
+ * Un código de descuento como lo ve el panel de TI.
+ *
+ * ⚠️ `usos` es de solo lectura desde el panel: lo incrementa `confirmar_venta`
+ * dentro de la transacción de la venta. Editarlo a mano falsearía cuántas veces se
+ * usó, que es el dato con el que se decide si una campaña funcionó.
+ */
+export interface CodigoDescuento {
+  id: string;
+  codigo: string;
+  tipo: TipoCodigoDescuento;
+  /** Solo en `porcentaje`. Entre 1 y 90: ver el CHECK de la migración. */
+  porcentaje: number | null;
+  /**
+   * El texto que se publica junto al código.
+   *
+   * ⚠️ NO es una nota interna: el art. 19 de la Ley 7/1996 (LOCM) obliga a anunciar
+   * la duración y las reglas especiales de la promoción, y eso no se cumple con las
+   * columnas de fecha — se cumple con este texto donde se difunda el código.
+   */
+  descripcion: string | null;
+  minimoArticulos: number | null;
+  /** `null` = sin límite. El tope es BLANDO: ver §0.6 de la 083. */
+  usosMaximos: number | null;
+  usos: number;
+  validoDesde: string | null;
+  validoHasta: string | null;
+  activo: boolean;
+  createdAt: string;
+}
