@@ -10,6 +10,10 @@
 -- salió esto:
 --   linea_envio_factura(p_pedido_id uuid, p_signo integer)
 --     md5(prosrc) = 2853c587e3eb0d048390d2311f41cae8  ·  961 caracteres
+--   confirmar_venta(uuid, uuid, uuid, text, text, uuid, text, text, jsonb)
+--     md5(prosrc) = 2b41958a25fa28d56e83dbc3a4016270  ·  4885 caracteres
+--   crear_pedido_transferencia(uuid, uuid, uuid, text, integer, uuid, text, text, jsonb)
+--     md5(prosrc) = 68899da575b192a3f6ecf8546a65612a  ·  4079 caracteres
 --   emitir_rectificativa(uuid, text, uuid)
 --     md5(prosrc) = 29731fbc1dc96e80917501c4f97471ce  ·  9900 caracteres
 --   emitir_rectificativas_pendientes(uuid)
@@ -886,7 +890,397 @@ $function$
 revoke execute on function public.linea_envio_factura(uuid, integer) from public, anon, authenticated;
 
 
--- ── §6.1 · emitir_rectificativa — el dinero devuelto lo da una funcion 
+-- ── §6.1 · confirmar_venta — el descuento congelado llega al pedido 
+--
+-- Extraída del `prosrc` vivo (md5 2b41958a25fa28d56e83dbc3a4016270) y parcheada por script:
+--     · las variables del descuento (1 reemplazo)
+--     · la lectura del snapshot y el total (1 reemplazo)
+--     · las columnas del insert de pedidos (1 reemplazo)
+--     · los valores del insert de pedidos (1 reemplazo)
+--     · el consumo del uso del cupon (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.confirmar_venta(p_session_id uuid, p_usuario_autenticado uuid, p_user_id uuid, p_metodo_pago text, p_referencia_pago text, p_direccion_envio_id uuid DEFAULT NULL::uuid, p_email_cliente text DEFAULT NULL::text, p_documento_cliente text DEFAULT NULL::text, p_envio jsonb DEFAULT NULL::jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_pedido_id    uuid;
+  v_carrito_id   uuid;
+  v_articulos    numeric(10,2);
+  v_coste_envio  numeric(10,2);
+  -- 083 §11: el descuento del cupón, congelado en el checkout igual que el porte.
+  v_descuento    numeric(10,2);
+  v_desc_codigo  text;
+  v_envio_dto    numeric(10,2);
+  v_total        numeric(10,2);
+  v_envio        jsonb := p_envio;
+  v_producto_ids uuid[];
+begin
+  if p_referencia_pago is null or p_referencia_pago = '' then
+    raise exception 'La referencia de pago es obligatoria';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('confirmar_venta:' || p_referencia_pago));
+
+  select id into v_pedido_id from pedidos where referencia_pago = p_referencia_pago;
+  if v_pedido_id is not null then
+    return v_pedido_id;
+  end if;
+
+  if p_usuario_autenticado is not null then
+    select id into v_carrito_id from carritos where user_id = p_usuario_autenticado;
+  else
+    select id into v_carrito_id from carritos
+    where session_id = p_session_id and user_id is null;
+  end if;
+
+  if v_carrito_id is null then
+    raise exception 'Carrito no encontrado al confirmar el pago (sesion %)', p_session_id;
+  end if;
+
+  select sum(ci.precio_unitario * ci.cantidad), array_agg(ci.producto_id)
+  into v_articulos, v_producto_ids
+  from carrito_items ci where ci.carrito_id = v_carrito_id;
+
+  if v_articulos is null then
+    raise exception 'Carrito vacio al confirmar el pago (carrito %)', v_carrito_id;
+  end if;
+
+  /**
+   * ⭐ EL ENVÍO QUE SE LE COBRÓ, NO EL DE LA TARIFA DE AHORA. Ver §2: entre el
+   * cobro y este webhook pueden pasar minutos, y si alguien edita la tarifa en el
+   * panel a mitad, recalcularla aquí facturaría un importe distinto del cobrado
+   * —y en silencio, porque nadie compara `intent.amount` con `pedidos.total`.
+   *
+   * Sin snapshot (sesión previa a la 080, o webhook pasadas las 48 h de la
+   * limpieza de `checkout_datos`) se aplica la tarifa vigente: es lo único que se
+   * puede hacer, y con `envio_coste` en 0 sale 0, que es el comportamiento de
+   * siempre.
+   */
+  select cd.coste_envio, cd.descuento_importe, cd.descuento_codigo, cd.envio_descontado
+    into v_coste_envio, v_descuento, v_desc_codigo, v_envio_dto
+  from checkout_datos cd where cd.session_id = p_session_id;
+
+  /**
+   * ⚠️⚠️ SIN SNAPSHOT NO SE APLICA DESCUENTO, Y ESO PUEDE DIFERIR DE LO COBRADO.
+   * El porte cae a la tarifa vigente, que es lo unico que se puede hacer; el
+   * descuento cae a 0, que NO es equivalente: si al cliente se le cobro con cupon y
+   * el snapshot ya no esta (webhook pasadas las 48 h de la limpieza de
+   * checkout_datos), el pedido dira MAS de lo que se cobro.
+   *
+   * ⭐ Se elige 0 y no la tarifa de ahora a proposito: un descuento es un acuerdo, y
+   * aplicar uno que no se puede demostrar es peor que no aplicarlo. El error va en
+   * la direccion conservadora — la tienda declara de mas — y art. 78.Tres.2 LIVA
+   * exige justificar el descuento «por cualquier medio de prueba admitido en
+   * derecho»: sin snapshot no hay prueba.
+   *
+   * ⚠️ Y NO SE QUEDA EN SILENCIO. Eso es lo que convierte un descuadre invisible en
+   * uno que alguien puede ver. La solucion de fondo es llevar el codigo en la
+   * metadata del pago —que va por intent y no por sesion, asi que sobrevive a la
+   * limpieza— y esta pendiente.
+   */
+  if not found then
+    insert into factura_eventos (evento, detalle)
+    values ('venta_sin_snapshot_checkout',
+            jsonb_build_object('session_id', p_session_id,
+                               'articulos', v_articulos,
+                               'aviso', 'Sin snapshot: descuento a 0 y porte a la tarifa vigente'));
+  end if;
+
+  v_coste_envio := coalesce(v_coste_envio, coste_envio_de(v_articulos));
+  v_descuento   := coalesce(v_descuento, 0);
+  v_envio_dto   := coalesce(v_envio_dto, 0);
+  v_total       := v_articulos + v_coste_envio - v_descuento;
+
+  -- El snapshot manda; si no viene, se arma desde la dirección guardada.
+  if v_envio is null and p_direccion_envio_id is not null then
+    select to_jsonb(d) into v_envio
+    from (select nombre_destinatario, linea1, linea2, ciudad, codigo_postal, provincia, pais,
+                 telefono
+          from direcciones_envio where id = p_direccion_envio_id) d;
+  end if;
+
+  -- ⚠️ EL ORDEN IMPORTA Y YA ERA EL BUENO: el pedido se inserta ANTES que sus
+  -- líneas, y el trigger del desglose (§4) lee `pedidos.coste_envio`. Al revés,
+  -- el reparto se haría sobre un envío de 0 y el guardia abortaría la venta.
+  insert into pedidos (
+    numero_pedido, user_id, estado, total, coste_envio, metodo_pago, referencia_pago,
+    direccion_envio_id, email_cliente, documento_cliente,
+    envio_nombre, envio_linea1, envio_linea2, envio_ciudad,
+    envio_codigo_postal, envio_provincia, envio_pais,
+    envio_telefono, descuento, descuento_codigo, envio_descontado
+  ) values (
+    generar_numero_pedido(p_metodo_pago), p_user_id, 'PROCESANDO', v_total, v_coste_envio,
+    p_metodo_pago, p_referencia_pago, p_direccion_envio_id,
+    lower(nullif(p_email_cliente, '')), nullif(p_documento_cliente, ''),
+    v_envio->>'nombre_destinatario', v_envio->>'linea1', v_envio->>'linea2',
+    v_envio->>'ciudad', v_envio->>'codigo_postal', v_envio->>'provincia', v_envio->>'pais',
+    nullif(v_envio->>'telefono', ''), v_descuento, v_desc_codigo, v_envio_dto
+  )
+  returning id into v_pedido_id;
+
+  /**
+   * ⚠️⚠️ EL USO SE CONSUME AQUI, DENTRO DE ESTA TRANSACCION Y DETRAS DE LA MISMA
+   * IDEMPOTENCIA. Arriba hay un pg_advisory_xact_lock y un early-return por
+   * referencia_pago, asi que un reintento del webhook no lo cuenta dos veces.
+   *
+   * ⚠️ Y el tope de usos NO se revalida: es BLANDO por diseño (§0.6). Se comprobo al
+   * aplicar el codigo, minutos antes. Revalidar aqui facturaria un total distinto del
+   * cobrado, y abortar dejaria un pago cobrado sin pedido y a Stripe reintentando el
+   * mismo fallo para siempre. Un cupon usado una vez de mas cuesta unos euros.
+   */
+  if v_desc_codigo is not null then
+    update codigos_descuento
+    set usos = usos + 1, updated_at = now()
+    where upper(btrim(codigo)) = upper(btrim(v_desc_codigo));
+  end if;
+
+  insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+  select v_pedido_id, ci.producto_id, p.nombre, ci.cantidad, ci.precio_unitario
+  from carrito_items ci join productos p on p.id = ci.producto_id
+  where ci.carrito_id = v_carrito_id;
+
+  -- ANTES de consumir: son las reservas las que identifican al pedido a
+  -- cancelar. Suelta ademas las que aquel retenia, que son distintas de estas.
+  perform cancelar_transferencia_reemplazada(
+    p_session_id, p_usuario_autenticado, v_producto_ids, v_pedido_id
+  );
+
+  -- Solo las de checkout, y agrupadas por producto.
+  update productos p
+  set stock_reservado = greatest(0, p.stock_reservado - a.cantidad), updated_at = now()
+  from (
+    select sr.producto_id, sum(sr.cantidad) as cantidad
+    from stock_reservas sr
+    where sr.producto_id = any (v_producto_ids)
+      and sr.pedido_id is null
+      and ((p_usuario_autenticado is not null and sr.user_id = p_usuario_autenticado)
+           or sr.session_id = p_session_id)
+    group by sr.producto_id
+  ) a
+  where p.id = a.producto_id;
+
+  delete from stock_reservas sr
+  where sr.producto_id = any (v_producto_ids)
+    and sr.pedido_id is null
+    and ((p_usuario_autenticado is not null and sr.user_id = p_usuario_autenticado)
+         or sr.session_id = p_session_id);
+
+  delete from carrito_items where carrito_id = v_carrito_id;
+
+  return v_pedido_id;
+end;
+$function$
+;
+
+revoke execute on function public.confirmar_venta(uuid, uuid, uuid, text, text, uuid, text, text, jsonb) from public, anon, authenticated;
+
+
+-- ── §6.2 · crear_pedido_transferencia — lo mismo por la via de la transferencia 
+--
+-- Extraída del `prosrc` vivo (md5 68899da575b192a3f6ecf8546a65612a) y parcheada por script:
+--     · las variables del descuento (1 reemplazo)
+--     · la lectura del snapshot y el total (1 reemplazo)
+--     · las columnas del insert de pedidos (1 reemplazo)
+--     · los valores del insert de pedidos (1 reemplazo)
+--     · el consumo del uso del cupon (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.crear_pedido_transferencia(p_session_id uuid, p_usuario_autenticado uuid, p_user_id uuid, p_clave_idempotencia text, p_dias_plazo integer DEFAULT 3, p_direccion_envio_id uuid DEFAULT NULL::uuid, p_email_cliente text DEFAULT NULL::text, p_documento_cliente text DEFAULT NULL::text, p_envio jsonb DEFAULT NULL::jsonb)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_pedido_id    uuid;
+  v_carrito_id   uuid;
+  v_articulos    numeric(10,2);
+  v_coste_envio  numeric(10,2);
+  -- 083 §11: el descuento del cupón, congelado en el checkout igual que el porte.
+  v_descuento    numeric(10,2);
+  v_desc_codigo  text;
+  v_envio_dto    numeric(10,2);
+  v_total        numeric(10,2);
+  v_envio        jsonb := p_envio;
+  v_producto_ids uuid[];
+  v_referencia   text;
+  v_vence        timestamptz;
+  v_reservadas   integer;
+begin
+  if p_clave_idempotencia is null or p_clave_idempotencia = '' then
+    raise exception 'Falta la clave de idempotencia del checkout';
+  end if;
+
+  v_referencia := 'transferencia:' || p_clave_idempotencia;
+
+  perform pg_advisory_xact_lock(hashtext('confirmar_venta:' || v_referencia));
+
+  select id into v_pedido_id from pedidos where referencia_pago = v_referencia;
+  if v_pedido_id is not null then
+    return v_pedido_id;
+  end if;
+
+  if p_usuario_autenticado is not null then
+    select id into v_carrito_id from carritos where user_id = p_usuario_autenticado;
+  else
+    select id into v_carrito_id
+    from carritos
+    where session_id = p_session_id and user_id is null;
+  end if;
+
+  if v_carrito_id is null then
+    raise exception 'Carrito no encontrado al iniciar la transferencia (sesion %)', p_session_id;
+  end if;
+
+  select sum(ci.precio_unitario * ci.cantidad), array_agg(ci.producto_id)
+  into v_articulos, v_producto_ids
+  from carrito_items ci
+  where ci.carrito_id = v_carrito_id;
+
+  if v_articulos is null then
+    raise exception 'Carrito vacio al iniciar la transferencia (carrito %)', v_carrito_id;
+  end if;
+
+  select cd.coste_envio, cd.descuento_importe, cd.descuento_codigo, cd.envio_descontado
+    into v_coste_envio, v_descuento, v_desc_codigo, v_envio_dto
+  from checkout_datos cd where cd.session_id = p_session_id;
+
+  /**
+   * ⚠️⚠️ SIN SNAPSHOT NO SE APLICA DESCUENTO, Y ESO PUEDE DIFERIR DE LO COBRADO.
+   * El porte cae a la tarifa vigente, que es lo unico que se puede hacer; el
+   * descuento cae a 0, que NO es equivalente: si al cliente se le cobro con cupon y
+   * el snapshot ya no esta (webhook pasadas las 48 h de la limpieza de
+   * checkout_datos), el pedido dira MAS de lo que se cobro.
+   *
+   * ⭐ Se elige 0 y no la tarifa de ahora a proposito: un descuento es un acuerdo, y
+   * aplicar uno que no se puede demostrar es peor que no aplicarlo. El error va en
+   * la direccion conservadora — la tienda declara de mas — y art. 78.Tres.2 LIVA
+   * exige justificar el descuento «por cualquier medio de prueba admitido en
+   * derecho»: sin snapshot no hay prueba.
+   *
+   * ⚠️ Y NO SE QUEDA EN SILENCIO. Eso es lo que convierte un descuadre invisible en
+   * uno que alguien puede ver. La solucion de fondo es llevar el codigo en la
+   * metadata del pago —que va por intent y no por sesion, asi que sobrevive a la
+   * limpieza— y esta pendiente.
+   */
+  if not found then
+    insert into factura_eventos (evento, detalle)
+    values ('venta_sin_snapshot_checkout',
+            jsonb_build_object('session_id', p_session_id,
+                               'articulos', v_articulos,
+                               'aviso', 'Sin snapshot: descuento a 0 y porte a la tarifa vigente'));
+  end if;
+
+  v_coste_envio := coalesce(v_coste_envio, coste_envio_de(v_articulos));
+  v_descuento   := coalesce(v_descuento, 0);
+  v_envio_dto   := coalesce(v_envio_dto, 0);
+  v_total       := v_articulos + v_coste_envio - v_descuento;
+
+  select count(*) into v_reservadas
+  from stock_reservas sr
+  where sr.producto_id = any (v_producto_ids)
+    and sr.pedido_id is null
+    and (
+      (p_usuario_autenticado is not null and sr.user_id = p_usuario_autenticado)
+      or sr.session_id = p_session_id
+    );
+
+  if v_reservadas = 0 then
+    raise exception 'La reserva del carrito ha caducado; vuelve a intentarlo'
+      using errcode = 'P0003';
+  end if;
+
+  if v_envio is null and p_direccion_envio_id is not null then
+    select to_jsonb(d) into v_envio
+    from (
+      select nombre_destinatario, linea1, linea2, ciudad, codigo_postal, provincia, pais
+      from direcciones_envio
+      where id = p_direccion_envio_id
+    ) d;
+  end if;
+
+  v_vence := sumar_dias_laborables(now(), p_dias_plazo);
+
+  insert into pedidos (
+    numero_pedido, user_id, estado, total, coste_envio, metodo_pago, referencia_pago,
+    direccion_envio_id, email_cliente, documento_cliente, pago_vence_el,
+    envio_nombre, envio_linea1, envio_linea2, envio_ciudad,
+    envio_codigo_postal, envio_provincia, envio_pais, envio_telefono,
+    descuento, descuento_codigo, envio_descontado
+  )
+  values (
+    generar_numero_pedido('transferencia'),
+    p_user_id,
+    'PENDIENTE_PAGO',
+    v_total,
+    v_coste_envio,
+    'transferencia',
+    v_referencia,
+    p_direccion_envio_id,
+    lower(nullif(p_email_cliente, '')),
+    nullif(p_documento_cliente, ''),
+    v_vence,
+    v_envio->>'nombre_destinatario',
+    v_envio->>'linea1',
+    v_envio->>'linea2',
+    v_envio->>'ciudad',
+    v_envio->>'codigo_postal',
+    v_envio->>'provincia',
+    v_envio->>'pais',
+    v_envio->>'telefono',
+    v_descuento,
+    v_desc_codigo,
+    v_envio_dto
+  )
+  returning id into v_pedido_id;
+
+  /**
+   * ⚠️⚠️ EL USO SE CONSUME AQUI, DENTRO DE ESTA TRANSACCION Y DETRAS DE LA MISMA
+   * IDEMPOTENCIA. Arriba hay un pg_advisory_xact_lock y un early-return por
+   * referencia_pago, asi que un reintento del webhook no lo cuenta dos veces.
+   *
+   * ⚠️ Y el tope de usos NO se revalida: es BLANDO por diseño (§0.6). Se comprobo al
+   * aplicar el codigo, minutos antes. Revalidar aqui facturaria un total distinto del
+   * cobrado, y abortar dejaria un pago cobrado sin pedido y a Stripe reintentando el
+   * mismo fallo para siempre. Un cupon usado una vez de mas cuesta unos euros.
+   */
+  if v_desc_codigo is not null then
+    update codigos_descuento
+    set usos = usos + 1, updated_at = now()
+    where upper(btrim(codigo)) = upper(btrim(v_desc_codigo));
+  end if;
+
+  insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+  select v_pedido_id, ci.producto_id, p.nombre, ci.cantidad, ci.precio_unitario
+  from carrito_items ci
+  join productos p on p.id = ci.producto_id
+  where ci.carrito_id = v_carrito_id;
+
+  update stock_reservas sr
+  set pedido_id  = v_pedido_id,
+      expires_at = v_vence
+  where sr.producto_id = any (v_producto_ids)
+    and sr.pedido_id is null
+    and (
+      (p_usuario_autenticado is not null and sr.user_id = p_usuario_autenticado)
+      or sr.session_id = p_session_id
+    );
+
+  -- ⚠️ AQUÍ NO SE VACÍA EL CARRITO. Elegir transferencia no es pagar: quien
+  -- cambie de idea y vuelva a la tarjeta tiene que encontrar su compra donde
+  -- la dejó. Se vacía al confirmar el ingreso.
+  return v_pedido_id;
+end;
+$function$
+;
+
+revoke execute on function public.crear_pedido_transferencia(uuid, uuid, uuid, text, integer, uuid, text, text, jsonb) from public, anon, authenticated;
+
+
+-- ── §6.3 · emitir_rectificativa — el dinero devuelto lo da una funcion 
 --
 -- Extraída del `prosrc` vivo (md5 29731fbc1dc96e80917501c4f97471ce) y parcheada por script:
 --     · el CTE `esto`, que calculaba el desglose de la devolución por su cuenta (1 reemplazo)
@@ -1139,7 +1533,7 @@ $function$
 revoke execute on function public.emitir_rectificativa(uuid, text, uuid) from public, anon, authenticated;
 
 
--- ── §6.2 · emitir_rectificativas_pendientes — el conjunto lo da una funcion 
+-- ── §6.4 · emitir_rectificativas_pendientes — el conjunto lo da una funcion 
 --
 -- Extraída del `prosrc` vivo (md5 39b47d4fa78134c084137f33da21ca51) y parcheada por script:
 --     · la subconsulta del conjunto, que ahora vive en una función (1 reemplazo)
@@ -1188,7 +1582,7 @@ $function$
 revoke execute on function public.emitir_rectificativas_pendientes(uuid) from public, anon, authenticated;
 
 
--- ── §6.3 · liquidacion_iva — los tres sitios ven el porte 
+-- ── §6.5 · liquidacion_iva — los tres sitios ven el porte 
 --
 -- Extraída del `prosrc` vivo (md5 ec3926352ea17a0666767d69a2bea721) y parcheada por script:
 --     · el CTE `sin_doc`: el dinero, que le faltaba el porte (1 reemplazo)
@@ -1613,7 +2007,7 @@ $function$
 revoke execute on function public.liquidacion_iva(date, date) from public, anon, authenticated;
 
 
--- ── §6.4 · emitir_factura — la linea del descuento y el guardia del §8 
+-- ── §6.6 · emitir_factura — la linea del descuento y el guardia del §8 
 --
 -- Extraída del `prosrc` vivo (md5 cca415f373e2c67cf66cafe9e5874362) y parcheada por script:
 --     · la declaración de la variable del guardia nuevo (1 reemplazo)
@@ -1859,7 +2253,7 @@ $function$
 revoke execute on function public.emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, date, text) from public, anon, authenticated;
 
 
--- ── §6.5 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
+-- ── §6.7 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
 --
 -- Extraída del `prosrc` vivo (md5 c663df7162213f7184ab705c1eea28f2) y parcheada por script:
 --     · el CTE `disponible`, que duplicaba el tope y la fórmula del PVP (1 reemplazo)
@@ -1969,7 +2363,7 @@ $function$
 revoke execute on function public.registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid) from public, anon, authenticated;
 
 
--- ── §6.6 · reembolsar_pedido_total — lo pendiente se valora en neto 
+-- ── §6.8 · reembolsar_pedido_total — lo pendiente se valora en neto 
 --
 -- Extraída del `prosrc` vivo (md5 3d807a6317fe82402716adbd74836165) y parcheada por script:
 --     · el cuerpo de `pendiente_por_item`, que valoraba a PVP (1 reemplazo)
@@ -2184,8 +2578,10 @@ declare
 begin
   foreach v_fn in array array[
     'public.codigo_descuento_aplicable(text, numeric)',
+    'public.confirmar_venta(uuid, uuid, uuid, text, text, uuid, text, text, jsonb)',
     'public.congelar_descuento_lineas(uuid)',
     'public.coste_envio_de(numeric, text)',
+    'public.crear_pedido_transferencia(uuid, uuid, uuid, text, integer, uuid, text, text, jsonb)',
     'public.devolucion_desglose(uuid, text)',
     'public.devoluciones_pendientes_de_rectificativa()',
     'public.emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, date, text)',
@@ -2212,6 +2608,6 @@ begin
     end loop;
   end loop;
 
-  raise notice '§10 · revocacion comprobada en % funciones', 17;
+  raise notice '§10 · revocacion comprobada en % funciones', 19;
 end $comprobar$;
 

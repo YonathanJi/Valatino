@@ -483,7 +483,24 @@ comment on column public.reembolso_lineas.importe is
   'El dinero NETO que se le devuelve al cliente por esas unidades: lo que pagó de verdad, con el descuento del cupón ya restado (083 §6). ⚠️ Antes de la 083 era cantidad × precio_unitario, o sea PVP de catálogo; para pedidos sin cupón las dos fórmulas coinciden exactamente, así que ninguna fila histórica cambió de valor. Lo calcula importe_a_devolver y NADIE MÁS: art. 107 RDL 1/2007 obliga a devolver lo efectivamente cobrado, nunca el PVP.';
 
 
--- ── §1.5 · El snapshot del checkout ──────────────────────────────────────────
+-- ── §1.5 · El código aplicado vive en el CARRITO ─────────────────────────────
+--
+-- ⚠️ Y no en `checkout_datos`, que es lo que parecería natural porque es donde se
+-- congela. La caja del código está en la página del CARRITO, antes de que exista
+-- ninguna fila de checkout, y el cliente tiene que ver el descuento mientras decide.
+-- El código pertenece al carrito igual que sus artículos.
+--
+-- ⭐ Y se borra con el carrito, que es el comportamiento correcto: un código no debe
+-- sobrevivir a la compra ni quedarse pegado a una sesión para siempre.
+
+alter table public.carritos
+  add column if not exists codigo_descuento text;
+
+comment on column public.carritos.codigo_descuento is
+  'El código que el cliente ha aplicado a este carrito, sin normalizar (083). Solo es una INTENCIÓN: lo que decide si vale y cuánto descuenta es codigo_descuento_aplicable, y lo que se cobra y factura es el snapshot de checkout_datos. Guardar aquí el importe sería tenerlo en dos sitios.';
+
+
+-- ── §1.6 · El snapshot del checkout ──────────────────────────────────────────
 --
 -- ⚠️ `checkout_datos` se limpia a las 48 h por pg_cron (019). Lo que se congele
 -- SOLO aquí desaparece, y el fallback tiene que ser una decisión explícita, no un

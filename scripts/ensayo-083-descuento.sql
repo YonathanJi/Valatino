@@ -901,6 +901,133 @@ begin
 end $bloque_n$;
 
 
+-- ── O · ⭐⭐ DE PUNTA A PUNTA POR confirmar_venta ─────────────────────────────
+--
+-- Es el camino real: el carrito con su codigo, el snapshot que deja
+-- `create-payment-intent`, y el webhook creando el pedido. Todo lo demas de este
+-- ensayo prueba piezas; esto prueba que encajan.
+--
+-- ⚠️⚠️ Y AQUI EL GUARDIA DEL DESGLOSE NO PROTEGE, que es justo por lo que hace falta
+-- este bloque. Si el descuento no llegara al pedido, `pedidos.total` seria 18,40 y el
+-- desglose tambien 18,40: cuadra CONSIGO MISMO y no salta nada. Lo unico que estaria
+-- mal es que Stripe cobro 15,40. El descuadre solo se ve comparando con lo cobrado, y
+-- eso nadie lo hace — asi que hay que afirmarlo aqui.
+
+do $bloque_o$
+declare
+  v_p10    uuid;
+  v_p21    uuid;
+  v_ses    uuid := gen_random_uuid();
+  v_car    uuid;
+  v_ped    uuid;
+  v_ped2   uuid;
+  v_usos_antes int;
+  v_fallos text := '';
+  r        record;
+begin
+  select id into v_p10 from productos where activo and iva_pct = 10 order by id limit 1;
+  select id into v_p21 from productos where activo and iva_pct = 21 order by id limit 1;
+
+  -- El codigo, como lo crearia el panel de TI.
+  insert into codigos_descuento (codigo, tipo, porcentaje)
+  values ('ENSAYO_O20', 'porcentaje', 20);
+
+  -- El carrito, con el codigo aplicado EN MINUSCULAS y con espacios, que es como lo
+  -- teclea un cliente. Si la normalizacion fallara, el uso no se consumiria.
+  insert into carritos (session_id, codigo_descuento)
+  values (v_ses, '  ensayo_o20 ')
+  returning id into v_car;
+
+  insert into carrito_items (carrito_id, producto_id, cantidad, precio_unitario)
+  values (v_car, v_p10, 1, 10.00), (v_car, v_p21, 1, 5.00);
+
+  -- El snapshot que deja create-payment-intent al cobrar: 15,00 + 3,40 − 3,00.
+  insert into checkout_datos (session_id, coste_envio, descuento_importe, descuento_codigo)
+  values (v_ses, 3.40, 3.00, 'ENSAYO_O20');
+
+  v_ped := confirmar_venta(
+    p_session_id          => v_ses,
+    p_usuario_autenticado => null,
+    p_user_id             => null,
+    p_metodo_pago         => 'stripe',
+    p_referencia_pago     => 'pi_ensayo_o',
+    p_direccion_envio_id  => null,
+    p_email_cliente       => 'ensayo-o@valatino.es',
+    p_documento_cliente   => null,
+    p_envio               => null
+  );
+
+  select * into r from pedidos where id = v_ped;
+
+  -- ⭐ LO QUE SE COBRO. Si esto sale 18,40 el descuento no llego al pedido.
+  if r.total <> 15.40 then
+    v_fallos := v_fallos || format(' total=%s (esperado 15.40: 15,00 + 3,40 − 3,00);', r.total);
+  end if;
+  if r.descuento <> 3.00 then
+    v_fallos := v_fallos || format(' pedidos.descuento=%s (esperado 3.00);', r.descuento);
+  end if;
+  if r.descuento_codigo <> 'ENSAYO_O20' then
+    v_fallos := v_fallos || format(' descuento_codigo=%s (esperado ENSAYO_O20);', coalesce(r.descuento_codigo, 'NULL'));
+  end if;
+  if r.coste_envio <> 3.40 then
+    v_fallos := v_fallos || format(' coste_envio=%s (esperado 3.40);', r.coste_envio);
+  end if;
+
+  -- El desglose, que el trigger calculo con el descuento imputado por linea.
+  if (select coalesce(sum(base + cuota), 0) from pedido_iva where pedido_id = v_ped) <> 15.40 then
+    v_fallos := v_fallos || format(' el desglose suma %s;',
+      (select coalesce(sum(base + cuota), 0) from pedido_iva where pedido_id = v_ped));
+  end if;
+
+  -- Y la imputacion por linea, que es lo que hara posible devolverlo bien.
+  if (select coalesce(sum(descuento_imputado), 0) from pedido_items where pedido_id = v_ped) <> 3.00 then
+    v_fallos := v_fallos || ' las lineas no llevan el descuento imputado;';
+  end if;
+
+  -- El uso consumido UNA vez, y con el codigo normalizado.
+  if (select usos from codigos_descuento where codigo = 'ENSAYO_O20') <> 1 then
+    v_fallos := v_fallos || format(' usos=%s (esperado 1);',
+      (select usos from codigos_descuento where codigo = 'ENSAYO_O20'));
+  end if;
+
+  select usos into v_usos_antes from codigos_descuento where codigo = 'ENSAYO_O20';
+
+  /**
+   * ⭐⭐ EL REINTENTO DEL WEBHOOK. Stripe reintenta, y el uso se consume DENTRO de
+   * esta funcion: si no estuviera detras del early-return por `referencia_pago`, un
+   * reintento contaria el cupon dos veces. Se comprueba de verdad, no se supone.
+   */
+  v_ped2 := confirmar_venta(
+    p_session_id          => v_ses,
+    p_usuario_autenticado => null,
+    p_user_id             => null,
+    p_metodo_pago         => 'stripe',
+    p_referencia_pago     => 'pi_ensayo_o',
+    p_direccion_envio_id  => null,
+    p_email_cliente       => 'ensayo-o@valatino.es',
+    p_documento_cliente   => null,
+    p_envio               => null
+  );
+
+  if v_ped2 <> v_ped then
+    v_fallos := v_fallos || ' el reintento creo un pedido NUEVO en vez de devolver el mismo;';
+  end if;
+
+  -- ⚠️ Se compara contra lo que habia ANTES del reintento, no contra 1. La primera
+  -- version decia «el reintento conto el uso otra vez» tambien cuando el uso no se
+  -- habia contado NUNCA, o sea que el mensaje mentia sobre la causa y mandaba a
+  -- buscar un fallo de idempotencia donde el fallo era que no se consumia. Lo que
+  -- este bloque tiene que afirmar es que el reintento NO LO MUEVE.
+  if (select usos from codigos_descuento where codigo = 'ENSAYO_O20') <> v_usos_antes then
+    v_fallos := v_fallos || format(' el reintento movio los usos de %s a %s;',
+      v_usos_antes, (select usos from codigos_descuento where codigo = 'ENSAYO_O20'));
+  end if;
+
+  if v_fallos <> '' then raise exception 'O · de punta a punta:%', v_fallos; end if;
+  raise notice 'O · punta a punta OK: total 15,40 · descuento 3,00 · 1 uso · reintento idempotente';
+end $bloque_o$;
+
+
 -- ── Resumen legible, para pegarlo en ESTADO.md ───────────────────────────────
 
 select 'reparto'  as bloque, rc.iva_pct::text as tipo,

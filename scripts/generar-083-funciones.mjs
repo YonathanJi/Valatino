@@ -862,7 +862,162 @@ revoke execute on function public.devoluciones_pendientes_de_rectificativa() fro
  * con el número de coincidencias VERIFICADO. Se prefiere a retranscribir miles de
  * caracteres de SQL fiscal para cambiar un CTE o añadir un guardia.
  */
+/**
+ * §11 · El descuento congelado llega al pedido.
+ *
+ * Los dos creadores de pedidos tienen la MISMA forma en las tres regiones que hay
+ * que tocar, así que comparten los reemplazos. Cada uno los verifica por separado.
+ */
+const DECL_VIEJA = `  v_coste_envio  numeric(10,2);
+  v_total        numeric(10,2);`;
+
+const DECL_NUEVA = `  v_coste_envio  numeric(10,2);
+  -- 083 §11: el descuento del cupón, congelado en el checkout igual que el porte.
+  v_descuento    numeric(10,2);
+  v_desc_codigo  text;
+  v_envio_dto    numeric(10,2);
+  v_total        numeric(10,2);`;
+
+const SNAP_VIEJO = `  select cd.coste_envio into v_coste_envio
+  from checkout_datos cd where cd.session_id = p_session_id;
+
+  v_coste_envio := coalesce(v_coste_envio, coste_envio_de(v_articulos));
+  v_total       := v_articulos + v_coste_envio;`;
+
+const SNAP_NUEVO = `  select cd.coste_envio, cd.descuento_importe, cd.descuento_codigo, cd.envio_descontado
+    into v_coste_envio, v_descuento, v_desc_codigo, v_envio_dto
+  from checkout_datos cd where cd.session_id = p_session_id;
+
+  /**
+   * ⚠️⚠️ SIN SNAPSHOT NO SE APLICA DESCUENTO, Y ESO PUEDE DIFERIR DE LO COBRADO.
+   * El porte cae a la tarifa vigente, que es lo unico que se puede hacer; el
+   * descuento cae a 0, que NO es equivalente: si al cliente se le cobro con cupon y
+   * el snapshot ya no esta (webhook pasadas las 48 h de la limpieza de
+   * checkout_datos), el pedido dira MAS de lo que se cobro.
+   *
+   * ⭐ Se elige 0 y no la tarifa de ahora a proposito: un descuento es un acuerdo, y
+   * aplicar uno que no se puede demostrar es peor que no aplicarlo. El error va en
+   * la direccion conservadora — la tienda declara de mas — y art. 78.Tres.2 LIVA
+   * exige justificar el descuento «por cualquier medio de prueba admitido en
+   * derecho»: sin snapshot no hay prueba.
+   *
+   * ⚠️ Y NO SE QUEDA EN SILENCIO. Eso es lo que convierte un descuadre invisible en
+   * uno que alguien puede ver. La solucion de fondo es llevar el codigo en la
+   * metadata del pago —que va por intent y no por sesion, asi que sobrevive a la
+   * limpieza— y esta pendiente.
+   */
+  if not found then
+    insert into factura_eventos (evento, detalle)
+    values ('venta_sin_snapshot_checkout',
+            jsonb_build_object('session_id', p_session_id,
+                               'articulos', v_articulos,
+                               'aviso', 'Sin snapshot: descuento a 0 y porte a la tarifa vigente'));
+  end if;
+
+  v_coste_envio := coalesce(v_coste_envio, coste_envio_de(v_articulos));
+  v_descuento   := coalesce(v_descuento, 0);
+  v_envio_dto   := coalesce(v_envio_dto, 0);
+  v_total       := v_articulos + v_coste_envio - v_descuento;`;
+
+const USOS = `  /**
+   * ⚠️⚠️ EL USO SE CONSUME AQUI, DENTRO DE ESTA TRANSACCION Y DETRAS DE LA MISMA
+   * IDEMPOTENCIA. Arriba hay un pg_advisory_xact_lock y un early-return por
+   * referencia_pago, asi que un reintento del webhook no lo cuenta dos veces.
+   *
+   * ⚠️ Y el tope de usos NO se revalida: es BLANDO por diseño (§0.6). Se comprobo al
+   * aplicar el codigo, minutos antes. Revalidar aqui facturaria un total distinto del
+   * cobrado, y abortar dejaria un pago cobrado sin pedido y a Stripe reintentando el
+   * mismo fallo para siempre. Un cupon usado una vez de mas cuesta unos euros.
+   */
+  if v_desc_codigo is not null then
+    update codigos_descuento
+    set usos = usos + 1, updated_at = now()
+    where upper(btrim(codigo)) = upper(btrim(v_desc_codigo));
+  end if;
+
+`;
+
 const PARCHES = [
+  {
+    nombre: "confirmar_venta",
+    args:
+      "p_session_id uuid, p_usuario_autenticado uuid, p_user_id uuid, p_metodo_pago text, " +
+      "p_referencia_pago text, p_direccion_envio_id uuid, p_email_cliente text, " +
+      "p_documento_cliente text, p_envio jsonb",
+    titulo: "el descuento congelado llega al pedido",
+    reemplazos: [
+      { que: "las variables del descuento", de: DECL_VIEJA, a: DECL_NUEVA, veces: 1 },
+      { que: "la lectura del snapshot y el total", de: SNAP_VIEJO, a: SNAP_NUEVO, veces: 1 },
+      {
+        que: "las columnas del insert de pedidos",
+        de: `    envio_telefono
+  ) values (`,
+        a: `    envio_telefono, descuento, descuento_codigo, envio_descontado
+  ) values (`,
+        veces: 1,
+      },
+      {
+        que: "los valores del insert de pedidos",
+        de: `    nullif(v_envio->>'telefono', '')
+  )`,
+        a: `    nullif(v_envio->>'telefono', ''), v_descuento, v_desc_codigo, v_envio_dto
+  )`,
+        veces: 1,
+      },
+      {
+        que: "el consumo del uso del cupon",
+        de: `  returning id into v_pedido_id;
+
+`,
+        a: `  returning id into v_pedido_id;
+
+${USOS}`,
+        veces: 1,
+      },
+    ],
+  },
+  {
+    nombre: "crear_pedido_transferencia",
+    args:
+      "p_session_id uuid, p_usuario_autenticado uuid, p_user_id uuid, p_clave_idempotencia text, " +
+      "p_dias_plazo integer, p_direccion_envio_id uuid, p_email_cliente text, " +
+      "p_documento_cliente text, p_envio jsonb",
+    titulo: "lo mismo por la via de la transferencia",
+    reemplazos: [
+      { que: "las variables del descuento", de: DECL_VIEJA, a: DECL_NUEVA, veces: 1 },
+      { que: "la lectura del snapshot y el total", de: SNAP_VIEJO, a: SNAP_NUEVO, veces: 1 },
+      {
+        que: "las columnas del insert de pedidos",
+        de: `    envio_codigo_postal, envio_provincia, envio_pais, envio_telefono
+  )`,
+        a: `    envio_codigo_postal, envio_provincia, envio_pais, envio_telefono,
+    descuento, descuento_codigo, envio_descontado
+  )`,
+        veces: 1,
+      },
+      {
+        que: "los valores del insert de pedidos",
+        de: `    v_envio->>'telefono'
+  )`,
+        a: `    v_envio->>'telefono',
+    v_descuento,
+    v_desc_codigo,
+    v_envio_dto
+  )`,
+        veces: 1,
+      },
+      {
+        que: "el consumo del uso del cupon",
+        de: `  returning id into v_pedido_id;
+
+`,
+        a: `  returning id into v_pedido_id;
+
+${USOS}`,
+        veces: 1,
+      },
+    ],
+  },
   {
     nombre: "emitir_rectificativa",
     args: "p_pedido_id uuid, p_refund_id text, p_actor_id uuid",
@@ -1177,8 +1332,19 @@ for (const f of PARCHES) {
   let def = rows[0].def;
   const detalle = [];
   for (const r of f.reemplazos) {
-    const casan = def.match(new RegExp(r.de.source, r.de.flags.includes("g") ? r.de.flags : r.de.flags + "g"));
-    const n = casan ? casan.length : 0;
+    /**
+     * `de` puede ser una cadena LITERAL o una expresión regular, y las dos se
+     * cuentan igual de estricto. La cadena literal se prefiere cuando el trozo a
+     * sustituir es estable —una declaración, una lista de columnas—: dice
+     * exactamente qué se busca y no puede casar de más por accidente. La regex se
+     * queda para los CTEs, donde el interior es largo y variable.
+     */
+    const n =
+      typeof r.de === "string"
+        ? def.split(r.de).length - 1
+        : (def.match(
+            new RegExp(r.de.source, r.de.flags.includes("g") ? r.de.flags : r.de.flags + "g"),
+          ) ?? []).length;
     if (n !== r.veces) {
       throw new Error(
         `${f.nombre}: el parche «${r.que}» casa ${n} vez/veces y esperaba ${r.veces}. ` +
