@@ -14,12 +14,15 @@
 -- Un `select` que enseña 9,34 al lado de 9,34 esperado se lee en diagonal y se da
 -- por bueno; un `raise exception` no.
 --
--- ⚠️ NO CREA FACTURA, y es deliberado. Se monta el pedido en PENDIENTE_PAGO y sin
--- `devengado_el`, así que `trg_pedido_simplificada` no dispara. La factura con
--- descuento es el §7 y todavía no está escrita: emitirla aquí daría un documento
--- cuyas líneas suman los artículos y el porte SIN restar el descuento — que es
--- exactamente el agujero que el §7 y el guardia nuevo del §8 vienen a cerrar. El
--- bloque E de abajo lo demuestra en vez de esconderlo.
+-- ⚠️ SÍ EMITE FACTURA, en el bloque E, y para eso hace falta
+-- `set constraints all immediate`: la emiten triggers de constraint DIFERIDOS que
+-- corren al commit, y en una transacción revertida el commit no llega nunca. Sin esa
+-- línea el bloque sale VACÍO y se lee como «no se emite la factura», que es lo
+-- contrario de la verdad. Costó un falso negativo en el ensayo de la 080.
+--
+-- ⚠️ Los bloques A–D corren ANTES de devengar, con el pedido en PENDIENTE_PAGO, para
+-- comprobar el desglose sin que haya documento de por medio. El E devenga y mira el
+-- papel.
 --
 -- EL CASO. Carrito mixto, que es el que importa: un tipo solo valida cualquier
 -- prorrateo, porque el reparto entero le toca a él.
@@ -267,43 +270,106 @@ begin
 end $bloque_d$;
 
 
--- ── E · Lo que TODAVÍA está mal, demostrado en vez de escondido ──────────────
+-- ── E · ⭐⭐ LA FACTURA DE VERDAD, EMITIDA Y CON SU LÍNEA DE DESCUENTO ───────
 --
--- ⚠️⚠️ El §2 y el §3 arreglan el DESGLOSE. La FACTURA sigue sin saber del
--- descuento: sus líneas suman los artículos más el porte, sin restarlo. Este
--- bloque lo mide y lo deja escrito, para que nadie aplique el §2/§3 creyendo que
--- los descuentos ya funcionan de punta a punta.
+-- ⚠️⚠️ LA VERSIÓN ANTERIOR DE ESTE BLOQUE NO SERVÍA, y es la sexta comprobación
+-- inútil de esta migración. Sumaba a mano `cantidad × precio_unitario` más
+-- `linea_envio_factura` y comprobaba que NO cuadraba con el total. Medía mi propia
+-- reconstrucción, no la factura: nunca llamó a `emitir_factura`, así que el día que
+-- el §7 estuviera bien habría seguido en verde diciendo que faltaba.
 --
--- ⭐ Y es la justificación del guardia nuevo del §8: el guardia de cuadre de
--- `emitir_factura` compara el DESGLOSE contra `pedidos.total`, y los dos valen
--- 15,40, así que PASARÍA. Lo que no cuadra es la suma de las líneas, y hoy nadie
--- la mira.
+-- Ahora emite el documento de verdad y le mira las líneas.
+--
+-- LA FACTURA ESPERADA del pedido de los bloques A–D:
+--
+--     Bon Bon Bum (o el que sea)    1   10 %   10,00 €   10,00 €
+--     Otro producto                 1   21 %    5,00 €    5,00 €
+--     Gastos de envío               1    —      3,40 €    3,40 €
+--     Descuento (ENSAYO20)          1    —      3,00 €   −3,00 €
+--     ──────────────────────────────────────────────────────────
+--                                                        15,40 €
 
-do $bloque_e$
-declare
-  v_pedido    uuid;
-  v_lineas    numeric;
-  v_total     numeric;
+do $bloque_e1$
+declare v_pedido uuid;
 begin
-  select id, total into v_pedido, v_total from pedidos where numero_pedido = 'ENSAYO083';
+  select id into v_pedido from pedidos where numero_pedido = 'ENSAYO083';
+  -- Devengar el pedido es lo que dispara `trg_pedido_simplificada`.
+  update pedidos set estado = 'PROCESANDO' where id = v_pedido;
+end $bloque_e1$;
 
-  -- Lo que sumarían las líneas de la factura si se emitiera ahora: los artículos
-  -- (a PVP, sin descuento) más la línea de envío de la 082.
-  select coalesce(sum(pi.cantidad * pi.precio_unitario), 0)
-         + coalesce((linea_envio_factura(v_pedido, 1) ->> 'importe')::numeric, 0)
-    into v_lineas
-  from pedido_items pi where pi.pedido_id = v_pedido;
+-- ⚠️⚠️ SIN ESTA LÍNEA EL BLOQUE DE ABAJO SALE VACÍO Y SE LEE COMO «no se emite la
+-- factura», QUE ES LO CONTRARIO DE LA VERDAD. La emiten triggers de constraint
+-- DIFERIDOS, que corren al commit — y en una transacción revertida el commit no
+-- llega nunca. Es la trampa que costó un falso negativo en el ensayo de la 080 y
+-- está escrita en su fichero.
+set constraints all immediate;
 
-  if v_lineas = v_total then
+do $bloque_e2$
+declare
+  v_pedido uuid;
+  v_f      record;
+  v_desc   jsonb;
+  v_env    jsonb;
+  v_suma   numeric;
+  v_fallos text := '';
+begin
+  select id into v_pedido from pedidos where numero_pedido = 'ENSAYO083';
+
+  select * into v_f from facturas_emitidas
+  where pedido_id = v_pedido and tipo = 'simplificada';
+
+  if not found then
     raise exception
-      'E · las líneas ya suman el total (%). Si esto pasa, alguien escribió el §7 '
-      'y este bloque hay que convertirlo en una comprobación positiva.', v_lineas;
+      'E · no se emitió ninguna factura. Si el bloque sale vacío, lo primero que hay '
+      'que mirar es el `set constraints all immediate` de arriba, no el trigger.';
   end if;
 
-  raise notice
-    'E · CONFIRMADO que el §7 sigue haciendo falta: las líneas de la factura sumarían %, el pedido cobró %, faltan % de descuento. El guardia de emitir_factura NO lo caza porque compara el desglose, no las líneas.',
-    v_lineas, v_total, v_lineas - v_total;
-end $bloque_e$;
+  -- 4 líneas: los 2 artículos, el porte y el descuento.
+  if jsonb_array_length(v_f.lineas) <> 4 then
+    v_fallos := v_fallos || format(' tiene %s líneas y esperaba 4;', jsonb_array_length(v_f.lineas));
+  end if;
+
+  select l into v_desc from jsonb_array_elements(v_f.lineas) l where l->>'concepto' = 'descuento';
+  select l into v_env  from jsonb_array_elements(v_f.lineas) l where l->>'concepto' = 'envio';
+
+  if v_desc is null then
+    v_fallos := v_fallos || ' NO hay línea de descuento (art. 6.1.f RD 1619/2012);';
+  else
+    -- ⚠️ EN NEGATIVO. Un signo al revés cuadra el desglose y descuadra el papel.
+    if (v_desc->>'importe')::numeric <> -3.00 then
+      v_fallos := v_fallos || format(' el descuento sale %s y debía ser -3.00;', v_desc->>'importe');
+    end if;
+    -- iva_pct null porque cae en dos tipos, y el detalle dentro de `reparto`.
+    if v_desc->>'iva_pct' is not null then
+      v_fallos := v_fallos || format(' el descuento declara iva_pct=%s y cae en dos tipos: debe ser null;', v_desc->>'iva_pct');
+    end if;
+    if jsonb_array_length(v_desc->'reparto') <> 2 then
+      v_fallos := v_fallos || ' el reparto del descuento no lleva los dos tipos dentro;';
+    end if;
+  end if;
+
+  if v_env is null or (v_env->>'importe')::numeric <> 3.40 then
+    v_fallos := v_fallos || ' la línea de envío no sale 3,40;';
+  end if;
+
+  -- ⭐⭐ EL §8: las líneas suman el total del documento.
+  select sum((l->>'importe')::numeric) into v_suma from jsonb_array_elements(v_f.lineas) l;
+  if v_suma <> v_f.total then
+    v_fallos := v_fallos || format(' las líneas suman %s y el documento declara %s;', v_suma, v_f.total);
+  end if;
+  if v_f.total <> 15.40 then
+    v_fallos := v_fallos || format(' el total del documento es %s y se cobraron 15,40;', v_f.total);
+  end if;
+
+  -- Y el desglose sigue copiado de pedido_iva, sin ningún grupo NULL.
+  if exists (select 1 from jsonb_array_elements(v_f.desglose) d where d->>'iva_pct' is null) then
+    v_fallos := v_fallos || ' hay un grupo con iva_pct NULL en el DESGLOSE: desaparecería del 303;';
+  end if;
+
+  if v_fallos <> '' then raise exception 'E · la factura con descuento:%', v_fallos; end if;
+  raise notice 'E · factura % emitida: 4 líneas, descuento -3,00 con reparto de 2 tipos, Σ = % = total',
+    v_f.numero, v_suma;
+end $bloque_e2$;
 
 
 -- ── F · ⭐⭐ EL ORDEN DEL ACUMULADO DEL §4, CON UN CASO QUE SÍ LO DETECTA ─────

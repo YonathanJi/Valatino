@@ -12,6 +12,8 @@
 --     md5(prosrc) = 2853c587e3eb0d048390d2311f41cae8  ·  961 caracteres
 --   emitir_rectificativa(p_pedido_id uuid, p_refund_id text, p_actor_id uuid)
 --     md5(prosrc) = 29731fbc1dc96e80917501c4f97471ce  ·  9900 caracteres
+--   emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, d)
+--     md5(prosrc) = cca415f373e2c67cf66cafe9e5874362  ·  7331 caracteres
 --   registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid)
 --     md5(prosrc) = c663df7162213f7184ab705c1eea28f2  ·  3150 caracteres
 --   reembolsar_pedido_total(uuid, uuid, text)
@@ -662,6 +664,75 @@ comment on function public.importe_a_devolver(uuid, jsonb) is
 revoke execute on function public.importe_a_devolver(uuid, jsonb) from public, anon, authenticated;
 
 
+-- ── §7 · EL DESCUENTO SALE EN LA FACTURA ────────────────────────────────────
+--
+-- ⚠️ ES OBLIGACIÓN LEGAL, no una cortesía. Art. 6.1.f RD 1619/2012: la factura debe
+-- consignar «cualquier descuento o rebaja que no esté incluido en dicho precio
+-- unitario». Y como aquí NO se baja el `precio_unitario` de las líneas —romper la
+-- trazabilidad de la devolución sería peor—, el descuento tiene que salir como
+-- concepto propio.
+--
+-- ⭐ UNA SOLA LÍNEA, con el mismo criterio que el porte desde la 082 y por la misma
+-- razón, que la dijo el dueño mirando su primera factura real: «que salga el envío
+-- total y ya, menos complicado para el cliente». Un descuento partido en dos líneas
+-- por tipo de IVA tendría exactamente el problema que aquello vino a quitar.
+--
+-- ⚠️⚠️ EL SIGNO VA AL REVÉS QUE EL DEL PORTE, y es lo único delicado de esta
+-- función. El porte SUMA y el descuento RESTA, así que con `p_signo = 1` (factura
+-- de venta) el importe sale NEGATIVO, y con `p_signo = -1` (rectificativa) sale
+-- POSITIVO — porque rectificar una venta es deshacer también su descuento. De ahí
+-- el `-p_signo`.
+--
+-- ⚠️ `iva_pct` NULL cuando el descuento cae en varios tipos, igual que el porte, y
+-- el reparto viaja DENTRO de la línea congelada en la clave `reparto`. Eso es lo que
+-- hace que unificar la presentación no pierda información: el libro conserva de
+-- dónde salió cada céntimo aunque el papel enseñe una sola cifra.
+--
+-- ⚠️⚠️ Y NULL SOLO VALE EN `lineas`, NUNCA EN `desglose`. El bloque `doc` de
+-- `liquidacion_iva` agrupa por `(d->>'iva_pct')` del desglose: un grupo NULL no
+-- casaría con `pedido_iva` y desaparecería de los totales del 303. El desglose se
+-- COPIA de `pedido_iva`, que ya lleva el descuento neteado dentro, así que aquí no
+-- hay nada que añadirle.
+
+create or replace function public.linea_descuento_factura(
+  p_pedido_id uuid,
+  p_signo     int default 1
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select case when count(*) = 0 then null else
+    jsonb_build_object(
+      -- El código en el nombre, que es el «medio de prueba» del art. 78.Tres.2 LIVA
+      -- puesto donde el cliente lo ve.
+      'nombre',          'Descuento' || coalesce(
+                           ' (' || (select p.descuento_codigo
+                                    from public.pedidos p where p.id = p_pedido_id) || ')', ''),
+      'cantidad',        1,
+      -- En positivo, como el porte: lo que lleva el signo es el importe.
+      'precio_unitario', round(sum(r.descuento), 2),
+      'iva_pct',         case when count(*) = 1 then min(r.iva_pct) end,
+      'importe',         -p_signo * round(sum(r.descuento), 2),
+      'concepto',        'descuento',
+      'reparto',         jsonb_agg(jsonb_build_object(
+                           'iva_pct', r.iva_pct,
+                           'importe', -p_signo * r.descuento
+                         ) order by r.iva_pct)
+    )
+  end
+  from public.reparto_conceptos_pedido(p_pedido_id) r
+  where r.descuento > 0;
+$$;
+
+comment on function public.linea_descuento_factura(uuid, int) is
+  'La línea de factura del descuento, UNA sola con el total y en NEGATIVO (083 §7). Art. 6.1.f RD 1619/2012. Devuelve NULL si el pedido no llevó cupón. iva_pct es null cuando el descuento cae en varios tipos, y entonces el detalle va en la clave reparto. Mismo criterio que linea_envio_factura: es el único sitio que le da forma.';
+
+revoke execute on function public.linea_descuento_factura(uuid, int) from public, anon, authenticated;
+
+
 -- ── §2.1 · linea_envio_factura — SOLO CAMBIA EL NOMBRE DEL REPARTO ─
 --
 -- Extraída del `prosrc` vivo (md5 2853c587e3eb0d048390d2311f41cae8) y parcheada por script:
@@ -959,7 +1030,253 @@ $function$
 revoke execute on function public.emitir_rectificativa(uuid, text, uuid) from public, anon, authenticated;
 
 
--- ── §6.1 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
+-- ── §6.1 · emitir_factura — la linea del descuento y el guardia del §8 
+--
+-- Extraída del `prosrc` vivo (md5 cca415f373e2c67cf66cafe9e5874362) y parcheada por script:
+--     · la declaración de la variable del guardia nuevo (1 reemplazo)
+--     · la rama del `union all` que añade la línea del descuento (1 reemplazo)
+--     · el guardia del §8: Σ lineas = total del documento (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.emitir_factura(p_pedido_id uuid, p_tipo factura_tipo, p_receptor jsonb DEFAULT NULL::jsonb, p_lineas jsonb DEFAULT NULL::jsonb, p_desglose jsonb DEFAULT NULL::jsonb, p_rectifica_a uuid DEFAULT NULL::uuid, p_sustituye_a uuid DEFAULT NULL::uuid, p_actor_id uuid DEFAULT NULL::uuid, p_fecha_operacion date DEFAULT NULL::date, p_refund_id text DEFAULT NULL::text)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_pedido      pedidos;
+  v_emisor      jsonb;
+  v_lineas      jsonb;
+  v_desglose    jsonb;
+  v_base        numeric(12, 2);
+  v_cuota       numeric(12, 2);
+  v_total       numeric(12, 2);
+  v_suma_lineas numeric(12, 2);
+  v_serie       text;
+  v_ejercicio   integer;
+  v_correlativo integer;
+  v_expedicion  date;
+  v_operacion   date;
+  v_anterior    text;
+  v_numero      text;
+  v_huella      text;
+  v_id          uuid;
+  v_ya          uuid;
+begin
+  select * into v_pedido from pedidos where id = p_pedido_id;
+  if not found then
+    raise exception 'No existe el pedido %', p_pedido_id using errcode = 'P0001';
+  end if;
+
+  if v_pedido.devengado_el is null then
+    raise exception
+      'El pedido % no ha devengado (estado %): todavía no hay hecho económico que facturar.',
+      v_pedido.numero_pedido, v_pedido.estado
+      using errcode = 'P0001';
+  end if;
+
+  -- El cerrojo de la cadena, arriba y antes de la idempotencia (ver 072 §7).
+  perform pg_advisory_xact_lock(10072023);
+
+  -- ⚠️⚠️ IDEMPOTENCIA ASIMÉTRICA (072/073):
+  --   · Pedir una SIMPLIFICADA cuando ya hay una completa devuelve la completa.
+  --   · Pedir una COMPLETA cuando hay una simplificada SÍ sigue: ese es el canje.
+  --   · Una RECTIFICATIVA no entra aquí: puede haber varias por pedido, una por
+  --     devolución. Su idempotencia es por `refund_id` y la lleva
+  --     `emitir_rectificativa` más el índice único de la 073.
+  if p_tipo = 'simplificada' then
+    select id into v_ya from facturas_emitidas
+    where pedido_id = p_pedido_id and tipo in ('simplificada', 'completa')
+    order by tipo desc  -- 'completa' va después en el enum: desc la pone primero
+    limit 1;
+    if v_ya is not null then return v_ya; end if;
+  elsif p_tipo = 'completa' then
+    select id into v_ya from facturas_emitidas
+    where pedido_id = p_pedido_id and tipo = 'completa';
+    if v_ya is not null then return v_ya; end if;
+  end if;
+
+  -- El emisor es el guardia, y NO lanza excepción: esto corre en la ruta del
+  -- dinero y una casilla sin rellenar en Ajustes no puede tumbar una venta.
+  v_emisor := emisor_fiscal();
+  if v_emisor is null then
+    insert into factura_eventos (evento, detalle, actor_id)
+    values ('emision_sin_emisor',
+            jsonb_build_object('pedido_id', p_pedido_id, 'tipo', p_tipo),
+            p_actor_id);
+    return null;
+  end if;
+
+  /**
+   * ⚠️ Los precios son PVP CON IVA INCLUIDO. El desglose separa base y cuota.
+   *
+   * ⬇️ EL CAMBIO DE LA 082: el porte sale como UNA SOLA línea con el total, y la
+   * arma `linea_envio_factura` — el único sitio que le da forma, para las dos
+   * funciones. Devuelve NULL cuando no hay porte que facturar (pedidos anteriores
+   * a la 080 y los que caen bajo el umbral de gratuidad), y por eso el filtro es
+   * `z.linea is not null` y ya no un `where` sobre el reparto.
+   */
+  v_lineas := coalesce(p_lineas, (
+    select jsonb_agg(x.linea order by x.orden, x.nombre, x.iva_pct)
+    from (
+      select 0 as orden, pi.nombre_producto as nombre, pi.iva_pct,
+             jsonb_build_object(
+               'nombre',          pi.nombre_producto,
+               'cantidad',        pi.cantidad,
+               'precio_unitario', pi.precio_unitario,
+               'iva_pct',         pi.iva_pct,
+               'importe',         round(pi.cantidad * pi.precio_unitario, 2)
+             ) as linea
+      from pedido_items pi where pi.pedido_id = p_pedido_id
+      union all
+      select 1, 'Gastos de envío', null::numeric, z.linea
+      from (select public.linea_envio_factura(p_pedido_id, 1) as linea) z
+      where z.linea is not null
+      union all
+      -- §7 de la 083: el descuento, DESPUÉS del porte (orden 2) para que el
+      -- documento se lea de arriba abajo: artículos, envío, descuento, total.
+      select 2, 'Descuento', null::numeric, z.linea
+      from (select public.linea_descuento_factura(p_pedido_id, 1) as linea) z
+      where z.linea is not null
+    ) x
+  ));
+
+  -- ⚠️⚠️ EL DESGLOSE SE COPIA, NO SE CALCULA: la 062 es el único sitio que
+  -- redondea, y recalcular daría una factura que no cuadra con el 303.
+  v_desglose := coalesce(p_desglose, (
+    select jsonb_agg(jsonb_build_object(
+             'iva_pct', pv.iva_pct, 'base', pv.base, 'cuota', pv.cuota
+           ) order by pv.iva_pct)
+    from pedido_iva pv where pv.pedido_id = p_pedido_id
+  ));
+
+  if v_desglose is null or jsonb_array_length(v_desglose) = 0
+     or v_lineas is null or jsonb_array_length(v_lineas) = 0 then
+    insert into factura_eventos (evento, detalle, actor_id)
+    values ('emision_sin_desglose',
+            jsonb_build_object('pedido_id', p_pedido_id, 'tipo', p_tipo),
+            p_actor_id);
+    return null;
+  end if;
+
+  select round(sum((t->>'base')::numeric), 2),
+         round(sum((t->>'cuota')::numeric), 2)
+    into v_base, v_cuota
+  from jsonb_array_elements(v_desglose) t;
+
+  v_total := v_base + v_cuota;
+
+  -- El guardia del invariante. ⚠️ Desde la 080 `v_pedido.total` incluye el
+  -- envío, y el desglose también: no hay que relajar nada, y por eso mismo esto
+  -- es lo que cazaría un reparto mal hecho antes de que salga un papel.
+  if p_tipo <> 'rectificativa' and p_lineas is null
+     and v_total <> v_pedido.total then
+    raise exception
+      'La factura del pedido % sumaría % y se cobraron %. No se emite un documento que no cuadra.',
+      v_pedido.numero_pedido, v_total, v_pedido.total
+      using errcode = 'P0001';
+  end if;
+
+  /**
+   * ── §8 DE LA 083 · LAS LÍNEAS TIENEN QUE SUMAR EL TOTAL DEL DOCUMENTO ──────
+   *
+   * ⚠️⚠️ EL GUARDIA DE ARRIBA NO CUBRE ESTO, y por eso hace falta otro. Aquel
+   * compara el DESGLOSE contra \`pedidos.total\`; este compara las LÍNEAS contra el
+   * total del documento. Son cosas distintas: una línea con el signo o el importe
+   * equivocados deja el desglose intacto, así que el primero pasa, la factura se
+   * emite, se encadena y \`trg_factura_inmutable\` impide corregirla. Para siempre.
+   *
+   * ⭐ NO HEREDA DEUDA: comprobado contra el remoto el 2026-08-23, las 9 facturas
+   * ya emitidas cumplen este invariante una a una, formato viejo y nuevo, ventas y
+   * rectificativas. Se puede exigir desde hoy sin arreglar nada antes.
+   *
+   * ⚠️ Y CUBRE TAMBIÉN LAS RECTIFICATIVAS, que es lo que el otro guardia exime:
+   * \`emitir_rectificativa\` no inserta, DELEGA aquí pasando sus líneas por
+   * \`p_lineas\`. Un solo sitio protege los tres tipos de documento.
+   *
+   * ⚠️ El descuento es justo el primer concepto capaz de romperlo en silencio: va
+   * en negativo, y un signo al revés cuadra el desglose y descuadra el papel.
+   */
+  select coalesce(sum((l->>'importe')::numeric), 0) into v_suma_lineas
+  from jsonb_array_elements(v_lineas) l;
+
+  if v_suma_lineas <> v_total then
+    raise exception
+      'Las líneas de la factura del pedido % suman % y el documento declara %. No se emite un documento cuyas líneas no cuadran con su total.',
+      v_pedido.numero_pedido, v_suma_lineas, v_total
+      using errcode = 'P0001';
+  end if;
+
+  -- La fecha de operación puede venir dada (077). Una rectificativa declara la
+  -- fecha de la DEVOLUCIÓN, que es el trimestre en que el 303 la netea; todo lo
+  -- demás sigue usando la de devengo de la venta.
+  v_operacion  := coalesce(p_fecha_operacion, dia_fiscal(v_pedido.devengado_el));
+  v_expedicion := case
+    when p_tipo = 'simplificada' then v_operacion
+    else dia_fiscal(now())
+  end;
+
+  v_serie     := serie_de_tipo(p_tipo);
+  v_ejercicio := extract(year from v_expedicion)::integer;
+
+  -- ── El número: contador con `for update`, no secuencia ──
+  insert into factura_contadores (serie, ejercicio, siguiente)
+  values (v_serie, v_ejercicio, factura_correlativo_inicial())
+  on conflict (serie, ejercicio) do nothing;
+
+  select siguiente into v_correlativo
+  from factura_contadores
+  where serie = v_serie and ejercicio = v_ejercicio
+  for update;
+
+  update factura_contadores set siguiente = siguiente + 1
+  where serie = v_serie and ejercicio = v_ejercicio;
+
+  -- ── La cadena ── (el cerrojo ya está tomado arriba)
+  select f.huella into v_anterior
+  from facturas_emitidas f
+  order by f.orden desc
+  limit 1;
+
+  -- La MISMA función que usa la columna generada (074): el número que se hashea y
+  -- el que se imprime no pueden discrepar ni por un carácter.
+  v_numero := factura_numero(v_serie, v_ejercicio, v_correlativo);
+  v_huella := factura_huella(
+    v_emisor->>'nif', v_numero, v_expedicion, p_tipo, v_cuota, v_total, v_anterior
+  );
+
+  insert into facturas_emitidas (
+    tipo, serie, ejercicio, correlativo, pedido_id,
+    fecha_expedicion, fecha_operacion,
+    emisor, receptor, lineas, desglose,
+    base_total, cuota_total, total,
+    sustituye_a, rectifica_a, refund_id,
+    huella, huella_anterior, emitida_por
+  ) values (
+    p_tipo, v_serie, v_ejercicio, v_correlativo, p_pedido_id,
+    v_expedicion, v_operacion,
+    v_emisor, p_receptor, v_lineas, v_desglose,
+    v_base, v_cuota, v_total,
+    p_sustituye_a, p_rectifica_a, p_refund_id,
+    v_huella, v_anterior, p_actor_id
+  )
+  returning id into v_id;
+
+  insert into factura_eventos (factura_id, evento, detalle, actor_id)
+  values (v_id, 'emitida',
+          jsonb_build_object('numero', v_numero, 'tipo', p_tipo, 'total', v_total),
+          p_actor_id);
+
+  return v_id;
+end;
+$function$
+;
+
+revoke execute on function public.emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, date, text) from public, anon, authenticated;
+
+
+-- ── §6.2 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
 --
 -- Extraída del `prosrc` vivo (md5 c663df7162213f7184ab705c1eea28f2) y parcheada por script:
 --     · el CTE `disponible`, que duplicaba el tope y la fórmula del PVP (1 reemplazo)
@@ -1069,7 +1386,7 @@ $function$
 revoke execute on function public.registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid) from public, anon, authenticated;
 
 
--- ── §6.2 · reembolsar_pedido_total — lo pendiente se valora en neto 
+-- ── §6.3 · reembolsar_pedido_total — lo pendiente se valora en neto 
 --
 -- Extraída del `prosrc` vivo (md5 3d807a6317fe82402716adbd74836165) y parcheada por script:
 --     · el cuerpo de `pendiente_por_item`, que valoraba a PVP (1 reemplazo)
@@ -1292,7 +1609,8 @@ begin
     'public.congelar_descuento_lineas(uuid)',
     'public.codigo_descuento_aplicable(text, numeric)',
     'public.coste_envio_de(numeric, text)',
-    'public.importe_a_devolver(uuid, jsonb)'
+    'public.importe_a_devolver(uuid, jsonb)',
+    'public.linea_descuento_factura(uuid, integer)'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']

@@ -671,12 +671,146 @@ comment on function public.importe_a_devolver(uuid, jsonb) is
 revoke execute on function public.importe_a_devolver(uuid, jsonb) from public, anon, authenticated;
 `;
 
+const LINEA_DESCUENTO = `
+-- ── §7 · EL DESCUENTO SALE EN LA FACTURA ────────────────────────────────────
+--
+-- ⚠️ ES OBLIGACIÓN LEGAL, no una cortesía. Art. 6.1.f RD 1619/2012: la factura debe
+-- consignar «cualquier descuento o rebaja que no esté incluido en dicho precio
+-- unitario». Y como aquí NO se baja el \`precio_unitario\` de las líneas —romper la
+-- trazabilidad de la devolución sería peor—, el descuento tiene que salir como
+-- concepto propio.
+--
+-- ⭐ UNA SOLA LÍNEA, con el mismo criterio que el porte desde la 082 y por la misma
+-- razón, que la dijo el dueño mirando su primera factura real: «que salga el envío
+-- total y ya, menos complicado para el cliente». Un descuento partido en dos líneas
+-- por tipo de IVA tendría exactamente el problema que aquello vino a quitar.
+--
+-- ⚠️⚠️ EL SIGNO VA AL REVÉS QUE EL DEL PORTE, y es lo único delicado de esta
+-- función. El porte SUMA y el descuento RESTA, así que con \`p_signo = 1\` (factura
+-- de venta) el importe sale NEGATIVO, y con \`p_signo = -1\` (rectificativa) sale
+-- POSITIVO — porque rectificar una venta es deshacer también su descuento. De ahí
+-- el \`-p_signo\`.
+--
+-- ⚠️ \`iva_pct\` NULL cuando el descuento cae en varios tipos, igual que el porte, y
+-- el reparto viaja DENTRO de la línea congelada en la clave \`reparto\`. Eso es lo que
+-- hace que unificar la presentación no pierda información: el libro conserva de
+-- dónde salió cada céntimo aunque el papel enseñe una sola cifra.
+--
+-- ⚠️⚠️ Y NULL SOLO VALE EN \`lineas\`, NUNCA EN \`desglose\`. El bloque \`doc\` de
+-- \`liquidacion_iva\` agrupa por \`(d->>'iva_pct')\` del desglose: un grupo NULL no
+-- casaría con \`pedido_iva\` y desaparecería de los totales del 303. El desglose se
+-- COPIA de \`pedido_iva\`, que ya lleva el descuento neteado dentro, así que aquí no
+-- hay nada que añadirle.
+
+create or replace function public.linea_descuento_factura(
+  p_pedido_id uuid,
+  p_signo     int default 1
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select case when count(*) = 0 then null else
+    jsonb_build_object(
+      -- El código en el nombre, que es el «medio de prueba» del art. 78.Tres.2 LIVA
+      -- puesto donde el cliente lo ve.
+      'nombre',          'Descuento' || coalesce(
+                           ' (' || (select p.descuento_codigo
+                                    from public.pedidos p where p.id = p_pedido_id) || ')', ''),
+      'cantidad',        1,
+      -- En positivo, como el porte: lo que lleva el signo es el importe.
+      'precio_unitario', round(sum(r.descuento), 2),
+      'iva_pct',         case when count(*) = 1 then min(r.iva_pct) end,
+      'importe',         -p_signo * round(sum(r.descuento), 2),
+      'concepto',        'descuento',
+      'reparto',         jsonb_agg(jsonb_build_object(
+                           'iva_pct', r.iva_pct,
+                           'importe', -p_signo * r.descuento
+                         ) order by r.iva_pct)
+    )
+  end
+  from public.${NUEVO}(p_pedido_id) r
+  where r.descuento > 0;
+$$;
+
+comment on function public.linea_descuento_factura(uuid, int) is
+  'La línea de factura del descuento, UNA sola con el total y en NEGATIVO (083 §7). Art. 6.1.f RD 1619/2012. Devuelve NULL si el pedido no llevó cupón. iva_pct es null cuando el descuento cae en varios tipos, y entonces el detalle va en la clave reparto. Mismo criterio que linea_envio_factura: es el único sitio que le da forma.';
+
+revoke execute on function public.linea_descuento_factura(uuid, int) from public, anon, authenticated;
+`;
+
 /**
  * Parches estructurales sobre funciones vivas: reemplazos por expresión regular
- * con el número de coincidencias VERIFICADO. Se prefiere a retranscribir 3.150 y
- * 6.485 caracteres de SQL fiscal para cambiar un CTE en cada uno.
+ * con el número de coincidencias VERIFICADO. Se prefiere a retranscribir miles de
+ * caracteres de SQL fiscal para cambiar un CTE o añadir un guardia.
  */
 const PARCHES = [
+  {
+    nombre: "emitir_factura",
+    args:
+      "p_pedido_id uuid, p_tipo factura_tipo, p_receptor jsonb, p_lineas jsonb, " +
+      "p_desglose jsonb, p_rectifica_a uuid, p_sustituye_a uuid, p_actor_id uuid, " +
+      "p_fecha_operacion date, p_refund_id text",
+    titulo: "la linea del descuento y el guardia del §8",
+    reemplazos: [
+      {
+        que: "la declaración de la variable del guardia nuevo",
+        de: /(\n\s+v_total\s+numeric\(12, 2\);)/,
+        a: "$1\n  v_suma_lineas numeric(12, 2);",
+        veces: 1,
+      },
+      {
+        que: "la rama del `union all` que añade la línea del descuento",
+        de: /(select 1, 'Gastos de envío', null::numeric, z\.linea\s*from \(select public\.linea_envio_factura\(p_pedido_id, 1\) as linea\) z\s*where z\.linea is not null)/,
+        a: `$1
+      union all
+      -- §7 de la 083: el descuento, DESPUÉS del porte (orden 2) para que el
+      -- documento se lea de arriba abajo: artículos, envío, descuento, total.
+      select 2, 'Descuento', null::numeric, z.linea
+      from (select public.linea_descuento_factura(p_pedido_id, 1) as linea) z
+      where z.linea is not null`,
+        veces: 1,
+      },
+      {
+        que: "el guardia del §8: Σ lineas = total del documento",
+        de: /('La factura del pedido % sumaría % y se cobraron %\. No se emite un documento que no cuadra\.',\s*v_pedido\.numero_pedido, v_total, v_pedido\.total\s*using errcode = 'P0001';\s*end if;)/,
+        a: `$1
+
+  /**
+   * ── §8 DE LA 083 · LAS LÍNEAS TIENEN QUE SUMAR EL TOTAL DEL DOCUMENTO ──────
+   *
+   * ⚠️⚠️ EL GUARDIA DE ARRIBA NO CUBRE ESTO, y por eso hace falta otro. Aquel
+   * compara el DESGLOSE contra \\\`pedidos.total\\\`; este compara las LÍNEAS contra el
+   * total del documento. Son cosas distintas: una línea con el signo o el importe
+   * equivocados deja el desglose intacto, así que el primero pasa, la factura se
+   * emite, se encadena y \\\`trg_factura_inmutable\\\` impide corregirla. Para siempre.
+   *
+   * ⭐ NO HEREDA DEUDA: comprobado contra el remoto el 2026-08-23, las 9 facturas
+   * ya emitidas cumplen este invariante una a una, formato viejo y nuevo, ventas y
+   * rectificativas. Se puede exigir desde hoy sin arreglar nada antes.
+   *
+   * ⚠️ Y CUBRE TAMBIÉN LAS RECTIFICATIVAS, que es lo que el otro guardia exime:
+   * \\\`emitir_rectificativa\\\` no inserta, DELEGA aquí pasando sus líneas por
+   * \\\`p_lineas\\\`. Un solo sitio protege los tres tipos de documento.
+   *
+   * ⚠️ El descuento es justo el primer concepto capaz de romperlo en silencio: va
+   * en negativo, y un signo al revés cuadra el desglose y descuadra el papel.
+   */
+  select coalesce(sum((l->>'importe')::numeric), 0) into v_suma_lineas
+  from jsonb_array_elements(v_lineas) l;
+
+  if v_suma_lineas <> v_total then
+    raise exception
+      'Las líneas de la factura del pedido % suman % y el documento declara %. No se emite un documento cuyas líneas no cuadran con su total.',
+      v_pedido.numero_pedido, v_suma_lineas, v_total
+      using errcode = 'P0001';
+  end if;`,
+        veces: 1,
+      },
+    ],
+  },
   {
     nombre: "registrar_reembolso_lineas",
     args: "p_pedido_id uuid, p_lineas jsonb, p_reponer_stock boolean, p_refund_id text, p_marcar_total boolean, p_actor_id uuid",
@@ -780,6 +914,7 @@ trozos.push(REPARTO);
 trozos.push(DESGLOSE);
 trozos.push(CODIGOS);
 trozos.push(DEVOLVER);
+trozos.push(LINEA_DESCUENTO);
 
 // 2. Las que solo cambian de nombre: se extraen vivas y se parchean.
 const md5s = [];
@@ -936,7 +1071,8 @@ begin
     'public.congelar_descuento_lineas(uuid)',
     'public.codigo_descuento_aplicable(text, numeric)',
     'public.coste_envio_de(numeric, text)',
-    'public.importe_a_devolver(uuid, jsonb)'
+    'public.importe_a_devolver(uuid, jsonb)',
+    'public.linea_descuento_factura(uuid, integer)'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']
