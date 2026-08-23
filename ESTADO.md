@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-23
+**Última actualización**: 2026-08-24 (madrugada — la sesión es del 23 y Jonathan siguió probando después de cerrarla)
 
 ---
 
@@ -49,6 +49,33 @@
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-08-23
+
+### ⚠️⚠️ LO PRIMERO MAÑANA: PREGUNTARLE A LA BASE, PORQUE ESTE FICHERO YA ESTÁ VIEJO
+
+**Jonathan se quedó haciendo pruebas después de cerrar esto** (madrugada del 23 al 24). O sea que las cifras de abajo —2 pedidos, 9 facturas, 0 códigos— **son de antes de sus pruebas y serán falsas al leerlas**. No es una posibilidad: es lo que va a pasar.
+
+Ya ha pasado **tres veces** en este proyecto, y la última con estas mismas palabras: «el cierre del 17/08 se commiteó a las 23:16 y decía *1 pedido, 4 facturas, 8 eventos*; la verdad eran 2, 7 y 12, porque Jonathan compró cinco minutos DESPUÉS del commit».
+
+**La línea base con la que comparar** (justo antes de que él empezara):
+
+```
+pedidos 2 · pedido_items 7 · pedido_iva 4 · facturas 9 · factura_eventos 10
+reembolso_lineas 7 · productos 30 · codigos_descuento 0
+descuento total 0,00 · descuento_imputado total 0,00
+contadores VALS→102 VALF→102 VALR→105
+arranque_fiscal_el NULL
+```
+
+**Y lo que hay que mirar de sus pruebas, en este orden:**
+
+1. **¿Creó un código?** `select * from codigos_descuento` — y con qué porcentaje, mínimo y tope. Todo lo demás se lee a la luz de eso.
+2. **El pedido con descuento**: que `total = artículos + porte − descuento`, que `pedido_iva` sume exactamente ese total, y que `Σ pedido_items.descuento_imputado = pedidos.descuento`. Si el guardia hubiera saltado, no habría pedido — así que la existencia del pedido ya prueba parte.
+3. **La factura**: 3 o 4 líneas según el carrito, la del descuento en **negativo** con `iva_pct` NULL si el carrito era mixto, y **Σ líneas = total** (el guardia del §8 lo garantiza, pero medirlo lo hace explícito). Y en el PDF: el descuento **abajo, junto al subtotal**, no en la tabla.
+4. **Si devolvió algo**: que `reembolso_lineas.importe` sea el **NETO** y no el PVP. Es el euro que se estaba regalando. Y que la vuelta a cero por tipo de IVA sea exacta.
+5. **El 303**: `liquidacion_iva` del mes, y que no haya avisos raros.
+6. **`codigos_descuento.usos`**: que coincida con el número de pedidos que llevaron ese código. Si sale de más, mirar si hubo reintento de webhook (el tope es blando por diseño, pero un uso duplicado por reintento sería un fallo).
+
+⚠️ **Y la pregunta que Jonathan tiene que contestar mirando el papel**: ¿le gusta cómo sale el descuento en la factura? La ventana del arranque fiscal **sigue abierta** (`arranque_fiscal_el` en NULL), así que se puede rehacer el formato o el reparto. Después de marcarlo, no. Es exactamente la conversación que tuvo con el porte en la 080 y que produjo la 082.
 
 ## ✅✅ LA 083 ESTÁ VIVA EN PRODUCCIÓN (2026-08-23, 21:57)
 
