@@ -386,10 +386,17 @@ export default function CheckoutPage() {
               <span>{formatEUR(item.subtotal)}</span>
             </div>
           ))}
+          {/* ⚠️ Aquí el descuento se VE pero no se toca: la caja del código vive
+              solo en el carrito. Este componente es compartido, así que basta con
+              pasarle los campos — el cliente ve exactamente el mismo desglose que
+              va a pagar. Para cambiar el código, volver al carrito. */}
           <ResumenImportes
             subtotal={carrito.subtotal}
             costeEnvio={carrito.costeEnvio}
             envioGratisDesde={carrito.envioGratisDesde}
+            envioDescontado={carrito.envioDescontado}
+            descuento={carrito.descuento}
+            codigoDescuento={carrito.codigoDescuento}
             total={carrito.total}
           />
           <p className="text-xs text-muted-foreground" aria-live="polite">

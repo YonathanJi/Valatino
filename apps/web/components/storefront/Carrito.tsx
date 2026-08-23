@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { formatEUR } from "@lib/utils";
 import { ResumenImportes } from "./ResumenImportes";
+import { CajaCodigo } from "./CajaCodigo";
 
 export function Carrito() {
   const { carrito, isLoading, updateItem, removeItem } = useCarrito();
@@ -109,10 +110,22 @@ export function Carrito() {
             </div>
           ))}
         </div>
+        {/* ⚠️ La caja va ANTES del resumen y solo aquí, no en el checkout: allí la
+            máquina de estados de la reserva de stock reemplaza la página entera y un
+            refetch desde la caja puede reentrar en su `useEffect`. Ver la cabecera
+            de `CajaCodigo`. */}
+        <CajaCodigo
+          codigoAplicado={carrito.codigoDescuento}
+          aviso={carrito.avisoDescuento}
+        />
+
         <ResumenImportes
           subtotal={carrito.subtotal}
           costeEnvio={carrito.costeEnvio}
           envioGratisDesde={carrito.envioGratisDesde}
+          envioDescontado={carrito.envioDescontado}
+          descuento={carrito.descuento}
+          codigoDescuento={carrito.codigoDescuento}
           total={carrito.total}
         />
         <Button asChild className="w-full" size="lg">

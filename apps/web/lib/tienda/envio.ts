@@ -23,12 +23,22 @@
 const centimos = (n: number): number => Math.round(n * 100);
 
 export interface DatosEnvio {
-  /** Suma de los artículos, IVA incluido. */
+  /** Suma de los artículos, IVA incluido. **BRUTO**: sin descontar el cupón. */
   subtotal: number;
   /** El porte que la API dice que se va a cobrar. 0 = gratis. */
   costeEnvio: number;
   /** El umbral de gratuidad, o `null` si la tienda no tiene ninguno. */
   envioGratisDesde: number | null;
+  /**
+   * El porte que un código de envío gratis está dejando de cobrar (083).
+   *
+   * ⚠️ Es lo ÚNICO que distingue «gratis porque pasaste del umbral» de «gratis
+   * porque usaste un código», y las dos cosas se dicen distinto: la primera es un
+   * logro del carrito y la segunda del código. Sin esto habría que deducirlo
+   * comparando el subtotal con el umbral —o sea aplicando la regla aquí— que es lo
+   * que este fichero tiene prohibido.
+   */
+  envioDescontado?: number;
 }
 
 /**
@@ -45,6 +55,14 @@ export function faltaParaEnvioGratis(datos: DatosEnvio): number | null {
 
   if (envioGratisDesde === null || envioGratisDesde <= 0) return null;
   if (subtotal <= 0) return null;
+
+  /**
+   * ⚠️⚠️ EL UMBRAL SE MIDE SOBRE EL SUBTOTAL BRUTO, sin descontar el cupón, porque
+   * es lo que hace `coste_envio_de` en la base (083 §0.5). Medirlo aquí sobre el
+   * neto diría «te faltan 6,00» mientras la base ya está dando el envío gratis, y el
+   * cliente añadiría 6 € que no le sirven de nada. `subtotal` YA es el bruto: el
+   * descuento viaja aparte a propósito.
+   */
 
   const falta = centimos(envioGratisDesde) - centimos(subtotal);
   return falta > 0 ? falta / 100 : null;
@@ -67,4 +85,18 @@ export function estadoEnvio(datos: DatosEnvio): EstadoEnvio {
   if (datos.subtotal <= 0) return "vacio";
   if (centimos(datos.costeEnvio) === 0) return "gratis";
   return faltaParaEnvioGratis(datos) !== null ? "con_umbral" : "se_cobra";
+}
+
+/**
+ * Si el envío sale gratis **por un código** y no por el umbral (083).
+ *
+ * ⭐ Se decide con `envioDescontado`, que es lo que dice la API, y NO comparando el
+ * subtotal con el umbral. Deducirlo sería aplicar la regla del porte en la pantalla,
+ * que es justo lo que la cabecera de este fichero prohíbe.
+ *
+ * ⚠️ Y por eso vale 0 cuando el carrito ya pasaba del umbral: ahí el código no está
+ * ahorrando nada, y decir «te ahorras 3,40 €» sería mentir.
+ */
+export function envioGratisPorCodigo(datos: DatosEnvio): boolean {
+  return centimos(datos.costeEnvio) === 0 && centimos(datos.envioDescontado ?? 0) > 0;
 }

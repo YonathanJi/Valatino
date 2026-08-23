@@ -11,6 +11,17 @@ interface CarritoContextValue {
   addItem: (productoId: string, cantidad: number) => Promise<void>;
   updateItem: (itemId: string, cantidad: number) => Promise<void>;
   removeItem: (itemId: string) => Promise<void>;
+  /**
+   * Aplica un código de descuento (083). Devuelve `null` si fue bien, o el MOTIVO
+   * del rechazo.
+   *
+   * ⚠️ Rompe el patrón de los otros a propósito: los demás se tragan el error en un
+   * toast, y aquí el mensaje tiene que salir PEGADO A LA CAJA. Un toast que dice «te
+   * faltan 4 € para el mínimo» desaparece a los tres segundos y el cliente se queda
+   * con un campo vacío y sin saber por qué. El motivo lo redacta la base.
+   */
+  aplicarCodigo: (codigo: string) => Promise<string | null>;
+  quitarCodigo: () => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -80,8 +91,45 @@ export function CarritoProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const aplicarCodigo = useCallback(async (codigo: string): Promise<string | null> => {
+    try {
+      setCarrito(
+        await apiFetch<CarritoConItems>("/carrito/codigo", {
+          method: "PUT",
+          body: JSON.stringify({ codigo }),
+        }),
+      );
+      return null;
+    } catch (e) {
+      // El 400 trae el motivo que redactó `codigo_descuento_aplicable`: es lo que le
+      // dice al cliente qué hacer, así que se devuelve sin reescribirlo.
+      return e instanceof ApiError
+        ? e.message
+        : "No hemos podido comprobar tu código ahora mismo";
+    }
+  }, []);
+
+  const quitarCodigo = useCallback(async () => {
+    try {
+      setCarrito(await apiFetch<CarritoConItems>("/carrito/codigo", { method: "DELETE" }));
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "No se pudo quitar el código");
+    }
+  }, []);
+
   return (
-    <CarritoContext.Provider value={{ carrito, isLoading, addItem, updateItem, removeItem, reload }}>
+    <CarritoContext.Provider
+      value={{
+        carrito,
+        isLoading,
+        addItem,
+        updateItem,
+        removeItem,
+        aplicarCodigo,
+        quitarCodigo,
+        reload,
+      }}
+    >
       {children}
     </CarritoContext.Provider>
   );

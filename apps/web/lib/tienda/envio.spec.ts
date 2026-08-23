@@ -1,4 +1,6 @@
-import { estadoEnvio, faltaParaEnvioGratis } from "./envio";
+import { estadoEnvio, faltaParaEnvioGratis,
+  envioGratisPorCodigo,
+} from "./envio";
 
 /**
  * Estos tests existen porque **esta lógica falla en silencio**.
@@ -105,5 +107,118 @@ describe("estadoEnvio", () => {
     expect(estadoEnvio({ subtotal: 30, costeEnvio: 4.95, envioGratisDesde: 0 })).toBe(
       "se_cobra",
     );
+  });
+});
+
+// ── 083 · el código de descuento ──────────────────────────────────────────────
+
+describe("envioGratisPorCodigo", () => {
+  /**
+   * ⚠️⚠️ ES LO QUE DISTINGUE DOS «GRATIS» QUE SE DICEN DISTINTO: uno es un logro del
+   * carrito («ya tienes envío gratis») y el otro del código («te ahorras 3,40 € con
+   * tu código»). Y se decide con lo que dice la API, no comparando el subtotal con el
+   * umbral — deducirlo sería aplicar aquí la regla del porte.
+   */
+  it("gratis por CÓDIGO cuando la API dice cuánto ahorra", () => {
+    expect(
+      envioGratisPorCodigo({
+        subtotal: 15,
+        costeEnvio: 0,
+        envioGratisDesde: 30,
+        envioDescontado: 3.4,
+      }),
+    ).toBe(true);
+  });
+
+  it("gratis por UMBRAL no es gratis por código", () => {
+    // 35 € pasa de 30, así que el porte es 0 por el carrito y no por ningún código.
+    expect(
+      envioGratisPorCodigo({ subtotal: 35, costeEnvio: 0, envioGratisDesde: 30 }),
+    ).toBe(false);
+  });
+
+  it("un código sobre un carrito que YA tenía envío gratis no ahorra nada", () => {
+    // ⚠️ Aquí `envioDescontado` es 0 porque el código no está ahorrando: decir «te
+    // ahorras 3,40 €» sería mentirle al cliente.
+    expect(
+      envioGratisPorCodigo({
+        subtotal: 35,
+        costeEnvio: 0,
+        envioGratisDesde: 30,
+        envioDescontado: 0,
+      }),
+    ).toBe(false);
+  });
+
+  /**
+   * ⚠️⚠️ ESTOS DOS CASOS SON LOS ÚNICOS QUE DISTINGUEN «leer lo que dice la API» de
+   * «deducirlo comparando el subtotal con el umbral», y hubo que añadirlos porque los
+   * cuatro de arriba daban lo MISMO con las dos implementaciones. Sin ellos el test
+   * salía en verde con la regla del porte aplicada aquí, que es justo lo que este
+   * fichero tiene prohibido.
+   */
+  it("una tienda que NO cobra envío no está regalando nada por código", () => {
+    // `envio_coste = 0` en ajustes: `coste_envio_de` devuelve 0 para cualquier
+    // subtotal y no hay código de por medio. Fue el estado de esta tienda durante
+    // meses, hasta que se puso la tarifa el 22/08.
+    //
+    // Deduciéndolo del umbral esto saldría `true` —15 < 30— y la pantalla diría «te
+    // ahorras» un porte que nadie iba a cobrar.
+    expect(
+      envioGratisPorCodigo({
+        subtotal: 15,
+        costeEnvio: 0,
+        envioGratisDesde: 30,
+        envioDescontado: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("sin umbral configurado, un código de envío gratis sigue siendo un código", () => {
+    // Deduciéndolo del umbral esto saldría `false` —no hay umbral que comparar— y el
+    // ahorro real del código no se enseñaría.
+    expect(
+      envioGratisPorCodigo({
+        subtotal: 15,
+        costeEnvio: 0,
+        envioGratisDesde: null,
+        envioDescontado: 3.4,
+      }),
+    ).toBe(true);
+  });
+
+  it("si se cobra porte, no es gratis por nada", () => {
+    expect(
+      envioGratisPorCodigo({
+        subtotal: 15,
+        costeEnvio: 3.4,
+        envioGratisDesde: 30,
+        envioDescontado: 0,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("el umbral se mide sobre el subtotal BRUTO", () => {
+  /**
+   * ⚠️⚠️ ES LA MISMA REGLA QUE APLICA LA BASE (083 §0.5), y aquí importa porque si la
+   * pantalla midiera sobre el neto diría «te faltan 6,00» mientras `coste_envio_de`
+   * ya está dando el envío gratis. El cliente añadiría 6 € que no le sirven de nada.
+   *
+   * `subtotal` es el bruto y el descuento viaja aparte a propósito: este fichero no
+   * puede restarlo ni queriendo.
+   */
+  it("un carrito de 30 con un código del −20 % sigue teniendo envío gratis", () => {
+    // La API ya devolvió costeEnvio 0 midiendo sobre 30, no sobre 24.
+    expect(
+      estadoEnvio({ subtotal: 30, costeEnvio: 0, envioGratisDesde: 30 }),
+    ).toBe("gratis");
+    expect(faltaParaEnvioGratis({ subtotal: 30, costeEnvio: 0, envioGratisDesde: 30 })).toBeNull();
+  });
+
+  it("y a 29 le sigue faltando 1, con código o sin él", () => {
+    expect(
+      faltaParaEnvioGratis({ subtotal: 29, costeEnvio: 3.4, envioGratisDesde: 30 }),
+    ).toBe(1);
   });
 });
