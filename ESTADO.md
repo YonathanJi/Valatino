@@ -54,10 +54,28 @@
 
 **LO PRIMERO AL VOLVER, y en este orden, que importa:**
 
-1. ⚠️⚠️ **DESPLEGAR RENDER (la API) ANTES DE APLICAR LA MIGRACIÓN.** Es la lección que pagó la 082 —la base emitió la línea nueva y el PDF arreglado llegó minutos después, y una factura descargada en esa ventana decía «null %»—. La 083 hace que `emitir_factura` meta la línea del descuento en `lineas`, y el PDF tiene que saber sacarla del cuerpo de la tabla y pintarla en el bloque de totales.
-2. Aplicar: `node scripts/aplicar-sql.mjs --go supabase/migrations/083_codigos_de_descuento.sql scripts/083_funciones.generado.sql`
-3. **Comprobar que la tienda sigue exactamente igual.** Aquí es donde «cero códigos = cero cambios» se cobra: sin ninguna fila en `codigos_descuento` ningún pedido puede llevar descuento.
-4. Y **solo entonces** crear el primer código en TI → Ajustes.
+⚠️⚠️ **EL ORDEN ES: LA MIGRACIÓN PRIMERO, EL DESPLIEGUE DESPUÉS.** Y esto CORRIGE lo que este mismo fichero decía antes —«desplegar Render primero»—, que estaba **invertido y habría roto la tienda**. Se comprobó contra producción el 23/08, en los dos sentidos:
+
+| Orden | Qué pasa |
+|---|---|
+| **Migración → despliegue** ✅ | El código YA desplegado llama a `coste_envio_de` con **un** argumento por nombre, que es como lo manda PostgREST. Tras la migración esa firma se dropea y queda la de dos **con `default null`**, así que la llamada vieja sigue resolviendo: comprobado, devuelve 3,40 bajo el umbral y 0 por encima. Y `confirmar_venta`, `registrar_reembolso_lineas` y `reembolsar_pedido_total` conservan su firma exacta. |
+| **Despliegue → migración** ❌ | Contra la base de HOY: `coste_envio_de({p_subtotal, p_codigo})` da **404**, y el `catch` del carrito devuelve **0** → **la tienda deja de cobrar el porte**. Y `importe_a_devolver` da **404** → `validarSeleccion` lanza → **el panel no puede devolver nada**. |
+
+⚠️ **Y por qué me equivoqué, que es lo que hay que recordar**: apliqué la lección de la 082 —«para la próxima migración que cambie a la vez la base y el render, desplegar el render primero»— **sin comprobar si seguía valiendo**. En la 082 el cambio era de PRESENTACIÓN (el PDF), y ahí render-primero es correcto. Aquí el código nuevo **llama a funciones nuevas de la base**, y eso invierte el orden. Es el mismo fallo que este cierre lleva diez veces describiendo: dar por bueno algo escrito sin volver a medirlo.
+
+⚠️ Lo que el PDF viejo sí haría durante la ventana: si se emitiera una factura con descuento, la pintaría como una línea más de la tabla en vez de en el bloque de totales. **No puede pasar**, porque ninguna factura lleva descuento hasta que exista un código, y los códigos se crean en el paso 4.
+
+**La secuencia:**
+
+1. **Aplicar la migración.** Es inerte —«cero códigos = cero cambios»— y el código desplegado la sobrevive:
+   ```
+   node scripts/aplicar-sql.mjs --go \
+     supabase/migrations/083_codigos_de_descuento.sql \
+     scripts/083_funciones.generado.sql
+   ```
+2. **Comprobar que la tienda sigue exactamente igual.** El carrito debe seguir cobrando 3,40 de porte y el panel debe seguir pudiendo devolver.
+3. **`git push`.** Vercel y Render despliegan solos. ⚠️ Con la API de Render dormida el build de la web prerenderizará las legales vacías —el corte de 5 s existe para que el build no se caiga— y será el **ISR** el que las repinte en los 5 minutos siguientes: **no juzgar por el primer `curl`**. La huella `<!-- valatino <sha> · identidad ok -->` dice cuál de las dos cosas está pasando.
+4. **Y solo entonces crear el primer código** en TI → Ajustes.
 
 ⚠️ **La contraseña de la base está en `supabase/.temp/db-password`** (gitignored), sacada de `Contraseñas.txt`. Con ella `aplicar-sql.mjs --dry` está vivo, y **es la herramienta que hay que usar y no el `apply_migration` del MCP**: el MCP hace COMMIT y no tiene ensayo revertido.
 
@@ -505,6 +523,8 @@ La regeneración de ISR corre en segundo plano, después de haber respondido, co
 ⚠️ **Para VER el cambio hace falta un pedido nuevo.** Las cuatro facturas que ya existen conservan su formato viejo a propósito.
 
 ⚠️ **Y hubo una ventana pequeña**: la base emitió la línea nueva (`iva_pct` null) desde que se aplicó la 082, y el PDF arreglado no llegó a Render hasta unos minutos después. Una factura descargada en esos minutos habría dicho «null %». **Se cura sola volviendo a descargarla**, porque el PDF se genera al vuelo desde la fila congelada, y **ninguna factura se manda por correo automáticamente** — `enviarFacturaAlCliente` solo se llama desde el botón del panel (comprobado). Para la próxima migración que cambie a la vez la base y el render: **desplegar el render primero**.
+
+⚠️⚠️ **Y ESA REGLA NO ES UNIVERSAL — se aplicó mal el 23/08 y habría roto la tienda.** Vale cuando el cambio del render es de **PRESENTACIÓN**, como aquí: el PDF pintaba «null %» y desplegarlo antes cerraba la ventana. **NO vale cuando el código nuevo LLAMA a funciones nuevas de la base**, que es el caso de la 083: allí desplegar primero deja al carrito llamando a un `coste_envio_de` de dos argumentos que todavía no existe —404, el `catch` devuelve 0, **la tienda deja de cobrar el porte**— y a `validarSeleccion` llamando a un `importe_a_devolver` inexistente, o sea el panel sin poder devolver. **La pregunta que hay que hacerse no es «¿cambian los dos?» sino «¿quién depende de quién?»**
 
 ⭐ **Comprobado además en la propia base, no solo con grep**: el único objeto de Postgres que menciona `lineas` es la vista `libro_facturas_expedidas`, y solo la reexpone como columna — no lee `iva_pct` de dentro. Así que el `null` no puede romper el libro, ni el 303, ni ninguna vista.
 

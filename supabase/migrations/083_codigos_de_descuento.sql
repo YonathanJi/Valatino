@@ -6,14 +6,21 @@
 -- el módulo de TI. Uno da un PORCENTAJE sobre la compra del cliente; el otro da el
 -- ENVÍO TOTALMENTE GRATIS.
 --
--- ⚠️⚠️ ESTE FICHERO ESTÁ A MEDIAS. Lleva la cabecera (el diseño) y el §1 (el
--- esquema), que es inerte: sin ningún código creado la tienda hace exactamente lo
--- que hace hoy. Las funciones fiscales —§2 en adelante— NO están escritas todavía.
+-- ⚠️⚠️ ESTE FICHERO ES SOLO LA MITAD, Y NO SE APLICA SOLO. Lleva la cabecera (el
+-- diseño) y el §1 (el esquema). Las funciones fiscales —§2 a §11— viven en
+-- `scripts/083_funciones.generado.sql`, que lo produce
+-- `scripts/generar-083-funciones.mjs` extrayéndolas del `prosrc` VIVO. **Los dos van
+-- juntos, en ese orden, en la misma transacción.**
+--
+-- ⚠️ El §1 es inerte: sin ningún código creado en `codigos_descuento`, la tienda hace
+-- exactamente lo que hace hoy. Es lo que permite aplicar esto sin ventana.
 --
 -- ⚠️ Y LA REGLA ES «NO SE APLICAN SIN ENSAYO», NO «NO SE ESCRIBEN SIN ENSAYO».
 -- Escribirlas primero y ensayarlas después es el orden correcto: el `--dry` de
 -- `scripts/aplicar-sql.mjs` necesita un fichero que ensayar. Lo que no se puede es
 -- APLICAR nueve funciones fiscales y el 303 sin haberlas visto correr y deshacerse.
+-- El ensayo es `scripts/ensayo-083-descuento.sql`: 15 bloques (A–O), autoverificables
+-- y todos vistos en rojo.
 --
 -- ⚠️⚠️ Y DE AHÍ SE SIGUE CON QUÉ HERRAMIENTA SE APLICA ESTO. El `apply_migration`
 -- del MCP de Supabase hace COMMIT: no tiene ensayo revertido. La 080 se aplicó así
@@ -24,26 +31,39 @@
 -- referencias a `DATABASE_URL` en `render.yaml`, 0 usos de `PrismaClient` en
 -- ejecución, 0 en el CI, 0 en `apps/api/.env`), y ya está comprobado uno a uno.
 --
--- ⚠️⚠️ EL ORDEN DE DESPLIEGUE: EL RENDER PRIMERO, LA BASE DESPUÉS. Es la lección
--- que la 082 dejó escrita después de pagarla: «la base emitió la línea nueva desde
--- que se aplicó la 082, y el PDF arreglado no llegó a Render hasta unos minutos
--- después. Una factura descargada en esos minutos habría dicho "null %". Para la
--- próxima migración que cambie a la vez la base y el render: desplegar el render
--- primero».
+-- ⚠️⚠️ EL ORDEN: LA MIGRACIÓN PRIMERO, EL DESPLIEGUE DESPUÉS. Y esto CORRIGE lo que
+-- esta misma cabecera decía antes —«el render primero»—, que estaba INVERTIDO y habría
+-- roto la tienda. Comprobado contra producción el 23/08, en los dos sentidos:
 --
--- Aquí es el mismo caso: esta migración hace que `emitir_factura` meta la línea del
--- descuento en `lineas`, y el PDF tiene que saber sacarla del cuerpo de la tabla y
--- pintarla en el bloque de totales (§7 y `factura-pdf.service.ts`). Con el orden al
--- revés, una factura descargada en la ventana saldría con el descuento como una
--- línea más de la tabla, que es justo lo que el dueño pidió que NO pasara.
+--   MIGRACIÓN → DESPLIEGUE  ✅  El código YA desplegado llama a `coste_envio_de` con UN
+--     argumento por nombre, que es como lo manda PostgREST. Tras esta migración esa
+--     firma se dropea y queda la de dos CON `default null`, así que la llamada vieja
+--     sigue resolviendo: medido, 3,40 bajo el umbral y 0 por encima. Y
+--     `confirmar_venta`, `registrar_reembolso_lineas` y `reembolsar_pedido_total`
+--     conservan su firma exacta.
 --
--- ⭐ Y el margen es grande, no un minuto: «cero códigos = cero cambios». Mientras no
--- exista ninguna fila en `codigos_descuento` ningún pedido puede llevar descuento, y
--- sin descuento no hay línea que pintar. Así que la secuencia segura es:
+--   DESPLIEGUE → MIGRACIÓN  ❌  Contra la base de hoy, `coste_envio_de` con dos
+--     argumentos da 404 y el `catch` del carrito devuelve 0: LA TIENDA DEJA DE COBRAR
+--     EL PORTE. Y `importe_a_devolver` da 404, así que `validarSeleccion` lanza y el
+--     panel no puede devolver nada.
 --
---     1. desplegar la API (Render) con el PDF nuevo
---     2. aplicar esta migración
---     3. comprobar que la tienda sigue igual (ningún cupón creado todavía)
+-- ⚠️⚠️ Y POR QUÉ ESTABA MAL, que es lo que hay que recordar: se aplicó la lección de la
+-- 082 —«desplegar el render primero»— SIN comprobar si seguía valiendo. En la 082 el
+-- cambio del render era de PRESENTACIÓN (el PDF decía «null %») y ahí render-primero es
+-- correcto. Aquí el código nuevo LLAMA a funciones nuevas de la base, y eso invierte el
+-- orden. La pregunta no es «¿cambian los dos?» sino «¿QUIÉN DEPENDE DE QUIÉN?».
+--
+-- ⚠️ Lo que el PDF viejo sí haría durante la ventana: pintar el descuento como una
+-- línea más de la tabla en vez de en el bloque de totales. NO puede pasar, porque
+-- ninguna factura lleva descuento hasta que exista un código, y los códigos se crean
+-- en el último paso.
+--
+-- ⭐ Y el margen es grande, no un minuto: «cero códigos = cero cambios». La secuencia:
+--
+--     1. aplicar esta migración (es inerte)
+--     2. comprobar que la tienda sigue igual: el carrito cobrando su porte y el panel
+--        pudiendo devolver
+--     3. `git push` — Vercel y Render despliegan solos
 --     4. y solo entonces crear el primer código desde el panel de TI
 --
 -- ── §0 · POR QUÉ EL GUARDIA NO SE TOCA, Y POR QUÉ ESO ES LA PRUEBA ────────────
