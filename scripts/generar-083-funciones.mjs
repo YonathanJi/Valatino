@@ -576,6 +576,150 @@ comment on function public.coste_envio_de(numeric, text) is
 revoke execute on function public.coste_envio_de(numeric, text) from public, anon, authenticated;
 `;
 
+const DEVOLVER = `
+-- ── §6 · LO QUE SE LE DEVUELVE AL CLIENTE, EN UN SOLO SITIO ─────────────────
+--
+-- ⚠️⚠️ EL PROBLEMA, EN UNA FRASE: hoy los TRES escritores de
+-- \`reembolso_lineas.importe\` calculan \`round(cantidad × precio_unitario, 2)\` cada
+-- uno por su cuenta —044:146, 068:600 y 080:1021, la misma fórmula copiada tres
+-- veces— y eso es PVP DE CATÁLOGO. Con un cupón se devolvería más dinero del que el
+-- cliente pagó, la rectificativa rectificaría más base de la declarada, y el 303 se
+-- quedaría con IVA repercutido negativo. Ningún CHECK lo caza.
+--
+-- ⭐⭐ Y LA CURA NO ES ARREGLAR LOS TRES: es que dejen de calcular. Esta función es
+-- el único sitio, y los tres pasan a insertar lo que devuelve. Art. 107 RDL 1/2007
+-- obliga a devolver «todos los pagos recibidos», que con cupón es lo efectivamente
+-- cobrado y nunca el PVP.
+--
+-- ⚠️ EL ACUMULADO, OTRA VEZ, AHORA SOBRE UNIDADES DE UNA LÍNEA. Es la lección de la
+-- 078 con otro eje: derivar cada devolución por su cuenta
+-- (\`round(k × neto / n, 2)\`) hace que dos devoluciones parciales de la misma línea
+-- NO sumen el neto. Con el acumulado sí, por construcción:
+--
+--     importe(k) = round(neto × (ya+k)/n, 2) − round(neto × ya/n, 2)
+--
+-- Devolver 1 de 3 unidades de una línea con neto 19,00 da
+-- \`round(19,00×1/3, 2)\` = 6,33; las 2 restantes dan \`19,00 − 6,33\` = 12,67, no
+-- 2×6,33 = 12,66. Y al revés: 12,67 y luego 6,33. El céntimo no se pierde en ningún
+-- orden, que es justo lo que la 078 tuvo que arreglar a mano.
+--
+-- ⚠️ NINGÚN TROZO SALE NEGATIVO: el acumulado no decrece en \`ya\`, porque
+-- \`neto >= 0\` lo garantiza el CHECK \`descuento_imputado <= cantidad *
+-- precio_unitario\` del §1.3. Pero SÍ puede salir 0,00 legítimamente, y por eso el
+-- §1.4 relaja \`importe > 0\` a \`>= 0\`: filtrar esa fila dejaría la unidad sin
+-- apuntar y —si es la última pendiente— sin disparar el trigger de la rectificativa.
+--
+-- ⭐ ABSORBE EL TOPE, no lo duplica. Los dos escritores tenían cada uno su
+-- \`least(pedido, cantidad − ya_devuelto)\`; ahora está aquí y solo aquí, así que la
+-- función devuelve directamente lo que se puede devolver y cuánto vale.
+--
+-- ⚠️ \`p_lineas = null\` significa TODO LO PENDIENTE, y es el modo que usa
+-- \`reembolsar_pedido_total\`. Explícito a propósito: con \`'[]'\` habría que
+-- distinguir «nada» de «todo» mirando el JSON.
+
+create or replace function public.importe_a_devolver(
+  p_pedido_id uuid,
+  p_lineas    jsonb
+)
+returns table (pedido_item_id uuid, cantidad integer, importe numeric)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  with entrada as (
+    select (l->>'pedido_item_id')::uuid as pedido_item_id,
+           (l->>'cantidad')::integer    as cantidad
+    from jsonb_array_elements(coalesce(p_lineas, '[]'::jsonb)) l
+    where p_lineas is not null
+    union all
+    -- El modo «todo lo pendiente»: se piden todas las unidades de cada línea y el
+    -- \`least\` de abajo las acota a las que quedan.
+    select i.id, i.cantidad
+    from public.pedido_items i
+    where p_lineas is null and i.pedido_id = p_pedido_id
+  ),
+  linea as (
+    select
+      i.id,
+      i.cantidad                                             as unidades,
+      -- ⭐ EL NETO DE LA LÍNEA: lo que el cliente pagó de verdad por ella.
+      i.cantidad * i.precio_unitario - i.descuento_imputado   as neto,
+      coalesce(y.devuelto, 0)                                 as ya,
+      least(e.cantidad, i.cantidad - coalesce(y.devuelto, 0)) as pide
+    from entrada e
+    join public.pedido_items i
+      on i.id = e.pedido_item_id
+     and i.pedido_id = p_pedido_id
+    left join (
+      select rl.pedido_item_id, sum(rl.cantidad) as devuelto
+      from public.reembolso_lineas rl
+      group by rl.pedido_item_id
+    ) y on y.pedido_item_id = i.id
+  )
+  select l.id,
+         l.pide,
+         round(l.neto * (l.ya + l.pide) / l.unidades, 2)
+           - round(l.neto * l.ya / l.unidades, 2)
+  from linea l
+  where l.pide > 0;
+$$;
+
+comment on function public.importe_a_devolver(uuid, jsonb) is
+  'Qué unidades se pueden devolver de cada línea y CUÁNTO DINERO son: el neto que el cliente pagó, con el descuento del cupón ya restado (083 §6). p_lineas null = todo lo pendiente. Es el ÚNICO sitio que calcula reembolso_lineas.importe: antes la misma fórmula vivía copiada en registrar_reembolso_lineas, reembolsar_pedido_total y la API. Art. 107 RDL 1/2007.';
+
+revoke execute on function public.importe_a_devolver(uuid, jsonb) from public, anon, authenticated;
+`;
+
+/**
+ * Parches estructurales sobre funciones vivas: reemplazos por expresión regular
+ * con el número de coincidencias VERIFICADO. Se prefiere a retranscribir 3.150 y
+ * 6.485 caracteres de SQL fiscal para cambiar un CTE en cada uno.
+ */
+const PARCHES = [
+  {
+    nombre: "registrar_reembolso_lineas",
+    args: "p_pedido_id uuid, p_lineas jsonb, p_reponer_stock boolean, p_refund_id text, p_marcar_total boolean, p_actor_id uuid",
+    titulo: "deja de calcular el importe y lo pide",
+    reemplazos: [
+      {
+        que: "el CTE `disponible`, que duplicaba el tope y la fórmula del PVP",
+        de: /disponible as \(\s*select[\s\S]*?\) y on y\.pedido_item_id = i\.id\s*\),/,
+        a: `disponible as (
+    -- §6 de la 083: el tope y el importe los da importe_a_devolver, que es el
+    -- único sitio que sabe cuánto se le debe al cliente por esas unidades.
+    select d.pedido_item_id as id, d.cantidad, d.importe
+    from public.importe_a_devolver(p_pedido_id, p_lineas) d
+  ),`,
+        veces: 1,
+      },
+      {
+        que: "el valor insertado en `importe`, que era PVP de catálogo",
+        de: /round\(d\.cantidad \* d\.precio_unitario, 2\)/,
+        a: "d.importe",
+        veces: 1,
+      },
+    ],
+  },
+  {
+    nombre: "reembolsar_pedido_total",
+    args: "p_pedido_id uuid, p_actor_id uuid, p_refund_id text",
+    titulo: "lo pendiente se valora en neto",
+    reemplazos: [
+      {
+        que: "el cuerpo de `pendiente_por_item`, que valoraba a PVP",
+        de: /select\s+i\.id as pedido_item_id,\s*i\.producto_id,\s*i\.cantidad - coalesce\(r\.devuelto, 0\) as cantidad,\s*round\(\(i\.cantidad - coalesce\(r\.devuelto, 0\)\) \* i\.precio_unitario, 2\) as importe\s*from public\.pedido_items i\s*left join \([\s\S]*?\) r on r\.pedido_item_id = i\.id\s*where i\.pedido_id = p_pedido_id\s*and i\.cantidad - coalesce\(r\.devuelto, 0\) > 0/,
+        a: `-- §6 de la 083: sigue siendo EL conjunto y se lee UNA sola vez, pero el
+    -- importe lo valora importe_a_devolver en NETO, no a PVP de catálogo.
+    select d.pedido_item_id, i.producto_id, d.cantidad, d.importe
+    from public.importe_a_devolver(p_pedido_id, null) d
+    join public.pedido_items i on i.id = d.pedido_item_id`,
+        veces: 1,
+      },
+    ],
+  },
+];
+
 // ── El generador ─────────────────────────────────────────────────────────────
 
 const cliente = new pg.Client({ connectionString: conexion(), ssl: { rejectUnauthorized: false } });
@@ -635,6 +779,7 @@ trozos.push(IMPUTACION);
 trozos.push(REPARTO);
 trozos.push(DESGLOSE);
 trozos.push(CODIGOS);
+trozos.push(DEVOLVER);
 
 // 2. Las que solo cambian de nombre: se extraen vivas y se parchean.
 const md5s = [];
@@ -673,6 +818,57 @@ for (const f of RENOMBRAR) {
 -- ${f.veces} sustitución(es) de ${VIEJO} → ${NUEVO}, verificadas. Ni una letra más.
 
 ${parcheado};
+
+revoke execute on function public.${f.nombre}(${f.args.replace(/p_\w+\s+/g, "")}) from public, anon, authenticated;
+`);
+}
+
+// 2b. Los parches estructurales: se extrae la función viva y se le cambian los CTEs
+//     que calculaban dinero por su cuenta. Cada reemplazo verifica su número de
+//     coincidencias: una regex que no casa devolvería el original SIN PROTESTAR, y
+//     eso saldría como «migración aplicada» con la función vieja dentro.
+for (const f of PARCHES) {
+  const { rows } = await cliente.query(
+    `select pg_get_functiondef(p.oid) as def, md5(p.prosrc) as md5, length(p.prosrc) as chars
+     from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and p.proname = $1
+       and pg_get_function_identity_arguments(p.oid) = $2`,
+    [f.nombre, f.args],
+  );
+  if (rows.length !== 1) {
+    throw new Error(
+      `Esperaba 1 ${f.nombre}(${f.args}) y hay ${rows.length}. ` +
+        `Firma cambiada o sobrecarga colgando: míralo antes de generar.`,
+    );
+  }
+
+  let def = rows[0].def;
+  const detalle = [];
+  for (const r of f.reemplazos) {
+    const casan = def.match(new RegExp(r.de.source, r.de.flags.includes("g") ? r.de.flags : r.de.flags + "g"));
+    const n = casan ? casan.length : 0;
+    if (n !== r.veces) {
+      throw new Error(
+        `${f.nombre}: el parche «${r.que}» casa ${n} vez/veces y esperaba ${r.veces}. ` +
+          `Alguien tocó la función; NO se genera a ciegas.`,
+      );
+    }
+    def = def.replace(r.de, r.a);
+    detalle.push(`--     · ${r.que} (${r.veces} reemplazo)`);
+  }
+
+  md5s.push(`--   ${f.nombre}(${f.args.replace(/p_\w+\s+/g, "").slice(0, 60)})`);
+  md5s.push(`--     md5(prosrc) = ${rows[0].md5}  ·  ${rows[0].chars} caracteres`);
+
+  trozos.push(`
+-- ── §6.${PARCHES.indexOf(f) + 1} · ${f.nombre} — ${f.titulo} ${"─".repeat(Math.max(0, 24 - f.titulo.length))}
+--
+-- Extraída del \`prosrc\` vivo (md5 ${rows[0].md5}) y parcheada por script:
+${detalle.join("\n")}
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+${def};
 
 revoke execute on function public.${f.nombre}(${f.args.replace(/p_\w+\s+/g, "")}) from public, anon, authenticated;
 `);
@@ -739,7 +935,8 @@ begin
     'public.reparto_descuento_lineas(uuid)',
     'public.congelar_descuento_lineas(uuid)',
     'public.codigo_descuento_aplicable(text, numeric)',
-    'public.coste_envio_de(numeric, text)'
+    'public.coste_envio_de(numeric, text)',
+    'public.importe_a_devolver(uuid, jsonb)'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']

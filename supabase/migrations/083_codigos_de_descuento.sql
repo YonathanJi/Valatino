@@ -424,7 +424,44 @@ comment on column public.pedido_items.descuento_imputado is
   'La parte del descuento del pedido imputada a esta línea, IVA incluido, congelada al vender. `cantidad * precio_unitario - descuento_imputado` es el dinero que el cliente pagó DE VERDAD por esta línea, y es lo que se le devuelve (art. 107 RDL 1/2007). Existe porque `reembolso_lineas.pedido_item_id` es NOT NULL: la devolución solo sabe hablar de líneas, así que el descuento tiene que llegar hasta aquí.';
 
 
--- ── §1.4 · El snapshot del checkout ──────────────────────────────────────────
+-- ── §1.4 · `reembolso_lineas.importe` deja de ser PVP y pasa a ser NETO ──────
+--
+-- ⚠️⚠️ ES EL ÚNICO CAMBIO DE SEMÁNTICA DE UN DATO YA ESCRITO EN TODA LA MIGRACIÓN,
+-- y hay que entender por qué es obligatorio. Hoy `importe` es
+-- `cantidad × pedido_items.precio_unitario`, o sea PVP DE CATÁLOGO. Con un cupón,
+-- `pedido_iva` está ya minorado y ese importe diría MÁS de lo cobrado:
+--
+--   · se le devolvería al cliente más dinero del que pagó (dinero real fuera);
+--   · la rectificativa rectificaría más base de la que declaró la venta;
+--   · y el 303 se quedaría con IVA repercutido NEGATIVO.
+--
+-- Y NINGÚN CHECK LO CAZA: `importe > 0` está contento, y el guardia del cuadre de
+-- `emitir_factura` EXIME a las rectificativas.
+--
+-- ⭐⭐ NO HAY QUE REESCRIBIR NINGUNA FILA HISTÓRICA, y no por suerte: para
+-- `descuento_imputado = 0` las dos fórmulas son la MISMA. La nueva es
+-- `round(neto × (ya+k)/n, 2) − round(neto × ya/n, 2)` con `neto = n × precio`;
+-- como `precio` es `numeric(10,2)`, `precio × entero` es exacto a dos decimales, los
+-- dos `round` no redondean nada y la diferencia es `precio × k`, que es exactamente
+-- lo que se escribía antes. Comprobado sobre las 7 filas que ya existen.
+--
+-- ⚠️ Lo que SÍ cambia es lo que significa la columna de aquí en adelante, y eso va
+-- en su `comment on column` y en ESTADO.md. Cualquier consulta ad hoc antigua que
+-- asumiera PVP miente a partir de este punto.
+
+alter table public.reembolso_lineas
+  drop constraint if exists reembolso_lineas_importe_check;
+
+alter table public.reembolso_lineas
+  drop constraint if exists reembolso_lineas_importe_no_negativo,
+  add  constraint reembolso_lineas_importe_no_negativo
+    check (importe >= 0);
+
+comment on column public.reembolso_lineas.importe is
+  'El dinero NETO que se le devuelve al cliente por esas unidades: lo que pagó de verdad, con el descuento del cupón ya restado (083 §6). ⚠️ Antes de la 083 era cantidad × precio_unitario, o sea PVP de catálogo; para pedidos sin cupón las dos fórmulas coinciden exactamente, así que ninguna fila histórica cambió de valor. Lo calcula importe_a_devolver y NADIE MÁS: art. 107 RDL 1/2007 obliga a devolver lo efectivamente cobrado, nunca el PVP.';
+
+
+-- ── §1.5 · El snapshot del checkout ──────────────────────────────────────────
 --
 -- ⚠️ `checkout_datos` se limpia a las 48 h por pg_cron (019). Lo que se congele
 -- SOLO aquí desaparece, y el fallback tiene que ser una decisión explícita, no un

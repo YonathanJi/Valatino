@@ -519,6 +519,222 @@ begin
 end $bloque_i$;
 
 
+-- ── J · ⭐⭐ EL §6: SE DEVUELVE EL NETO, NO EL PVP ───────────────────────────
+--
+-- Es el bloque que mide el dinero que se estaba regalando. Sobre el pedido de los
+-- bloques A–E (artículos 10,00 al 10 % y 5,00 al 21 %, descuento 3,00):
+--
+--   línea 10 %:  neto = 10,00 − 2,00 = 8,00   (PVP 10,00)
+--   línea 21 %:  neto =  5,00 − 1,00 = 4,00   (PVP  5,00)
+--
+-- ⚠️ Con la fórmula vieja, devolver la línea del 21 % le habría dado al cliente
+-- 5,00 € por algo que pagó 4,00 €. UN EURO REGALADO en un pedido de 15,40, y sin
+-- que ningún CHECK dijera nada: `importe > 0` está contento y el guardia de
+-- `emitir_factura` exime a las rectificativas.
+
+do $bloque_j$
+declare
+  v_pedido uuid;
+  v_i10    uuid;
+  v_i21    uuid;
+  v_fallos text;
+  v_todo   numeric;
+begin
+  select id into v_pedido from pedidos where numero_pedido = 'ENSAYO083';
+  select id into v_i10 from pedido_items where pedido_id = v_pedido and iva_pct = 10;
+  select id into v_i21 from pedido_items where pedido_id = v_pedido and iva_pct = 21;
+
+  with esperado(cual, valor) as (
+    values ('linea 10% (PVP 10,00)'::text, 8.00::numeric),
+           ('linea 21% (PVP  5,00)'::text, 4.00::numeric)
+  ),
+  obtenido as (
+    select 'linea 10% (PVP 10,00)'::text as cual, d.importe as valor
+    from importe_a_devolver(v_pedido, jsonb_build_array(
+           jsonb_build_object('pedido_item_id', v_i10, 'cantidad', 1))) d
+    union all
+    select 'linea 21% (PVP  5,00)'::text, d.importe
+    from importe_a_devolver(v_pedido, jsonb_build_array(
+           jsonb_build_object('pedido_item_id', v_i21, 'cantidad', 1))) d
+  )
+  select string_agg(format('%s devolvería %s (esperado %s)',
+                           coalesce(e.cual, o.cual),
+                           coalesce(o.valor::text, '<nada>'),
+                           coalesce(e.valor::text, '<no esperado>')), '; ')
+    into v_fallos
+  from esperado e
+  full outer join obtenido o on o.cual = e.cual
+  where o.valor is distinct from e.valor;
+
+  if v_fallos is not null then
+    raise exception 'J · se devolvería el importe equivocado: %', v_fallos;
+  end if;
+
+  -- Y el modo «todo lo pendiente» (p_lineas null) suma los artículos menos el
+  -- descuento. El porte va por su lado (envio_devuelto_*), como desde la 080.
+  select coalesce(sum(importe), 0) into v_todo from importe_a_devolver(v_pedido, null);
+  if v_todo <> 12.00 then
+    raise exception
+      'J · devolver TODO daría % y los artículos menos el descuento son 12,00 '
+      '(15,00 − 3,00). Si sale 15,00 es que se está devolviendo a PVP.', v_todo;
+  end if;
+
+  raise notice 'J · neto OK: 8,00 y 4,00 en vez de 10,00 y 5,00 · todo = 12,00';
+end $bloque_j$;
+
+
+-- ── K · ⭐ EL ACUMULADO POR UNIDADES, EN LOS DOS ÓRDENES ────────────────────
+--
+-- ⚠️⚠️ ES LA LECCIÓN DE LA 078 CON OTRO EJE. Derivar cada devolución por su cuenta
+-- —`round(k × neto / n, 2)`— hace que dos devoluciones parciales de la misma línea
+-- NO sumen el neto. Con 3 unidades y neto 19,00:
+--
+--   aislado:   round(19,00×1/3) = 6,33  y  round(19,00×2/3) = 12,67  →  19,00 ✓
+--              …pero round(19,00×1/3) × 3 = 18,99, y con otros números falla.
+--   acumulado: 6,33 y luego 19,00 − 6,33 = 12,67   →  19,00 exacto SIEMPRE
+--   al revés:  12,67 y luego 19,00 − 12,67 = 6,33  →  19,00 exacto también
+--
+-- ⭐ Que salga exacto en LOS DOS ÓRDENES es la propiedad que importa: el cliente
+-- devuelve en el orden que le da la gana.
+--
+-- ⚠️ Se usa `registrar_reembolso_lineas`, no un insert a mano: así el bloque prueba
+-- el ESCRITOR parcheado y no solo la función que calcula.
+
+do $bloque_k$
+declare
+  v_p10    uuid;
+  v_pedido uuid;
+  v_item   uuid;
+  v_fallos text := '';
+  v_a      numeric;
+  v_b      numeric;
+  v_orden  int;
+begin
+  select id into v_p10 from productos where activo and iva_pct = 10 order by id limit 1;
+
+  -- Dos pedidos idénticos: uno se devuelve 1+2 y el otro 2+1.
+  for v_orden in 1 .. 2 loop
+    insert into pedidos (numero_pedido, estado, total, coste_envio, descuento,
+                         descuento_codigo, metodo_pago, email_cliente)
+    values ('ENSAYO083U' || v_orden, 'PENDIENTE_PAGO', 19.00, 0, 5.00,
+            'ENSAYO20', 'stripe', 'ensayo-083-u@valatino.es')
+    returning id into v_pedido;
+
+    -- 3 unidades × 8,00 = 24,00 · descuento 5,00 · neto de la línea = 19,00
+    insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+    select v_pedido, p.id, p.nombre, 3, 8.00 from productos p where p.id = v_p10;
+
+    select id into v_item from pedido_items where pedido_id = v_pedido;
+
+    if v_orden = 1 then
+      v_a := (registrar_reembolso_lineas(v_pedido,
+                jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 1)),
+                false, 'ENSAYO_K1_A', false, null) ->> 'importe')::numeric;
+      v_b := (registrar_reembolso_lineas(v_pedido,
+                jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 2)),
+                false, 'ENSAYO_K1_B', false, null) ->> 'importe')::numeric;
+      if v_a <> 6.33  then v_fallos := v_fallos || format(' 1+2: la primera dio %s (esperado 6.33);', v_a); end if;
+      if v_b <> 12.67 then v_fallos := v_fallos || format(' 1+2: la segunda dio %s (esperado 12.67);', v_b); end if;
+    else
+      v_a := (registrar_reembolso_lineas(v_pedido,
+                jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 2)),
+                false, 'ENSAYO_K2_A', false, null) ->> 'importe')::numeric;
+      v_b := (registrar_reembolso_lineas(v_pedido,
+                jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 1)),
+                false, 'ENSAYO_K2_B', false, null) ->> 'importe')::numeric;
+      if v_a <> 12.67 then v_fallos := v_fallos || format(' 2+1: la primera dio %s (esperado 12.67);', v_a); end if;
+      if v_b <> 6.33  then v_fallos := v_fallos || format(' 2+1: la segunda dio %s (esperado 6.33);', v_b); end if;
+    end if;
+
+    -- Y en los dos casos la suma tiene que ser el neto EXACTO.
+    if v_a + v_b <> 19.00 then
+      v_fallos := v_fallos || format(' orden %s: %s + %s = %s y el neto es 19,00;',
+                                     v_orden, v_a, v_b, v_a + v_b);
+    end if;
+
+    -- No puede quedar nada pendiente por devolver de esa línea.
+    if exists (select 1 from importe_a_devolver(v_pedido, null)) then
+      v_fallos := v_fallos || format(' orden %s: quedan unidades pendientes tras devolver las 3;', v_orden);
+    end if;
+  end loop;
+
+  if v_fallos <> '' then raise exception 'K · acumulado por unidades:%', v_fallos; end if;
+  raise notice 'K · 6,33 + 12,67 = 19,00 en los dos órdenes, sin céntimo perdido';
+end $bloque_k$;
+
+
+-- ── L · ⭐⭐ EL MEDIO CÉNTIMO EXACTO, QUE ES LO ÚNICO QUE DISTINGUE ──────────
+--
+-- ⚠️⚠️ EL BLOQUE K NO DISTINGUE EL ACUMULADO DE LA FÓRMULA AISLADA, y hay que
+-- decirlo porque parecía que sí. Con 3 unidades y neto 19,00:
+--
+--     aislado:    round(19,00×1/3) = 6,33   round(19,00×2/3) = 12,67  →  19,00 ✓
+--     acumulado:  6,33  y  19,00 − 6,33 = 12,67                      →  19,00 ✓
+--
+-- Los dos dan lo mismo. Y no es casualidad: con DOS trozos, los errores de redondeo
+-- se cancelan siempre… EXCEPTO cuando el trozo cae en un medio céntimo EXACTO,
+-- porque entonces los dos redondean hacia arriba y sobra un céntimo.
+--
+-- EL CASO QUE SÍ LO CAZA:  2 unidades × 10,00 = 20,00 · descuento 0,99
+--                          neto de la línea = 19,01 · 19,01 / 2 = 9,505 exacto
+--
+--     aislado:    round(9,505) + round(9,505) = 9,51 + 9,51 = 19,02  ✗  UN CÉNTIMO
+--                 DE MÁS devuelto al cliente, y el 303 rectificando más base de la
+--                 que declaró la venta.
+--     acumulado:  9,51  y  19,01 − 9,51 = 9,50                       →  19,01 ✓
+--
+-- ⭐ Es exactamente el céntimo de la 078, en el eje de las unidades en vez del de
+-- los tipos de IVA. Y solo se ve con estos números.
+
+do $bloque_l$
+declare
+  v_p10    uuid;
+  v_pedido uuid;
+  v_item   uuid;
+  v_a      numeric;
+  v_b      numeric;
+begin
+  select id into v_p10 from productos where activo and iva_pct = 10 order by id limit 1;
+
+  insert into pedidos (numero_pedido, estado, total, coste_envio, descuento,
+                       descuento_codigo, metodo_pago, email_cliente)
+  values ('ENSAYO083MED', 'PENDIENTE_PAGO', 19.01, 0, 0.99,
+          'ENSAYO20', 'stripe', 'ensayo-083-med@valatino.es')
+  returning id into v_pedido;
+
+  insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+  select v_pedido, p.id, p.nombre, 2, 10.00 from productos p where p.id = v_p10;
+
+  select id into v_item from pedido_items where pedido_id = v_pedido;
+
+  v_a := (registrar_reembolso_lineas(v_pedido,
+            jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 1)),
+            false, 'ENSAYO_L_A', false, null) ->> 'importe')::numeric;
+  v_b := (registrar_reembolso_lineas(v_pedido,
+            jsonb_build_array(jsonb_build_object('pedido_item_id', v_item, 'cantidad', 1)),
+            false, 'ENSAYO_L_B', false, null) ->> 'importe')::numeric;
+
+  if v_a <> 9.51 then
+    raise exception 'L · la primera unidad dio % y round(19,01/2, 2) es 9,51', v_a;
+  end if;
+
+  -- ⭐⭐ ESTA ES LA COMPROBACIÓN. Con la fórmula aislada la segunda unidad también
+  -- daría 9,51 y la suma sería 19,02.
+  if v_b <> 9.50 then
+    raise exception
+      'L · la segunda unidad dio % y debía dar 9,50 (19,01 − 9,51). Si dio 9,51, '
+      'importe_a_devolver está derivando cada devolución AISLADA en vez de por el '
+      'acumulado, y se devuelve un céntimo de más. Es el fallo de la 078.', v_b;
+  end if;
+
+  if v_a + v_b <> 19.01 then
+    raise exception 'L · % + % = % y el neto de la línea es 19,01', v_a, v_b, v_a + v_b;
+  end if;
+
+  raise notice 'L · medio céntimo OK: 9,51 + 9,50 = 19,01 (la aislada daría 19,02)';
+end $bloque_l$;
+
+
 -- ── Resumen legible, para pegarlo en ESTADO.md ───────────────────────────────
 
 select 'reparto'  as bloque, rc.iva_pct::text as tipo,

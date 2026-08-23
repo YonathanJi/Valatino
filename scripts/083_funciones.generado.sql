@@ -12,6 +12,10 @@
 --     md5(prosrc) = 2853c587e3eb0d048390d2311f41cae8  ·  961 caracteres
 --   emitir_rectificativa(p_pedido_id uuid, p_refund_id text, p_actor_id uuid)
 --     md5(prosrc) = 29731fbc1dc96e80917501c4f97471ce  ·  9900 caracteres
+--   registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid)
+--     md5(prosrc) = c663df7162213f7184ab705c1eea28f2  ·  3150 caracteres
+--   reembolsar_pedido_total(uuid, uuid, text)
+--     md5(prosrc) = 3d807a6317fe82402716adbd74836165  ·  6485 caracteres
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -564,6 +568,100 @@ comment on function public.coste_envio_de(numeric, text) is
 revoke execute on function public.coste_envio_de(numeric, text) from public, anon, authenticated;
 
 
+-- ── §6 · LO QUE SE LE DEVUELVE AL CLIENTE, EN UN SOLO SITIO ─────────────────
+--
+-- ⚠️⚠️ EL PROBLEMA, EN UNA FRASE: hoy los TRES escritores de
+-- `reembolso_lineas.importe` calculan `round(cantidad × precio_unitario, 2)` cada
+-- uno por su cuenta —044:146, 068:600 y 080:1021, la misma fórmula copiada tres
+-- veces— y eso es PVP DE CATÁLOGO. Con un cupón se devolvería más dinero del que el
+-- cliente pagó, la rectificativa rectificaría más base de la declarada, y el 303 se
+-- quedaría con IVA repercutido negativo. Ningún CHECK lo caza.
+--
+-- ⭐⭐ Y LA CURA NO ES ARREGLAR LOS TRES: es que dejen de calcular. Esta función es
+-- el único sitio, y los tres pasan a insertar lo que devuelve. Art. 107 RDL 1/2007
+-- obliga a devolver «todos los pagos recibidos», que con cupón es lo efectivamente
+-- cobrado y nunca el PVP.
+--
+-- ⚠️ EL ACUMULADO, OTRA VEZ, AHORA SOBRE UNIDADES DE UNA LÍNEA. Es la lección de la
+-- 078 con otro eje: derivar cada devolución por su cuenta
+-- (`round(k × neto / n, 2)`) hace que dos devoluciones parciales de la misma línea
+-- NO sumen el neto. Con el acumulado sí, por construcción:
+--
+--     importe(k) = round(neto × (ya+k)/n, 2) − round(neto × ya/n, 2)
+--
+-- Devolver 1 de 3 unidades de una línea con neto 19,00 da
+-- `round(19,00×1/3, 2)` = 6,33; las 2 restantes dan `19,00 − 6,33` = 12,67, no
+-- 2×6,33 = 12,66. Y al revés: 12,67 y luego 6,33. El céntimo no se pierde en ningún
+-- orden, que es justo lo que la 078 tuvo que arreglar a mano.
+--
+-- ⚠️ NINGÚN TROZO SALE NEGATIVO: el acumulado no decrece en `ya`, porque
+-- `neto >= 0` lo garantiza el CHECK `descuento_imputado <= cantidad *
+-- precio_unitario` del §1.3. Pero SÍ puede salir 0,00 legítimamente, y por eso el
+-- §1.4 relaja `importe > 0` a `>= 0`: filtrar esa fila dejaría la unidad sin
+-- apuntar y —si es la última pendiente— sin disparar el trigger de la rectificativa.
+--
+-- ⭐ ABSORBE EL TOPE, no lo duplica. Los dos escritores tenían cada uno su
+-- `least(pedido, cantidad − ya_devuelto)`; ahora está aquí y solo aquí, así que la
+-- función devuelve directamente lo que se puede devolver y cuánto vale.
+--
+-- ⚠️ `p_lineas = null` significa TODO LO PENDIENTE, y es el modo que usa
+-- `reembolsar_pedido_total`. Explícito a propósito: con `'[]'` habría que
+-- distinguir «nada» de «todo» mirando el JSON.
+
+create or replace function public.importe_a_devolver(
+  p_pedido_id uuid,
+  p_lineas    jsonb
+)
+returns table (pedido_item_id uuid, cantidad integer, importe numeric)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  with entrada as (
+    select (l->>'pedido_item_id')::uuid as pedido_item_id,
+           (l->>'cantidad')::integer    as cantidad
+    from jsonb_array_elements(coalesce(p_lineas, '[]'::jsonb)) l
+    where p_lineas is not null
+    union all
+    -- El modo «todo lo pendiente»: se piden todas las unidades de cada línea y el
+    -- `least` de abajo las acota a las que quedan.
+    select i.id, i.cantidad
+    from public.pedido_items i
+    where p_lineas is null and i.pedido_id = p_pedido_id
+  ),
+  linea as (
+    select
+      i.id,
+      i.cantidad                                             as unidades,
+      -- ⭐ EL NETO DE LA LÍNEA: lo que el cliente pagó de verdad por ella.
+      i.cantidad * i.precio_unitario - i.descuento_imputado   as neto,
+      coalesce(y.devuelto, 0)                                 as ya,
+      least(e.cantidad, i.cantidad - coalesce(y.devuelto, 0)) as pide
+    from entrada e
+    join public.pedido_items i
+      on i.id = e.pedido_item_id
+     and i.pedido_id = p_pedido_id
+    left join (
+      select rl.pedido_item_id, sum(rl.cantidad) as devuelto
+      from public.reembolso_lineas rl
+      group by rl.pedido_item_id
+    ) y on y.pedido_item_id = i.id
+  )
+  select l.id,
+         l.pide,
+         round(l.neto * (l.ya + l.pide) / l.unidades, 2)
+           - round(l.neto * l.ya / l.unidades, 2)
+  from linea l
+  where l.pide > 0;
+$$;
+
+comment on function public.importe_a_devolver(uuid, jsonb) is
+  'Qué unidades se pueden devolver de cada línea y CUÁNTO DINERO son: el neto que el cliente pagó, con el descuento del cupón ya restado (083 §6). p_lineas null = todo lo pendiente. Es el ÚNICO sitio que calcula reembolso_lineas.importe: antes la misma fórmula vivía copiada en registrar_reembolso_lineas, reembolsar_pedido_total y la API. Art. 107 RDL 1/2007.';
+
+revoke execute on function public.importe_a_devolver(uuid, jsonb) from public, anon, authenticated;
+
+
 -- ── §2.1 · linea_envio_factura — SOLO CAMBIA EL NOMBRE DEL REPARTO ─
 --
 -- Extraída del `prosrc` vivo (md5 2853c587e3eb0d048390d2311f41cae8) y parcheada por script:
@@ -861,6 +959,279 @@ $function$
 revoke execute on function public.emitir_rectificativa(uuid, text, uuid) from public, anon, authenticated;
 
 
+-- ── §6.1 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
+--
+-- Extraída del `prosrc` vivo (md5 c663df7162213f7184ab705c1eea28f2) y parcheada por script:
+--     · el CTE `disponible`, que duplicaba el tope y la fórmula del PVP (1 reemplazo)
+--     · el valor insertado en `importe`, que era PVP de catálogo (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.registrar_reembolso_lineas(p_pedido_id uuid, p_lineas jsonb, p_reponer_stock boolean, p_refund_id text, p_marcar_total boolean DEFAULT false, p_actor_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_pedidas     integer := 0;
+  v_registradas integer := 0;
+  v_unidades    integer := 0;
+  v_importe     numeric(10,2) := 0;
+  v_repuestas   integer := 0;
+  v_pendientes  integer := 0;
+  v_total       boolean := false;
+begin
+  perform pg_advisory_xact_lock(hashtext('reembolsar_pedido:' || p_pedido_id::text));
+
+  with entrada as (
+    select
+      (l->>'pedido_item_id')::uuid as pedido_item_id,
+      (l->>'cantidad')::integer    as cantidad
+    from jsonb_array_elements(coalesce(p_lineas, '[]'::jsonb)) l
+  ),
+  disponible as (
+    -- §6 de la 083: el tope y el importe los da importe_a_devolver, que es el
+    -- único sitio que sabe cuánto se le debe al cliente por esas unidades.
+    select d.pedido_item_id as id, d.cantidad, d.importe
+    from public.importe_a_devolver(p_pedido_id, p_lineas) d
+  ),
+  insertada as (
+    insert into public.reembolso_lineas (
+      pedido_id, pedido_item_id, cantidad, importe,
+      repuesto_al_stock, refund_id, actor_user_id
+    )
+    select
+      p_pedido_id, d.id, d.cantidad, d.importe,
+      coalesce(p_reponer_stock, false), p_refund_id, p_actor_id
+    from disponible d
+    where d.cantidad > 0
+    on conflict (refund_id, pedido_item_id) do nothing
+    returning pedido_item_id, cantidad, importe
+  ),
+  a_reponer as (
+    select i.producto_id, sum(ins.cantidad) as unidades
+    from insertada ins
+    join public.pedido_items i on i.id = ins.pedido_item_id
+    group by i.producto_id
+  ),
+  repuesta as (
+    update public.productos p
+    set stock_disponible = p.stock_disponible + ar.unidades,
+        updated_at = now()
+    from a_reponer ar
+    where p.id = ar.producto_id
+      and coalesce(p_reponer_stock, false)
+    returning p.id
+  )
+  select
+    (select count(*) from entrada),
+    (select count(*) from insertada),
+    (select coalesce(sum(cantidad), 0) from insertada),
+    (select coalesce(sum(importe), 0) from insertada)
+  into v_pedidas, v_registradas, v_unidades, v_importe;
+
+  if coalesce(p_reponer_stock, false) then
+    v_repuestas := v_unidades;
+  end if;
+
+  if p_marcar_total then
+    select coalesce(sum(i.cantidad - coalesce(r.devuelto, 0)), 0)
+    into v_pendientes
+    from public.pedido_items i
+    left join (
+      select pedido_item_id, sum(cantidad) as devuelto
+      from public.reembolso_lineas
+      group by pedido_item_id
+    ) r on r.pedido_item_id = i.id
+    where i.pedido_id = p_pedido_id
+      and i.cantidad - coalesce(r.devuelto, 0) > 0;
+
+    -- El tercer argumento es lo único que cambia respecto a la 044.
+    v_total := public.reembolsar_pedido_total(p_pedido_id, p_actor_id, p_refund_id);
+    if v_total then
+      v_repuestas := v_repuestas + v_pendientes;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'registradas', v_registradas,
+    'pedidas',     v_pedidas,
+    'unidades',    v_unidades,
+    'importe',     v_importe,
+    'unidades_repuestas', v_repuestas,
+    'repuesto',    v_repuestas > 0,
+    'marcado_total', v_total
+  );
+end;
+$function$
+;
+
+revoke execute on function public.registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid) from public, anon, authenticated;
+
+
+-- ── §6.2 · reembolsar_pedido_total — lo pendiente se valora en neto 
+--
+-- Extraída del `prosrc` vivo (md5 3d807a6317fe82402716adbd74836165) y parcheada por script:
+--     · el cuerpo de `pendiente_por_item`, que valoraba a PVP (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.reembolsar_pedido_total(p_pedido_id uuid, p_actor_id uuid DEFAULT NULL::uuid, p_refund_id text DEFAULT NULL::text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_estado public.pedido_estado;
+  -- Cuando no llega un refund de Stripe, la referencia es el propio cierre del
+  -- pedido. Determinista a propósito: el único (refund_id, pedido_item_id) de la
+  -- 044 convierte un reintento del webhook en un `do nothing`.
+  v_refund text := coalesce(nullif(p_refund_id, ''), 'total:' || p_pedido_id::text);
+  v_envio_de_este boolean;
+begin
+  perform pg_advisory_xact_lock(hashtext('reembolsar_pedido:' || p_pedido_id::text));
+
+  select estado into v_estado
+  from public.pedidos
+  where id = p_pedido_id
+  for update;
+
+  if not found then
+    raise exception 'Pedido % no existe', p_pedido_id using errcode = 'P0002';
+  end if;
+
+  -- Ya reembolsado: el otro camino llegó primero. No es un error.
+  if v_estado = 'REEMBOLSADO' then
+    return false;
+  end if;
+
+  -- Quién pidió la devolución, para el historial. Cuando llega por el webhook
+  -- de Stripe no hay actor y queda como 'webhook', que es lo que ocurrió.
+  perform set_config('app.actor_id', coalesce(p_actor_id::text, ''), true);
+  perform set_config('app.origen', case when p_actor_id is null then 'webhook' else 'panel' end, true);
+
+  /**
+   * ⬇️ EL CAMBIO DE LA 080. Cerrar el pedido ES devolver el porte: lo exige el
+   * art. 107 RDL 1/2007 en el desistimiento (se devuelven todos los pagos
+   * recibidos, portes incluidos) y además ya está devuelto de hecho, porque el
+   * importe que la API manda a Stripe es `pedidos.total − lo ya devuelto`, y
+   * `total` lleva el porte dentro.
+   *
+   * ⚠️ El `coalesce` no es adorno: sin él, un segundo cierre reatribuiría el
+   * porte a otro reembolso y la rectificativa lo contaría dos veces. Que arriba
+   * se salga si ya está REEMBOLSADO lo hace difícil de alcanzar; esto lo hace
+   * imposible.
+   */
+  update public.pedidos
+  set estado = 'REEMBOLSADO',
+      envio_devuelto_en_refund = coalesce(
+        envio_devuelto_en_refund,
+        case when coalesce(coste_envio, 0) > 0 then v_refund end
+      ),
+      envio_devuelto_el = coalesce(
+        envio_devuelto_el,
+        case when coalesce(coste_envio, 0) > 0 then public.dia_fiscal(now()) end
+      ),
+      updated_at = now()
+  where id = p_pedido_id;
+
+  -- Ver el porqué en cambiar_estado_pedido: la variable dura toda la
+  -- transacción y arrastraría el autor a lo que venga después.
+  perform set_config('app.actor_id', '', true);
+  perform set_config('app.origen', '', true);
+
+  -- Devuelve a la venta las unidades que no se hayan devuelto ya por artículo, y
+  -- las apunta. `stock_disponible` sube; `stock_reservado` no se toca: la reserva
+  -- del checkout ya se consumió al confirmar la venta.
+  with pendiente_por_item as (
+    -- ⚠️ ESTE es el conjunto, y se lee UNA sola vez. Todo lo de abajo sale de
+    -- aquí; nadie vuelve a consultar `reembolso_lineas`.
+    -- §6 de la 083: sigue siendo EL conjunto y se lee UNA sola vez, pero el
+    -- importe lo valora importe_a_devolver en NETO, no a PVP de catálogo.
+    select d.pedido_item_id, i.producto_id, d.cantidad, d.importe
+    from public.importe_a_devolver(p_pedido_id, null) d
+    join public.pedido_items i on i.id = d.pedido_item_id
+  ),
+  -- Agrupado por producto ANTES de tocar el stock: `update … from` con dos filas
+  -- que casan con el mismo producto aplica una sola y descarta la otra en
+  -- silencio. Un pedido con dos líneas del mismo artículo repondría de menos.
+  a_reponer as (
+    select producto_id, sum(cantidad) as unidades
+    from pendiente_por_item
+    group by producto_id
+  ),
+  repuesta as (
+    update public.productos p
+    set stock_disponible = p.stock_disponible + ar.unidades,
+        updated_at = now()
+    from a_reponer ar
+    where p.id = ar.producto_id
+    returning p.id
+  )
+  insert into public.reembolso_lineas (
+    pedido_id, pedido_item_id, cantidad, importe,
+    -- `true` porque es la verdad: esta función SÍ repone lo que devuelve, sin
+    -- preguntar. No es un default optimista.
+    repuesto_al_stock, refund_id, actor_user_id
+  )
+  select p_pedido_id, pendiente_por_item.pedido_item_id, pendiente_por_item.cantidad,
+         pendiente_por_item.importe, true, v_refund, p_actor_id
+  from pendiente_por_item
+  -- El CHECK de la tabla exige importe > 0. Una línea a precio 0 no existe hoy
+  -- en el catálogo, pero si existiera preferimos reponer su stock sin apuntarla
+  -- a que reventara el reembolso entero: el dinero ya salió.
+  where pendiente_por_item.importe > 0
+  on conflict (refund_id, pedido_item_id) do nothing;
+
+  /**
+   * ⬇️ EL HUECO DEL PORTE SOLO (§6.3). Si este cierre devolvió el porte y NO dejó
+   * ninguna línea, el trigger de la 077 no se va a disparar y nadie emitiría la
+   * rectificativa. Se emite aquí.
+   *
+   * ⚠️ Solo en ese caso. En el normal ya hay líneas y el trigger —que es
+   * DIFERIDO— corre al final viéndolas todas; llamar también aquí no duplicaría
+   * nada (`emitir_rectificativa` es idempotente por refund) pero se adelantaría a
+   * líneas que otra sentencia de la misma transacción aún puede estar
+   * insertando, y saldría un documento por menos importe del debido.
+   *
+   * ⚠️⚠️ Y EL `EXCEPTION` ES LA REGLA DE ESTA RUTA, igual que en la 077: cuando
+   * esto corre el dinero YA salió de Stripe. Dejar que un fallo aquí aborte la
+   * transacción convertiría una devolución hecha en un error en pantalla. No
+   * queda en silencio: se anota en `factura_eventos` con el mismo evento que usa
+   * el trigger, así que lo recoge la misma revisión.
+   */
+  select (p.envio_devuelto_en_refund = v_refund) into v_envio_de_este
+  from public.pedidos p where p.id = p_pedido_id;
+
+  if coalesce(v_envio_de_este, false)
+     and not exists (
+       select 1 from public.reembolso_lineas rl
+       where rl.pedido_id = p_pedido_id and rl.refund_id = v_refund
+     ) then
+    begin
+      perform public.emitir_rectificativa(p_pedido_id, v_refund, p_actor_id);
+    exception
+      when others then
+        insert into public.factura_eventos (evento, detalle, actor_id)
+        values ('rectificativa_fallida',
+                jsonb_build_object(
+                  'pedido_id', p_pedido_id,
+                  'refund_id', v_refund,
+                  'motivo',    'devolucion de solo los gastos de envio',
+                  'error',     sqlerrm,
+                  'sqlstate',  sqlstate),
+                p_actor_id);
+    end;
+  end if;
+
+  return true;
+end;
+$function$
+;
+
+revoke execute on function public.reembolsar_pedido_total(uuid, uuid, text) from public, anon, authenticated;
+
+
 -- ── §2.9 · LO QUE HAY QUE COMPROBAR DESPUÉS ─────────────────────────────────
 
 drop function if exists public.reparto_envio_pedido(uuid);
@@ -920,7 +1291,8 @@ begin
     'public.reparto_descuento_lineas(uuid)',
     'public.congelar_descuento_lineas(uuid)',
     'public.codigo_descuento_aplicable(text, numeric)',
-    'public.coste_envio_de(numeric, text)'
+    'public.coste_envio_de(numeric, text)',
+    'public.importe_a_devolver(uuid, jsonb)'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']
