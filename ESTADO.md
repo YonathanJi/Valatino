@@ -50,34 +50,69 @@
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-08-23
 
-⚠️⚠️ **LA 083 ESTÁ ESCRITA Y ENSAYADA DE PUNTA A PUNTA, PERO *NO APLICADA*.** Nada de lo de hoy ha tocado el remoto: la línea base sigue en **2 pedidos, 7 ítems, 9 facturas, 7 reembolsos**, contadores en `VALS→102 VALF→102 VALR→105` sin consumir, y `arranque_fiscal_el` sin marcar. Todo lo de abajo está probado en **transacción revertida** contra la base de verdad.
+## ✅✅ LA 083 ESTÁ VIVA EN PRODUCCIÓN (2026-08-23, 21:57)
 
-**LO PRIMERO AL VOLVER, y en este orden, que importa:**
+Migración aplicada, código desplegado y todo verificado. **Y sin ningún código creado todavía**, así que para un cliente la tienda hace exactamente lo que hacía: «cero códigos = cero cambios» funcionó como se diseñó.
 
-⚠️⚠️ **EL ORDEN ES: LA MIGRACIÓN PRIMERO, EL DESPLIEGUE DESPUÉS.** Y esto CORRIGE lo que este mismo fichero decía antes —«desplegar Render primero»—, que estaba **invertido y habría roto la tienda**. Se comprobó contra producción el 23/08, en los dos sentidos:
-
-| Orden | Qué pasa |
+| | |
 |---|---|
-| **Migración → despliegue** ✅ | El código YA desplegado llama a `coste_envio_de` con **un** argumento por nombre, que es como lo manda PostgREST. Tras la migración esa firma se dropea y queda la de dos **con `default null`**, así que la llamada vieja sigue resolviendo: comprobado, devuelve 3,40 bajo el umbral y 0 por encima. Y `confirmar_venta`, `registrar_reembolso_lineas` y `reembolsar_pedido_total` conservan su firma exacta. |
-| **Despliegue → migración** ❌ | Contra la base de HOY: `coste_envio_de({p_subtotal, p_codigo})` da **404**, y el `catch` del carrito devuelve **0** → **la tienda deja de cobrar el porte**. Y `importe_a_devolver` da **404** → `validarSeleccion` lanza → **el panel no puede devolver nada**. |
+| Base de datos | 083 aplicada · 17 funciones con UNA firma cada una · `reparto_envio_pedido` dropeada · 0 referencias al nombre viejo · 0 fugas a `anon`/`authenticated` |
+| Vercel | `READY` en `0bbe0f6` |
+| Render | `live` en `0bbe0f6` |
+| La tienda | 2 pedidos · 7 ítems · 9 facturas · 7 reembolsos · **0 códigos** · descuento total 0,00 · contadores `VALF→102 VALR→105 VALS→102` sin consumir |
 
-⚠️ **Y por qué me equivoqué, que es lo que hay que recordar**: apliqué la lección de la 082 —«para la próxima migración que cambie a la vez la base y el render, desplegar el render primero»— **sin comprobar si seguía valiendo**. En la 082 el cambio era de PRESENTACIÓN (el PDF), y ahí render-primero es correcto. Aquí el código nuevo **llama a funciones nuevas de la base**, y eso invierte el orden. Es el mismo fallo que este cierre lleva diez veces describiendo: dar por bueno algo escrito sin volver a medirlo.
+**Comprobado por PostgREST, que es por donde habla el API** (y no solo por SQL, que es lo que habría bastado para engañarse):
 
-⚠️ Lo que el PDF viejo sí haría durante la ventana: si se emitiera una factura con descuento, la pintaría como una línea más de la tabla en vez de en el bloque de totales. **No puede pasar**, porque ninguna factura lleva descuento hasta que exista un código, y los códigos se crean en el paso 4.
+```
+coste_envio_de({p_subtotal:9})   → 200 · 3,40    ← la tienda sigue cobrando el porte
+coste_envio_de({p_subtotal:35})  → 200 · 0,00    ← el umbral sigue funcionando
+codigo_descuento_aplicable(...)  → 200 · {valido:false, motivo:"Ese código no existe"}
+importe_a_devolver(...)          → 200 · []
+```
 
-**La secuencia:**
+**Y las rutas nuevas del API, vivas**, con una ruta inventada de control para que el probe discrimine:
 
-1. **Aplicar la migración.** Es inerte —«cero códigos = cero cambios»— y el código desplegado la sobrevive:
-   ```
-   node scripts/aplicar-sql.mjs --go \
-     supabase/migrations/083_codigos_de_descuento.sql \
-     scripts/083_funciones.generado.sql
-   ```
-2. **Comprobar que la tienda sigue exactamente igual.** El carrito debe seguir cobrando 3,40 de porte y el panel debe seguir pudiendo devolver.
-3. **`git push`.** Vercel y Render despliegan solos. ⚠️ Con la API de Render dormida el build de la web prerenderizará las legales vacías —el corte de 5 s existe para que el build no se caiga— y será el **ISR** el que las repinte en los 5 minutos siguientes: **no juzgar por el primer `curl`**. La huella `<!-- valatino <sha> · identidad ok -->` dice cuál de las dos cosas está pasando.
-4. **Y solo entonces crear el primer código** en TI → Ajustes.
+```
+PUT    /carrito/codigo    → 400 «Añade algo al carrito antes de usar un código»
+                             ← el guardia del carrito vacío: la petición atravesó el
+                               DTO, el servicio y la RPC, y volvió con SU motivo
+PUT    /carrito/codigo    → 400 «Ese código no tiene la longitud…»  (con "AB")
+                             ← el DTO parándolo antes del servicio
+DELETE /carrito/codigo    → 200   (idempotente, como se diseñó)
+GET    /admin/ti/codigos  → 401   (existe, pide sesión)
+GET    /carrito/inventada → 404   ← el control
+```
 
-⚠️ **La contraseña de la base está en `supabase/.temp/db-password`** (gitignored), sacada de `Contraseñas.txt`. Con ella `aplicar-sql.mjs --dry` está vivo, y **es la herramienta que hay que usar y no el `apply_migration` del MCP**: el MCP hace COMMIT y no tiene ensayo revertido.
+### ⭐⭐⭐ Y LAS TRES PÁGINAS LEGALES, RESUELTAS EN PRODUCCIÓN
+
+Dos sesiones de bug, medido en la tienda viva:
+
+```
+aviso-legal            NIF=1  nombre=1  domicilio=1  correo=1
+contacto               NIF=1  nombre=1  domicilio=1  correo=1  whatsapp=1
+politica-privacidad    NIF=1  nombre=1  domicilio=1
+terminos               0 en todo   ← correcto: esa página no lleva identidad (el control)
+
+<!-- valatino 0bbe0f6 · identidad ok -->
+```
+
+⭐ **Y la huella funcionó a la primera para lo que se hizo**: durante el despliegue, su AUSENCIA decía «sigue el build viejo» sin tener que adivinarlo. Es la primera vez que este proyecto puede responder «¿está desplegado?» con un `curl | grep` en vez de con una hipótesis.
+
+### 🔜 LO QUE QUEDA, y es cosa de Jonathan
+
+1. **Crear el primer código** en TI → Ajustes → «Códigos de descuento». La pantalla avisa de las tres cosas que hay que saber (el tope de usos es blando, un código que valga dinero debe ser largo, y no sirve para pagar nada).
+2. **Una compra de prueba de punta a punta con descuento**, y **mirar la factura en pantalla**. Es lo que la 080 hizo con el porte y lo que destapó el formato que Jonathan quiso cambiar. El descuento sale abajo, junto al subtotal, y el total ya neto.
+3. Y con esa compra, **devolverla** —parcial y luego el resto— para ver que se devuelve el NETO y no el PVP. Es el euro que se estaba regalando.
+
+⚠️ **La ventana del arranque fiscal sigue abierta** (`arranque_fiscal_el` en NULL), así que si algo del formato o del reparto no gustara, todavía se puede rehacer. Después de marcarlo, no.
+
+### ⚠️ Lo que sigue pendiente y no es de esta migración
+
+- **La presentación de la RECTIFICATIVA** — decisión de Jonathan. Ver más abajo.
+- **La metadata del pago para PayPal y la dirección** — hecho para Stripe.
+- **La llamada a la gestoría**, que es la MISMA que la del porte, y antes de marcar el arranque fiscal.
+- **El correo `valatino-@hotmail.com`**, con guion, publicado como dirección del RGPD desde el 22/08.
+- **Los cinco secretos sin revocar** y `C:\YJIMENEZ\tokens-despliegue.env.txt` sin borrar. Hoy hubo que abrirlo dos veces (Vercel y Render). La `sb_secret_…` salta el RLS.
 
 #### ⭐⭐ HOY: LOS CÓDIGOS DE DESCUENTO (083), CON LOS DOS TIPOS QUE PIDIÓ JONATHAN
 
