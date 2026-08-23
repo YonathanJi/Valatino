@@ -102,7 +102,7 @@ La 080 dejó el §7 diciendo «a `liquidacion_iva` le falta el porte, y el error
 
 #### ⭐⭐⭐ LA LECCIÓN DE LA SESIÓN: OCHO COMPROBACIONES QUE NO COMPROBABAN NADA
 
-Van **ocho** en una sola migración. Todas encontradas por la misma pregunta —«¿y esto sabe salir rojo?»— y ninguna se habría visto de otra forma:
+Van **nueve** en una sola migración. Todas encontradas por la misma pregunta —«¿y esto sabe salir rojo?»— y ninguna se habría visto de otra forma:
 
 1. **El mensaje que mentía**: `«envio = 2,27 (esperado 2,27)»`, imposible. El valor esperado estaba escrito dos veces y perturbé una.
 2. **El bloque F era una tautología**: comparaba `Σ descuento_imputado` contra `reparto_conceptos_pedido.descuento`, que **es** esa suma desde la reestructura del §2. Un número contra sí mismo.
@@ -112,6 +112,8 @@ Van **ocho** en una sola migración. Todas encontradas por la misma pregunta —
 6. **La lista del §10 estaba a mano** y había divergido: 17 funciones revocadas, 11 comprobadas.
 7. **La comprobación del reintento mentía**: decía «el reintento contó el uso otra vez» también cuando el uso no se había contado nunca.
 8. **Tres tests de la API miraban `rpcParams[0]`** y se rompieron al añadir una RPC antes, sin que hubiera nada mal.
+
+9. **`envioGratisPorCodigo` y sus cuatro tests**: al forzar el rojo —deduciendo el ahorro del umbral en vez de leerlo de la API— **los cuatro siguieron en verde**. Los dos casos que sí distinguen hubo que buscarlos: una tienda con `envio_coste = 0` (el estado de esta tienda durante meses) y un carrito sin umbral configurado.
 
 ⭐ El patrón es siempre el mismo: **dos cosas que tienen que decir lo mismo y nadie las obliga.** El arreglo nunca fue «añadir lo que falta», fue quitar la segunda copia.
 
@@ -144,13 +146,13 @@ Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caract
 
 #### Estado al cerrar
 
-**528 tests API + 396 web = 924**, los dos `type-check` y los dos builds en verde, corridos **por separado** (juntos el `type-check` de la web falla a veces y sigue sin diagnosticar). Árbol limpio.
+**528 tests API + 404 web = 932**, los dos `type-check` y los dos builds en verde, corridos **por separado** (juntos el `type-check` de la web falla a veces y sigue sin diagnosticar). Árbol limpio.
 
 #### Lo que queda
 
 | | |
 |---|---|
-| **Tienda** | la caja del código en el carrito/checkout, pintar el descuento y `avisoDescuento`, y ocultar «faltan X para el envío gratis» cuando el código ya lo dio |
+| ✅ ~~**Tienda**~~ | **HECHO** (`b6dcb70`). La caja va **solo en el carrito**, no en el checkout: allí la máquina de estados de la reserva reemplaza la página entera y un refetch desde la caja puede reentrar en su `useEffect`. En el checkout el descuento se VE en el resumen y no se toca. Y «faltan X para el envío gratis» ya se ocultaba solo: `costeEnvio === 0` cae en `estado === "gratis"` |
 | ⚠️ **Decisión de Jonathan** | **la presentación de la RECTIFICATIVA.** Sus líneas de artículo usan `sum(rl.importe)`, que desde el §6 ya es el neto: el total es correcto pero el papel dice «1 ud · 5,00 € · −4,00 €» y no se explica solo. Las dos opciones —dejarlo, o espejo de la venta con líneas a PVP más la del descuento en positivo— son presentación, y la 082 dejó el precedente de que eso lo decide él mirando el papel. **Recomendación: el espejo**, que además ahora encaja porque el bloque de totales ya sabe pintar la fila. |
 | **Deuda nombrada** | llevar el código en la **metadata del pago** (por intent, no por sesión) para que sobreviva a la limpieza de 48 h de `checkout_datos`. Hoy, sin snapshot, el descuento cae a 0 y el pedido diría más de lo cobrado — se anota `venta_sin_snapshot_checkout` para que no sea silencioso, pero la cura de fondo es esa. Y es la única defensa real contra que nadie compare `intent.amount` con `pedidos.total` |
 | **Gestoría** | el descuento añade el art. 78.Tres.2, la frontera con el 80.Uno.2 y su tratamiento en VeriFactu. **Es la MISMA llamada que la del porte** (art. 78.Dos.1º), y antes de marcar `arranque_fiscal_el` |
