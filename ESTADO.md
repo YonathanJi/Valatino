@@ -160,7 +160,18 @@ Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caract
 #### Hallazgos incidentales, que no son de esta migración
 
 - ⚠️ **`cancelar_transferencia_reemplazada` tiene DOS sobrecargas vivas** (3 y 4 argumentos). Es el «fallo clásico de reemplazar funciones con `default`s» que la 080 comprobó en las suyas y salió limpia. La de 3 no conoce `p_reemplazado_por`. **A la cola.**
-- ⚠️ **`totalReembolsado()` usa el MÁXIMO de `transacciones_pago.importe`, no la suma.** Con dos devoluciones parciales, `restanteCents` puede quedar más alto de lo debido. No lo introduce este trabajo; conviene verificarlo antes de crear el primer cupón.
+- ✅⚠️ **~~`totalReembolsado()` usa el MÁXIMO y eso podría estar mal~~ — FALSO, Y HAY QUE DEJARLO ESCRITO.** Lo apunté como sospecha el 23/08 sin comprobarlo, y comprobado el mismo día resulta que **el MAX es correcto y el SUM sería catastrófico**. Cada fila de `transacciones_pago` guarda el **ACUMULADO** devuelto, no el incremento, porque el mismo reembolso se registra **dos veces por caminos distintos** —el panel al pedirlo y el webhook `charge.refunded` al confirmarlo— con `evento_id` distinto, así que la unicidad no los deduplica. Y `charge.amount_refunded` de Stripe ya es acumulado, que es de dónde sale el criterio.
+
+  Medido contra el remoto, pedido `260822016941` (devuelto en tres tramos de 1,20 · 2,50 · 3,40):
+
+  ```
+  filas: 1,20 · 1,20 · 3,70 · 3,70 · 7,10 · 7,10      total del pedido: 7,10
+                ↑            ↑            ↑
+             1,20      1,20+2,50    3,70+3,40
+  MAX = 7,10  ✓ el total          SUM = 24,00  ✗ más del triple
+  ```
+
+  ⚠️⚠️ **Así que NO se toca**, y el comentario que ya lo explicaba en `reembolsos.service.ts` era correcto. Queda aquí porque un aviso falso en este fichero es peor que ningún aviso: quien lo leyera podría «arreglar» el MAX a SUM y dejar las devoluciones rotas. Y la lección para mí: propagué a este fichero la sospecha de un agente sin verificarla, que es exactamente lo que este mismo cierre lleva nueve veces diciendo que no se hace.
 - ⚠️ **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con un guion, desde el 22/08 a las 14:29. Es la dirección pública del RGPD. Pasa `IsEmail` porque un guion al final de la parte local es legal — y el propio DTO había predicho este fallo por escrito: «Que EXISTA no lo puede saber ninguna validación». **Sigue sin corregir.**
 - ⚠️ **Las tres páginas legales SIGUEN VACÍAS**, y hoy se cerró el paso 1 que quedaba: **`4d6328b` se desplegó READY el 22/08 a las 11:09Z** (consultado a la API de Vercel). Llevaba 23 h vivo. El build compila `process.env.NEXT_PHASE` como lectura **en ejecución**, así que el `signal` es `void 0` en producción; la API responde 200 en 0,9 s y el ISR regenera (`/checkout` con `Age: 0` y aún NIF=0). **La hipótesis del `AbortSignal` es FALSA.** Vuelve a la casilla de salida, y esta vez instrumentando el `catch` antes de tocar nada: es el que convierte el fallo en silencio.
 - ⚠️ **El umbral de envío gratis está en 30 €, no en 50** como decía este fichero en ocho sitios. Cambiado por Jonathan el 22/08 a las 14:29.
