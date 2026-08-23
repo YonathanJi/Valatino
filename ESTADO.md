@@ -102,7 +102,7 @@ La 080 dejó el §7 diciendo «a `liquidacion_iva` le falta el porte, y el error
 
 #### ⭐⭐⭐ LA LECCIÓN DE LA SESIÓN: OCHO COMPROBACIONES QUE NO COMPROBABAN NADA
 
-Van **nueve** en una sola migración. Todas encontradas por la misma pregunta —«¿y esto sabe salir rojo?»— y ninguna se habría visto de otra forma:
+Van **nueve** en una sola migración —y una décima fuera de ella, la del `API_URL`, que es la más grande de todas—. Todas encontradas por la misma pregunta —«¿y esto sabe salir rojo?»— y ninguna se habría visto de otra forma:
 
 1. **El mensaje que mentía**: `«envio = 2,27 (esperado 2,27)»`, imposible. El valor esperado estaba escrito dos veces y perturbé una.
 2. **El bloque F era una tautología**: comparaba `Σ descuento_imputado` contra `reparto_conceptos_pedido.descuento`, que **es** esa suma desde la reestructura del §2. Un número contra sí mismo.
@@ -112,6 +112,7 @@ Van **nueve** en una sola migración. Todas encontradas por la misma pregunta �
 6. **La lista del §10 estaba a mano** y había divergido: 17 funciones revocadas, 11 comprobadas.
 7. **La comprobación del reintento mentía**: decía «el reintento contó el uso otra vez» también cuando el uso no se había contado nunca.
 8. **Tres tests de la API miraban `rpcParams[0]`** y se rompieron al añadir una RPC antes, sin que hubiera nada mal.
+10. ⭐⭐ **Y LA DÉCIMA, QUE NO ES DE ESTA MIGRACIÓN Y ES LA MÁS GRANDE**: `API_URL` estaba definida en **tres** sitios, y en uno de ellos —`@lib/api/client`, marcado `"use client"`— importarla desde el servidor daba un **stub que lanza** en vez del valor. Las copias no divergían en su VALOR: divergían en si el valor **existía**. Costó dos sesiones y la encontró un comentario HTML. Ver el hallazgo de las legales más abajo.
 
 9. **`envioGratisPorCodigo` y sus cuatro tests**: al forzar el rojo —deduciendo el ahorro del umbral en vez de leerlo de la API— **los cuatro siguieron en verde**. Los dos casos que sí distinguen hubo que buscarlos: una tienda con `envio_coste = 0` (el estado de esta tienda durante meses) y un carrito sin umbral configurado.
 
@@ -174,7 +175,42 @@ Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caract
 
   ⚠️⚠️ **Así que NO se toca**, y el comentario que ya lo explicaba en `reembolsos.service.ts` era correcto. Queda aquí porque un aviso falso en este fichero es peor que ningún aviso: quien lo leyera podría «arreglar» el MAX a SUM y dejar las devoluciones rotas. Y la lección para mí: propagué a este fichero la sospecha de un agente sin verificarla, que es exactamente lo que este mismo cierre lleva nueve veces diciendo que no se hace.
 - ⚠️ **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con un guion, desde el 22/08 a las 14:29. Es la dirección pública del RGPD. Pasa `IsEmail` porque un guion al final de la parte local es legal — y el propio DTO había predicho este fallo por escrito: «Que EXISTA no lo puede saber ninguna validación». **Sigue sin corregir.**
-- ⚠️ **Las tres páginas legales SIGUEN VACÍAS**, y hoy se cerró el paso 1 que quedaba: **`4d6328b` se desplegó READY el 22/08 a las 11:09Z** (consultado a la API de Vercel). Llevaba 23 h vivo. El build compila `process.env.NEXT_PHASE` como lectura **en ejecución**, así que el `signal` es `void 0` en producción; la API responde 200 en 0,9 s y el ISR regenera (`/checkout` con `Age: 0` y aún NIF=0). **La hipótesis del `AbortSignal` es FALSA.** Vuelve a la casilla de salida, y esta vez instrumentando el `catch` antes de tocar nada: es el que convierte el fallo en silencio.
+- ✅⭐⭐⭐ **LAS TRES PÁGINAS LEGALES: RESUELTO.** El bug que sobrevivió dos sesiones, y la causa no era ninguna de las hipótesis. `getIdentidad` importaba `API_URL` de `@lib/api/client`, **que empieza por `"use client"`**. Cuando un componente de SERVIDOR importa un valor de un módulo de cliente, Next no le da el valor: le da un **stub que lanza**. Así que `${API_URL}` interpolaba el código fuente de una función y `fetch` recibía:
+
+  ```
+  TypeError: Failed to parse URL from function(){throw Error("Attempted to call
+  API_URL() from the server but API_URL is on the client…
+  ```
+
+  Y el `catch` lo convertía en la identidad vacía, que es **indistinguible de «la tienda todavía no ha configurado sus datos»**. Fallaba SIEMPRE —en el build y en el ISR— desde el primer despliegue, y por eso nacieron vacías y nunca se recuperaron.
+
+  ⚠️⚠️ **POR QUÉ COSTÓ DOS SESIONES, Y ES LA PARTE QUE HAY QUE LEER.** La comparación del 22/08 era la CORRECTA —`productos/[slug]` hace el mismo fetch a la misma API y sí trae datos— pero se sacó la conclusión equivocada: se miró el `signal` y se culpó al `AbortSignal`. La diferencia de verdad era **invisible en la línea del `fetch`**, porque estaba en el **import**: `productos/[slug]` y `ProductoGrid` declaraban SU PROPIA copia de `API_URL` y por eso funcionaban.
+
+  Tres definiciones del mismo valor, y una envenenada según quién la importase. Es el patrón de toda esta sesión —el mismo dato en varios sitios— con un disfraz nuevo: aquí las copias no divergían en su VALOR, divergían en si el valor **existía**.
+
+  ⭐⭐ **Y CÓMO SE ENCONTRÓ: no razonando más, HACIENDO VISIBLE EL FALLO.** El motivo apareció en el HTML del **primer build** después de instrumentar el `catch`. Dos sesiones de hipótesis contra un comentario HTML.
+
+  **El arreglo**: `@lib/api/url` —un módulo SIN `"use client"`— donde vive `API_URL`. `client.ts` la reexporta para el navegador (que ya la importaba de ahí y sigue igual) e `identidad.ts`, `productos/[slug]` y `ProductoGrid` la importan de ahí. **Una definición en vez de tres.**
+
+  ⚠️ **LA REGLA, escrita en la cabecera de `url.ts`**: todo lo que un componente de SERVIDOR necesite importar tiene que vivir en un módulo **sin** `"use client"`.
+
+  **Probado en local contra la API real, en cuatro pasos:**
+
+  ```
+  1. build normal        → «Failed to parse URL from function(){throw…»   ← el stub
+  2. tras el arreglo     → «fetch failed»                    ← URL real, sin API local
+  3. contra api.valatino.es con la API DORMIDA
+                         → «TimeoutError: aborted due to timeout»  ← el corte de 5 s
+  4. repitiendo CALIENTE (1,2 s):
+       <!-- valatino local · identidad ok -->
+       aviso-legal          NIF=1  nombre=1  domicilio=1
+       politica-privacidad  NIF=1
+       contacto             correo=1  whatsapp=1
+  ```
+
+  ⚠️ **El paso 3 importa para el despliegue**: con la API de Render dormida el BUILD seguirá prerenderizando las páginas vacías —el corte de 5 s está ahí justo para que el build no se caiga— y será el **ISR** el que las repinte en los 5 minutos siguientes. Eso es lo que el diseño quería y lo que estaba roto. Así que al desplegar: **no juzgar por el primer `curl`**, esperar el ISR.
+
+  ⭐ **Y la huella se queda**: `HuellaDiagnostico` escribe en un comentario HTML el commit desplegado (`VERCEL_GIT_COMMIT_SHA`) y, si la identidad falla, el motivo. **No es andamio.** Cuesta 80 bytes y convierte «¿está desplegado?» y «¿por qué falla?» en un `curl | grep`. Era la otra mitad de la lección del 22/08.
 - ⚠️ **El umbral de envío gratis está en 30 €, no en 50** como decía este fichero en ocho sitios. Cambiado por Jonathan el 22/08 a las 14:29.
 - ⚠️ **Los cinco secretos siguen sin revocar** y `C:\YJIMENEZ\tokens-despliegue.env.txt` sin borrar. Hoy hubo que abrirlo para consultar Vercel. La `sb_secret_…` salta el RLS.
 
