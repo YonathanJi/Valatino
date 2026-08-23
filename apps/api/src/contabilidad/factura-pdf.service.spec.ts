@@ -307,6 +307,129 @@ describe("FacturaPdfService", () => {
    * importes NEGATIVOS: el libro suma las vigentes para dar el repercutido del
    * 303, así que una devolución tiene que restar.
    */
+  describe("la línea del descuento (083)", () => {
+    /**
+     * ⚠️ CARRITO MIXTO A PROPÓSITO: con un solo tipo de IVA el reparto entero le
+     * toca a él y cualquier prorrateo validaría. Es la misma razón por la que el
+     * ensayo SQL de la 083 usa un carrito mixto.
+     *
+     *   artículos   2,40 al 10 %  +  5,00 al 21 %   =   7,40
+     *   envío                                           3,40   (1,10 / 2,30)
+     *   ─────────────────────────────────────────────────────
+     *   subtotal de la tabla                           10,80
+     *   descuento 20 %                                 −1,48   (−0,48 / −1,00)
+     *   ─────────────────────────────────────────────────────
+     *   TOTAL                                           9,32
+     */
+    const CON_DESCUENTO = {
+      ...FACTURA_REAL,
+      lineas: [
+        { nombre: "Galleta Festival", importe: 2.4, iva_pct: 10, cantidad: 3, precio_unitario: 0.8 },
+        { nombre: "Refresco Grande", importe: 5.0, iva_pct: 21, cantidad: 1, precio_unitario: 5.0 },
+        {
+          nombre: "Gastos de envío",
+          cantidad: 1,
+          precio_unitario: 3.4,
+          iva_pct: null,
+          importe: 3.4,
+          concepto: "envio",
+          reparto: [
+            { iva_pct: 10, importe: 1.1 },
+            { iva_pct: 21, importe: 2.3 },
+          ],
+        },
+        {
+          nombre: "Descuento (VERANO20)",
+          cantidad: 1,
+          precio_unitario: 1.48,
+          iva_pct: null,
+          importe: -1.48,
+          concepto: "descuento",
+          reparto: [
+            { iva_pct: 10, importe: -0.48 },
+            { iva_pct: 21, importe: -1.0 },
+          ],
+        },
+      ],
+      desglose: [
+        { base: 2.75, cuota: 0.27, iva_pct: 10 },
+        { base: 5.21, cuota: 1.09, iva_pct: 21 },
+      ],
+      base_total: 7.96,
+      cuota_total: 1.36,
+      total: 9.32,
+    } as unknown as FacturaEmitida;
+
+    /**
+     * ⭐⭐ EL DISCRIMINADOR DE POSICIÓN, y es lo único que distingue «está en la
+     * tabla» de «está en el bloque de totales». El pie «Los precios de las líneas
+     * incluyen IVA.» se imprime justo DESPUÉS de la tabla, así que:
+     *
+     *   en la tabla   → el descuento aparece ANTES de ese pie
+     *   en los totales → aparece DESPUÉS
+     *
+     * Sin esto, un `toContain("Descuento")` pasa en los dos casos y no comprueba
+     * nada — que es exactamente el fallo que este proyecto ya ha pagado seis veces.
+     */
+    const PIE_TABLA = "Los precios de las l";
+
+    it("NO saca el descuento como una línea más de la tabla", async () => {
+      const texto = textoDe(await servicio.generar(CON_DESCUENTO));
+
+      const pie = texto.indexOf(PIE_TABLA);
+      const dto = texto.indexOf("Descuento");
+      expect(pie).toBeGreaterThan(-1);
+      expect(dto).toBeGreaterThan(-1);
+      // Petición del dueño: abajo, junto al subtotal, no en la tabla.
+      expect(dto).toBeGreaterThan(pie);
+    });
+
+    it("saca «Subtotal» y el descuento restando, para que el total se pueda seguir", async () => {
+      const texto = textoDe(await servicio.generar(CON_DESCUENTO));
+
+      expect(texto).toContain("Subtotal");
+      expect(texto).toContain("10,80"); // lo que suman las líneas de la tabla
+      expect(texto).toContain("-1,48"); // el descuento, en negativo
+      expect(texto).toContain("9,32"); // y el TOTAL ya neto
+
+      // Y en ese orden: subtotal, descuento, total.
+      expect(texto.indexOf("Subtotal")).toBeLessThan(texto.indexOf("Descuento"));
+    });
+
+    it("lleva el código del cupón en el papel, que es el medio de prueba del art. 78.Tres.2", async () => {
+      const texto = textoDe(await servicio.generar(CON_DESCUENTO));
+
+      expect(texto).toContain("VERANO20");
+    });
+
+    it("dice cómo se repartió el descuento, igual que hace con el porte", async () => {
+      const texto = textoDe(await servicio.generar(CON_DESCUENTO));
+
+      // Las dos notas, cada una con SUS números. Antes solo se imprimía la del
+      // porte: el `find` casaba por la forma de la línea y acertaba solo por el
+      // orden en que las pone `emitir_factura`.
+      expect(texto).toMatch(/env[íi]o se reparte/i);
+      expect(texto).toMatch(/descuento se reparte/i);
+      expect(texto).toContain("-0,48");
+      expect(texto).toContain("-1,00");
+    });
+
+    it("no imprime «null %» por la línea del descuento", async () => {
+      const texto = textoDe(await servicio.generar(CON_DESCUENTO));
+
+      expect(texto).not.toContain("null");
+      expect(texto).not.toContain("undefined");
+    });
+
+    it("sin cupón el bloque de totales queda EXACTAMENTE como estaba", async () => {
+      // Las 9 facturas ya emitidas y todas las que no lleven código no cambian.
+      const texto = textoDe(await servicio.generar(FACTURA_REAL));
+
+      expect(texto).not.toContain("Subtotal");
+      expect(texto).not.toContain("Descuento");
+    });
+  });
+
   describe("rectificativa", () => {
     const RECTIFICATIVA = {
       ...FACTURA_REAL,

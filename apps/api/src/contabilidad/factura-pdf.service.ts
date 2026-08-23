@@ -239,8 +239,24 @@ export class FacturaPdfService {
     this.regla(doc);
     doc.moveDown(0.4);
 
+    /**
+     * ⚠️⚠️ EL DESCUENTO NO VA EN LA TABLA, VA EN EL BLOQUE DE TOTALES. Petición del
+     * dueño, 2026-08-23: «que aparezca abajo por los lados del subtotal, con una
+     * línea Descuento, y al final el total ya con el descuento aplicado».
+     *
+     * ⭐ Y SIGUE ESTANDO EN `lineas`, que es lo que hay que entender: lo que se
+     * mueve es DÓNDE SE DIBUJA, no lo que se guarda. La línea congelada es el
+     * registro fiscal —art. 6.1.f RD 1619/2012— y además es lo que hace que
+     * `Σ lineas.importe = total` siga siendo cierto, que es el guardia del §8 de la
+     * 083. Sacarla del JSON rompería el guardia y obligaría a reconstruir el
+     * descuento al imprimir, leyendo `pedidos.descuento` en vivo: exactamente el
+     * patrón que la 083 §4 descartó, y peor aquí, porque el canje de la 073 imprime
+     * un documento congelado meses después.
+     */
+    const deTabla = f.lineas.filter((l) => l.concepto !== "descuento");
+
     doc.font("Helvetica").fontSize(9);
-    for (const l of f.lineas) {
+    for (const l of deTabla) {
       const y = doc.y;
       // El concepto puede ocupar dos líneas; las demás columnas se anclan a la
       // misma `y` para que no bailen respecto al nombre.
@@ -289,17 +305,37 @@ export class FacturaPdfService {
      * ⚠️ Va aquí abajo y en 7,5 pt A PROPÓSITO: en la tabla volvería a ser lo que
      * el dueño quitó. Y solo con varios tipos: con uno la línea ya lo declara y
      * esto sería ruido.
+     *
+     * ⚠️⚠️ Y LA AGUJA ES `concepto`, NO LA FORMA DE LA LÍNEA. Aquí había
+     * `find(l => l.iva_pct == null && l.reparto.length > 1)`, y desde la 083 la
+     * línea del DESCUENTO cumple las dos condiciones: con un carrito mixto lleva
+     * `iva_pct` null y un reparto de varios tipos, igual que el porte.
+     *
+     * Con el orden de `emitir_factura` (envío = 1, descuento = 2) el `find` seguía
+     * cogiendo el porte, así que NO llegó a imprimir un número equivocado. Lo que sí
+     * pasaba es peor de lo que parece por dos razones:
+     *
+     *   1. el reparto del DESCUENTO no se imprimía nunca, y hace la misma falta que
+     *      el del porte: las bases de abajo lo llevan restado y sin esto no hay
+     *      forma de separarlo mirando la factura;
+     *   2. y la corrección dependía de un `order by` de otra función. Una aguja que
+     *      casa por la FORMA y acierta por el ORDEN está a un cambio de orden de
+     *      imprimir los importes del descuento bajo la etiqueta del envío, en un
+     *      documento inmutable. Se identifica por `concepto` y se acaba la
+     *      dependencia.
      */
-    const reparto = f.lineas.find((l) => l.iva_pct == null && (l.reparto?.length ?? 0) > 1)?.reparto;
-    if (reparto) {
+    const nota = (concepto: "envio" | "descuento", texto: string) => {
+      const reparto = f.lineas.find((l) => l.concepto === concepto && (l.reparto?.length ?? 0) > 1)
+        ?.reparto;
+      if (!reparto) return;
       const trozos = reparto.map((r) => `${this.euros(r.importe)} al ${r.iva_pct} %`).join(" · ");
-      doc.text(
-        `El envío se reparte entre los tipos de IVA del pedido: ${trozos}. Ya está sumado en las bases de abajo.`,
-        MARGEN,
-        doc.y,
-        { width: ANCHO },
-      );
-    }
+      doc.text(`${texto}: ${trozos}. Ya está en las bases de abajo.`, MARGEN, doc.y, {
+        width: ANCHO,
+      });
+    };
+
+    nota("envio", "El envío se reparte entre los tipos de IVA del pedido");
+    nota("descuento", "El descuento se reparte entre los tipos de IVA del pedido");
 
     doc.fillColor("#000");
     doc.moveDown(0.8);
@@ -318,6 +354,34 @@ export class FacturaPdfService {
       doc.fillColor("#000").text(valor, x + anchoEtiqueta, y, { width: 90, align: "right" });
       doc.moveDown(0.3);
     };
+
+    /**
+     * ⭐ EL DESCUENTO, DONDE LO PIDIÓ EL DUEÑO (2026-08-23): aquí abajo, junto al
+     * subtotal, y no como una línea más de la tabla.
+     *
+     * «Subtotal» es lo que suman las líneas de la tabla —artículos y porte— y
+     * debajo el descuento restando, de forma que el camino hasta el TOTAL se pueda
+     * seguir con el dedo: 18,40 − 3,00 = 15,40. Sin la fila del subtotal el
+     * descuento aparecería restando de un número que no está escrito en ningún
+     * sitio, y eso es peor que no ponerlo.
+     *
+     * ⚠️ Solo aparece cuando hay cupón. Sin él el bloque queda EXACTAMENTE como
+     * estaba, así que las 9 facturas ya emitidas y todas las que no lleven código
+     * se imprimen igual que siempre.
+     *
+     * ⚠️ El nombre lo trae la línea congelada («Descuento (VERANO20)»), no se
+     * compone aquí: el código en el papel es el «medio de prueba admitido en
+     * derecho» que pide el art. 78.Tres.2 LIVA, y tiene que ser el mismo que
+     * certificó la huella.
+     */
+    const dto = f.lineas.find((l) => l.concepto === "descuento");
+    if (dto) {
+      const subtotal = f.lineas
+        .filter((l) => l.concepto !== "descuento")
+        .reduce((a, l) => a + l.importe, 0);
+      fila("Subtotal", this.euros(subtotal));
+      fila(dto.nombre, this.euros(dto.importe));
+    }
 
     // Una fila por tipo de IVA: un pedido con galletas al 10 % y un refresco al
     // 21 % trae dos, y así es como se declara.

@@ -24,6 +24,28 @@
 -- referencias a `DATABASE_URL` en `render.yaml`, 0 usos de `PrismaClient` en
 -- ejecución, 0 en el CI, 0 en `apps/api/.env`), y ya está comprobado uno a uno.
 --
+-- ⚠️⚠️ EL ORDEN DE DESPLIEGUE: EL RENDER PRIMERO, LA BASE DESPUÉS. Es la lección
+-- que la 082 dejó escrita después de pagarla: «la base emitió la línea nueva desde
+-- que se aplicó la 082, y el PDF arreglado no llegó a Render hasta unos minutos
+-- después. Una factura descargada en esos minutos habría dicho "null %". Para la
+-- próxima migración que cambie a la vez la base y el render: desplegar el render
+-- primero».
+--
+-- Aquí es el mismo caso: esta migración hace que `emitir_factura` meta la línea del
+-- descuento en `lineas`, y el PDF tiene que saber sacarla del cuerpo de la tabla y
+-- pintarla en el bloque de totales (§7 y `factura-pdf.service.ts`). Con el orden al
+-- revés, una factura descargada en la ventana saldría con el descuento como una
+-- línea más de la tabla, que es justo lo que el dueño pidió que NO pasara.
+--
+-- ⭐ Y el margen es grande, no un minuto: «cero códigos = cero cambios». Mientras no
+-- exista ninguna fila en `codigos_descuento` ningún pedido puede llevar descuento, y
+-- sin descuento no hay línea que pintar. Así que la secuencia segura es:
+--
+--     1. desplegar la API (Render) con el PDF nuevo
+--     2. aplicar esta migración
+--     3. comprobar que la tienda sigue igual (ningún cupón creado todavía)
+--     4. y solo entonces crear el primer código desde el panel de TI
+--
 -- ── §0 · POR QUÉ EL GUARDIA NO SE TOCA, Y POR QUÉ ESO ES LA PRUEBA ────────────
 --
 -- ⭐⭐ El comentario que hay que leer antes de nada no es nuevo: lo escribió la 062

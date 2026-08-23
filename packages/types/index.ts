@@ -1425,9 +1425,22 @@ export interface FacturaLinea {
    */
   iva_pct: number | null;
   importe: number;
-  /** `'envio'` en la línea del porte; las de artículo no traen la clave. */
-  concepto?: "envio";
-  /** Solo en la línea del porte. Sus importes suman exactamente `importe`. */
+  /**
+   * `'envio'` en la línea del porte, `'descuento'` en la del cupón (083 §7); las
+   * de artículo no traen la clave.
+   *
+   * ⚠️⚠️ NO ES DECORATIVO: es lo que el PDF usa para SEPARAR las dos, y sin él se
+   * confunden. Las dos llevan `iva_pct` null y `reparto` de varios tipos cuando el
+   * carrito es mixto, así que un `find` por esas dos propiedades —que es lo que
+   * había— casa con la que salga primero. La nota al pie del envío llegó a poder
+   * imprimir los importes del DESCUENTO con la etiqueta del envío. La aguja tiene
+   * que ser `concepto`, nunca la forma de la línea.
+   */
+  concepto?: "envio" | "descuento";
+  /**
+   * En la línea del porte y en la del descuento. Sus importes suman exactamente
+   * `importe`, con su mismo signo.
+   */
   reparto?: FacturaLineaReparto[];
 }
 
