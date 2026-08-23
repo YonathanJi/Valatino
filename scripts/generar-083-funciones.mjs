@@ -39,7 +39,10 @@ const NUEVO = "reparto_conceptos_pedido";
  */
 const RENOMBRAR = [
   { nombre: "linea_envio_factura", args: "p_pedido_id uuid, p_signo integer", veces: 1 },
-  { nombre: "emitir_rectificativa", args: "p_pedido_id uuid, p_refund_id text, p_actor_id uuid", veces: 1 },
+  // ⚠️ `emitir_rectificativa` YA NO ESTÁ AQUÍ, y no es un olvido: el §9 le sustituye
+  // el CTE `esto` entero, y ese CTE contenía la única referencia al nombre viejo. Si
+  // siguiera en esta lista el renombrado buscaría 1 aparición, encontraría 0 y
+  // abortaría — que es exactamente lo que el verificador tiene que hacer.
 ];
 
 function conexion() {
@@ -741,12 +744,204 @@ comment on function public.linea_descuento_factura(uuid, int) is
 revoke execute on function public.linea_descuento_factura(uuid, int) from public, anon, authenticated;
 `;
 
+const LIQUIDACION = `
+-- ── §9 · EL 303 EN EL CASO DE FALLO — LA DEUDA DEL §7 DE LA 080 ─────────────
+--
+-- ⚠️⚠️ Y AL ABRIRLO SALIÓ ALGO PEOR DE LO QUE DECÍA LA DEUDA. La 080 dejó escrito
+-- que a \`liquidacion_iva\` «le falta el porte, luego declara DE MÁS, y la dirección
+-- del error es la conservadora». Es verdad, pero no es lo único:
+--
+--   \`emitir_rectificativas_pendientes\` YA TIENE EL PREDICADO BUENO. La 080 le añadió
+--   la rama de «la devolución que solo devolvió el porte». \`liquidacion_iva\` NO la
+--   tiene, en NINGUNO de sus tres sitios.
+--
+-- O sea que el panel YA SE CONTRADICE HOY: el botón «emitir las que faltan» ve una
+-- devolución de solo porte y el aviso \`devolucion_sin_rectificativa\` del 303 no la
+-- cuenta. No es que un importe salga corto: es que el CONJUNTO es distinto.
+--
+-- ⚠️⚠️ Y ESO ES EXACTAMENTE LO QUE ESTE PROYECTO SE PROHIBIÓ POR ESCRITO EN LA 075:
+-- «El predicado de \`venta_sin_factura\` es EL MISMO que usa
+-- \`emitir_facturas_pendientes\`, y tiene que serlo: si el aviso contara una cosa y el
+-- botón «emitir las que faltan» emitiera otra, el panel se contradiría a sí mismo y
+-- nadie podría saber cuál de los dos miente.» Con las rectificativas pasa justo eso.
+--
+-- ⭐⭐ ASÍ QUE EL ARREGLO NO ES AÑADIR EL PORTE EN TRES CTEs: es que el predicado y el
+-- cálculo dejen de estar escritos más de una vez. Dos funciones, y cuatro sitios que
+-- pasan a leer de ellas:
+--
+--     devoluciones_pendientes_de_rectificativa()   ← EL CONJUNTO
+--       · emitir_rectificativas_pendientes  (el botón)
+--       · liquidacion_iva → el contador de documentos del bloque rectificado
+--       · liquidacion_iva → el aviso devolucion_sin_rectificativa
+--
+--     devolucion_desglose(pedido, refund)          ← EL DINERO, por tipo de IVA
+--       · emitir_rectificativa  (el documento)
+--       · liquidacion_iva → sin_doc  (el 303)
+--
+-- ⭐ Y el descuento no necesita ninguna rama nueva en ninguna de las dos: entra por
+-- \`reembolso_lineas.importe\`, que desde el §6 ya es el NETO. Ese es el otro motivo
+-- por el que el §6 iba antes que esto.
+
+create or replace function public.devolucion_desglose(
+  p_pedido_id uuid,
+  p_refund_id text
+)
+returns table (iva_pct numeric, con_iva numeric)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select u.iva_pct, sum(u.con_iva)
+  from (
+    -- Los artículos devueltos, agrupados por el tipo que congeló la venta.
+    -- ⭐ \`rl.importe\` es NETO desde el §6: el descuento ya viene restado y no hace
+    -- falta ninguna rama para él.
+    select i.iva_pct, sum(rl.importe) as con_iva
+    from public.reembolso_lineas rl
+    join public.pedido_items i on i.id = rl.pedido_item_id
+    where rl.pedido_id = p_pedido_id and rl.refund_id = p_refund_id
+    group by i.iva_pct
+    union all
+    -- ⚠️ EL PORTE, Y SOLO CUANDO ESTE REEMBOLSO ES EL QUE LO DEVOLVIÓ. Es
+    -- todo-o-nada (080 §6.1), así que se marca en el pedido y no cabe como línea.
+    -- Esta es la rama que a \`liquidacion_iva\` le faltaba en sus tres sitios.
+    select r.iva_pct, r.envio
+    from public.pedidos p
+    cross join public.${NUEVO}(p.id) r
+    where p.id = p_pedido_id
+      and p.envio_devuelto_en_refund = p_refund_id
+      and r.envio > 0
+  ) u
+  group by u.iva_pct;
+$$;
+
+comment on function public.devolucion_desglose(uuid, text) is
+  'El dinero de UNA devolución repartido por tipo de IVA, IVA incluido: los artículos en NETO (reembolso_lineas.importe, con el descuento ya restado desde el §6) más el porte cuando ese reembolso fue el que lo devolvió (083 §9). Es el ÚNICO sitio que lo calcula: lo leen emitir_rectificativa y liquidacion_iva, y antes cada una lo hacía por su cuenta — con la de liquidacion_iva sin la rama del porte.';
+
+revoke execute on function public.devolucion_desglose(uuid, text) from public, anon, authenticated;
+
+
+create or replace function public.devoluciones_pendientes_de_rectificativa()
+returns table (pedido_id uuid, refund_id text, cuando timestamptz)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select t.pedido_id, t.refund_id, min(t.cuando)
+  from (
+    select rl.pedido_id, rl.refund_id, rl.created_at as cuando
+    from public.reembolso_lineas rl
+    union all
+    -- ⬇️ 080: la devolución que solo devolvió el porte, que NO deja ninguna fila en
+    -- \`reembolso_lineas\`. \`envio_devuelto_el\` es una fecha y no un timestamp, así
+    -- que ordena por el día — que es toda la precisión que hay y la que necesita el
+    -- 303.
+    select p.id, p.envio_devuelto_en_refund, p.envio_devuelto_el::timestamptz
+    from public.pedidos p
+    where p.envio_devuelto_en_refund is not null
+  ) t
+  where not exists (
+    select 1 from public.facturas_emitidas f
+    where f.pedido_id = t.pedido_id
+      and f.tipo = 'rectificativa'
+      and f.refund_id = t.refund_id
+  )
+  group by t.pedido_id, t.refund_id;
+$$;
+
+comment on function public.devoluciones_pendientes_de_rectificativa() is
+  'Las devoluciones que NO tienen rectificativa emitida, incluidas las que solo devolvieron el porte (083 §9). Extraída literalmente de emitir_rectificativas_pendientes, que ya la tenía bien, para que liquidacion_iva deje de tener su propia versión SIN la rama del porte: el aviso del 303 y el botón de «emitir las que faltan» tienen que contar lo mismo o el panel se contradice (regla de la 075).';
+
+revoke execute on function public.devoluciones_pendientes_de_rectificativa() from public, anon, authenticated;
+`;
+
 /**
  * Parches estructurales sobre funciones vivas: reemplazos por expresión regular
  * con el número de coincidencias VERIFICADO. Se prefiere a retranscribir miles de
  * caracteres de SQL fiscal para cambiar un CTE o añadir un guardia.
  */
 const PARCHES = [
+  {
+    nombre: "emitir_rectificativa",
+    args: "p_pedido_id uuid, p_refund_id text, p_actor_id uuid",
+    titulo: "el dinero devuelto lo da una funcion",
+    reemplazos: [
+      {
+        que: "el CTE `esto`, que calculaba el desglose de la devolución por su cuenta",
+        de: /with esto as \(\s*select u\.iva_pct, sum\(u\.con_iva\) as con_iva\s*from \([\s\S]*?\) u\s*group by u\.iva_pct\s*\),/,
+        a: `with esto as (
+    -- §9 de la 083: lo da \\\`devolucion_desglose\\\`, que es el único sitio que sabe
+    -- valorar una devolución. Antes esto y el \\\`sin_doc\\\` de \\\`liquidacion_iva\\\`
+    -- eran dos aritméticas sobre el mismo dinero, y la segunda no veía el porte.
+    select g.iva_pct, g.con_iva
+    from public.devolucion_desglose(p_pedido_id, p_refund_id) g
+  ),`,
+        veces: 1,
+      },
+    ],
+  },
+  {
+    nombre: "emitir_rectificativas_pendientes",
+    args: "p_actor_id uuid",
+    titulo: "el conjunto lo da una funcion",
+    reemplazos: [
+      {
+        que: "la subconsulta del conjunto, que ahora vive en una función",
+        de: /select t\.pedido_id, t\.refund_id, min\(t\.cuando\) as cuando\s*from \([\s\S]*?\) t\s*where not exists \([\s\S]*?\)\s*group by t\.pedido_id, t\.refund_id\s*order by min\(t\.cuando\)/,
+        a: `-- §9 de la 083: el conjunto lo da \\\`devoluciones_pendientes_de_rectificativa\\\`,
+    -- extraída de aquí para que \\\`liquidacion_iva\\\` cuente EXACTAMENTE lo mismo. El
+    -- orden se conserva: la serie tiene que salir en el orden en que ocurrieron.
+    select d.pedido_id, d.refund_id, d.cuando
+    from public.devoluciones_pendientes_de_rectificativa() d
+    order by d.cuando`,
+        veces: 1,
+      },
+    ],
+  },
+  {
+    nombre: "liquidacion_iva",
+    args: "p_desde date, p_hasta date",
+    titulo: "los tres sitios ven el porte",
+    reemplazos: [
+      {
+        que: "el CTE `sin_doc`: el dinero, que le faltaba el porte",
+        de: /sin_doc as \(\s*select rl\.refund_id as ref, i\.iva_pct, sum\(rl\.importe\) as con_iva\s*from public\.reembolso_lineas rl\s*join public\.pedido_items i on i\.id = rl\.pedido_item_id\s*where public\.dia_fiscal\(rl\.created_at\) between p_desde and p_hasta\s*and not exists \([\s\S]*?\)\s*group by rl\.refund_id, i\.iva_pct\s*\),/,
+        a: `sin_doc as (
+    -- ⭐⭐ §9 de la 083. Antes esto leía \\\`reembolso_lineas\\\` con su propio predicado
+    -- y SIN la rama del porte, así que (a) contaba de menos el dinero devuelto y
+    -- (b) no veía las devoluciones de solo porte, que el botón de emitir las
+    -- pendientes SÍ ve. Ahora el conjunto y el importe salen de las dos funciones
+    -- que son el único sitio de cada cosa.
+    select d.refund_id as ref, g.iva_pct, g.con_iva
+    from public.devoluciones_pendientes_de_rectificativa() d
+    cross join lateral public.devolucion_desglose(d.pedido_id, d.refund_id) g
+    where public.dia_fiscal(d.cuando) between p_desde and p_hasta
+  ),`,
+        veces: 1,
+      },
+      {
+        que: "la segunda rama del contador de documentos del bloque rectificado",
+        de: /select rl\.refund_id\s*from public\.reembolso_lineas rl\s*where public\.dia_fiscal\(rl\.created_at\) between p_desde and p_hasta\s*and not exists \([\s\S]*?\)\s*\) r;/,
+        a: `select d.refund_id
+    from public.devoluciones_pendientes_de_rectificativa() d
+    where public.dia_fiscal(d.cuando) between p_desde and p_hasta
+  ) r;`,
+        veces: 1,
+      },
+      {
+        que: "el aviso `devolucion_sin_rectificativa`, que no contaba las de solo porte",
+        de: /select count\(distinct rl\.refund_id\), string_agg\(distinct p\.numero_pedido, ', '\)\s*into v_cuantos, v_refs\s*from public\.reembolso_lineas rl\s*join public\.pedidos p on p\.id = rl\.pedido_id\s*where public\.dia_fiscal\(rl\.created_at\) between p_desde and p_hasta\s*and not exists \([\s\S]*?\);/,
+        a: `select count(distinct d.refund_id), string_agg(distinct p.numero_pedido, ', ')
+  into v_cuantos, v_refs
+  from public.devoluciones_pendientes_de_rectificativa() d
+  join public.pedidos p on p.id = d.pedido_id
+  where public.dia_fiscal(d.cuando) between p_desde and p_hasta;`,
+        veces: 1,
+      },
+    ],
+  },
   {
     nombre: "emitir_factura",
     args:
@@ -915,6 +1110,7 @@ trozos.push(DESGLOSE);
 trozos.push(CODIGOS);
 trozos.push(DEVOLVER);
 trozos.push(LINEA_DESCUENTO);
+trozos.push(LIQUIDACION);
 
 // 2. Las que solo cambian de nombre: se extraen vivas y se parchean.
 const md5s = [];
@@ -1072,7 +1268,9 @@ begin
     'public.codigo_descuento_aplicable(text, numeric)',
     'public.coste_envio_de(numeric, text)',
     'public.importe_a_devolver(uuid, jsonb)',
-    'public.linea_descuento_factura(uuid, integer)'
+    'public.linea_descuento_factura(uuid, integer)',
+    'public.devolucion_desglose(uuid, text)',
+    'public.devoluciones_pendientes_de_rectificativa()'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']

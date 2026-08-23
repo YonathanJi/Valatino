@@ -10,8 +10,12 @@
 -- salió esto:
 --   linea_envio_factura(p_pedido_id uuid, p_signo integer)
 --     md5(prosrc) = 2853c587e3eb0d048390d2311f41cae8  ·  961 caracteres
---   emitir_rectificativa(p_pedido_id uuid, p_refund_id text, p_actor_id uuid)
+--   emitir_rectificativa(uuid, text, uuid)
 --     md5(prosrc) = 29731fbc1dc96e80917501c4f97471ce  ·  9900 caracteres
+--   emitir_rectificativas_pendientes(uuid)
+--     md5(prosrc) = 39b47d4fa78134c084137f33da21ca51  ·  1603 caracteres
+--   liquidacion_iva(date, date)
+--     md5(prosrc) = ec3926352ea17a0666767d69a2bea721  ·  17909 caracteres
 --   emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, d)
 --     md5(prosrc) = cca415f373e2c67cf66cafe9e5874362  ·  7331 caracteres
 --   registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid)
@@ -733,6 +737,118 @@ comment on function public.linea_descuento_factura(uuid, int) is
 revoke execute on function public.linea_descuento_factura(uuid, int) from public, anon, authenticated;
 
 
+-- ── §9 · EL 303 EN EL CASO DE FALLO — LA DEUDA DEL §7 DE LA 080 ─────────────
+--
+-- ⚠️⚠️ Y AL ABRIRLO SALIÓ ALGO PEOR DE LO QUE DECÍA LA DEUDA. La 080 dejó escrito
+-- que a `liquidacion_iva` «le falta el porte, luego declara DE MÁS, y la dirección
+-- del error es la conservadora». Es verdad, pero no es lo único:
+--
+--   `emitir_rectificativas_pendientes` YA TIENE EL PREDICADO BUENO. La 080 le añadió
+--   la rama de «la devolución que solo devolvió el porte». `liquidacion_iva` NO la
+--   tiene, en NINGUNO de sus tres sitios.
+--
+-- O sea que el panel YA SE CONTRADICE HOY: el botón «emitir las que faltan» ve una
+-- devolución de solo porte y el aviso `devolucion_sin_rectificativa` del 303 no la
+-- cuenta. No es que un importe salga corto: es que el CONJUNTO es distinto.
+--
+-- ⚠️⚠️ Y ESO ES EXACTAMENTE LO QUE ESTE PROYECTO SE PROHIBIÓ POR ESCRITO EN LA 075:
+-- «El predicado de `venta_sin_factura` es EL MISMO que usa
+-- `emitir_facturas_pendientes`, y tiene que serlo: si el aviso contara una cosa y el
+-- botón «emitir las que faltan» emitiera otra, el panel se contradiría a sí mismo y
+-- nadie podría saber cuál de los dos miente.» Con las rectificativas pasa justo eso.
+--
+-- ⭐⭐ ASÍ QUE EL ARREGLO NO ES AÑADIR EL PORTE EN TRES CTEs: es que el predicado y el
+-- cálculo dejen de estar escritos más de una vez. Dos funciones, y cuatro sitios que
+-- pasan a leer de ellas:
+--
+--     devoluciones_pendientes_de_rectificativa()   ← EL CONJUNTO
+--       · emitir_rectificativas_pendientes  (el botón)
+--       · liquidacion_iva → el contador de documentos del bloque rectificado
+--       · liquidacion_iva → el aviso devolucion_sin_rectificativa
+--
+--     devolucion_desglose(pedido, refund)          ← EL DINERO, por tipo de IVA
+--       · emitir_rectificativa  (el documento)
+--       · liquidacion_iva → sin_doc  (el 303)
+--
+-- ⭐ Y el descuento no necesita ninguna rama nueva en ninguna de las dos: entra por
+-- `reembolso_lineas.importe`, que desde el §6 ya es el NETO. Ese es el otro motivo
+-- por el que el §6 iba antes que esto.
+
+create or replace function public.devolucion_desglose(
+  p_pedido_id uuid,
+  p_refund_id text
+)
+returns table (iva_pct numeric, con_iva numeric)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select u.iva_pct, sum(u.con_iva)
+  from (
+    -- Los artículos devueltos, agrupados por el tipo que congeló la venta.
+    -- ⭐ `rl.importe` es NETO desde el §6: el descuento ya viene restado y no hace
+    -- falta ninguna rama para él.
+    select i.iva_pct, sum(rl.importe) as con_iva
+    from public.reembolso_lineas rl
+    join public.pedido_items i on i.id = rl.pedido_item_id
+    where rl.pedido_id = p_pedido_id and rl.refund_id = p_refund_id
+    group by i.iva_pct
+    union all
+    -- ⚠️ EL PORTE, Y SOLO CUANDO ESTE REEMBOLSO ES EL QUE LO DEVOLVIÓ. Es
+    -- todo-o-nada (080 §6.1), así que se marca en el pedido y no cabe como línea.
+    -- Esta es la rama que a `liquidacion_iva` le faltaba en sus tres sitios.
+    select r.iva_pct, r.envio
+    from public.pedidos p
+    cross join public.reparto_conceptos_pedido(p.id) r
+    where p.id = p_pedido_id
+      and p.envio_devuelto_en_refund = p_refund_id
+      and r.envio > 0
+  ) u
+  group by u.iva_pct;
+$$;
+
+comment on function public.devolucion_desglose(uuid, text) is
+  'El dinero de UNA devolución repartido por tipo de IVA, IVA incluido: los artículos en NETO (reembolso_lineas.importe, con el descuento ya restado desde el §6) más el porte cuando ese reembolso fue el que lo devolvió (083 §9). Es el ÚNICO sitio que lo calcula: lo leen emitir_rectificativa y liquidacion_iva, y antes cada una lo hacía por su cuenta — con la de liquidacion_iva sin la rama del porte.';
+
+revoke execute on function public.devolucion_desglose(uuid, text) from public, anon, authenticated;
+
+
+create or replace function public.devoluciones_pendientes_de_rectificativa()
+returns table (pedido_id uuid, refund_id text, cuando timestamptz)
+language sql
+stable
+security definer
+set search_path to 'public', 'pg_temp'
+as $$
+  select t.pedido_id, t.refund_id, min(t.cuando)
+  from (
+    select rl.pedido_id, rl.refund_id, rl.created_at as cuando
+    from public.reembolso_lineas rl
+    union all
+    -- ⬇️ 080: la devolución que solo devolvió el porte, que NO deja ninguna fila en
+    -- `reembolso_lineas`. `envio_devuelto_el` es una fecha y no un timestamp, así
+    -- que ordena por el día — que es toda la precisión que hay y la que necesita el
+    -- 303.
+    select p.id, p.envio_devuelto_en_refund, p.envio_devuelto_el::timestamptz
+    from public.pedidos p
+    where p.envio_devuelto_en_refund is not null
+  ) t
+  where not exists (
+    select 1 from public.facturas_emitidas f
+    where f.pedido_id = t.pedido_id
+      and f.tipo = 'rectificativa'
+      and f.refund_id = t.refund_id
+  )
+  group by t.pedido_id, t.refund_id;
+$$;
+
+comment on function public.devoluciones_pendientes_de_rectificativa() is
+  'Las devoluciones que NO tienen rectificativa emitida, incluidas las que solo devolvieron el porte (083 §9). Extraída literalmente de emitir_rectificativas_pendientes, que ya la tenía bien, para que liquidacion_iva deje de tener su propia versión SIN la rama del porte: el aviso del 303 y el botón de «emitir las que faltan» tienen que contar lo mismo o el panel se contradice (regla de la 075).';
+
+revoke execute on function public.devoluciones_pendientes_de_rectificativa() from public, anon, authenticated;
+
+
 -- ── §2.1 · linea_envio_factura — SOLO CAMBIA EL NOMBRE DEL REPARTO ─
 --
 -- Extraída del `prosrc` vivo (md5 2853c587e3eb0d048390d2311f41cae8) y parcheada por script:
@@ -770,10 +886,11 @@ $function$
 revoke execute on function public.linea_envio_factura(uuid, integer) from public, anon, authenticated;
 
 
--- ── §2.2 · emitir_rectificativa — SOLO CAMBIA EL NOMBRE DEL REPARTO 
+-- ── §6.1 · emitir_rectificativa — el dinero devuelto lo da una funcion 
 --
 -- Extraída del `prosrc` vivo (md5 29731fbc1dc96e80917501c4f97471ce) y parcheada por script:
--- 1 sustitución(es) de reparto_envio_pedido → reparto_conceptos_pedido, verificadas. Ni una letra más.
+--     · el CTE `esto`, que calculaba el desglose de la devolución por su cuenta (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
 
 CREATE OR REPLACE FUNCTION public.emitir_rectificativa(p_pedido_id uuid, p_refund_id text, p_actor_id uuid DEFAULT NULL::uuid)
  RETURNS uuid
@@ -950,19 +1067,11 @@ begin
    * un documento.
    */
   with esto as (
-    select u.iva_pct, sum(u.con_iva) as con_iva
-    from (
-      select i.iva_pct, sum(rl.importe) as con_iva
-      from public.reembolso_lineas rl
-      join public.pedido_items i on i.id = rl.pedido_item_id
-      where rl.pedido_id = p_pedido_id and rl.refund_id = p_refund_id
-      group by i.iva_pct
-      union all
-      select r.iva_pct, r.envio
-      from public.reparto_conceptos_pedido(p_pedido_id) r
-      where v_envio_de_este and r.envio > 0
-    ) u
-    group by u.iva_pct
+    -- §9 de la 083: lo da \`devolucion_desglose\`, que es el único sitio que sabe
+    -- valorar una devolución. Antes esto y el \`sin_doc\` de \`liquidacion_iva\`
+    -- eran dos aritméticas sobre el mismo dinero, y la segunda no veía el porte.
+    select g.iva_pct, g.con_iva
+    from public.devolucion_desglose(p_pedido_id, p_refund_id) g
   ),
   ya as (
     -- Lo ya rectificado de esta venta, EN POSITIVO (el documento lo guarda en
@@ -1030,7 +1139,481 @@ $function$
 revoke execute on function public.emitir_rectificativa(uuid, text, uuid) from public, anon, authenticated;
 
 
--- ── §6.1 · emitir_factura — la linea del descuento y el guardia del §8 
+-- ── §6.2 · emitir_rectificativas_pendientes — el conjunto lo da una funcion 
+--
+-- Extraída del `prosrc` vivo (md5 39b47d4fa78134c084137f33da21ca51) y parcheada por script:
+--     · la subconsulta del conjunto, que ahora vive en una función (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.emitir_rectificativas_pendientes(p_actor_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_r        record;
+  v_emitidas int := 0;
+  v_saltadas int := 0;
+  v_id       uuid;
+begin
+  if emisor_fiscal() is null then
+    raise exception
+      'Faltan los datos fiscales del emisor (TI → Ajustes). Sin NIF, nombre y domicilio no hay factura que emitir.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Mismo criterio que `emitir_facturas_pendientes` (073): en orden de
+  -- devolución, para que los números de la serie salgan en el orden en que
+  -- ocurrieron.
+  for v_r in
+    -- §9 de la 083: el conjunto lo da \`devoluciones_pendientes_de_rectificativa\`,
+    -- extraída de aquí para que \`liquidacion_iva\` cuente EXACTAMENTE lo mismo. El
+    -- orden se conserva: la serie tiene que salir en el orden en que ocurrieron.
+    select d.pedido_id, d.refund_id, d.cuando
+    from public.devoluciones_pendientes_de_rectificativa() d
+    order by d.cuando
+  loop
+    v_id := emitir_rectificativa(v_r.pedido_id, v_r.refund_id, p_actor_id);
+    if v_id is null then v_saltadas := v_saltadas + 1;
+    else v_emitidas := v_emitidas + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object('emitidas', v_emitidas, 'saltadas', v_saltadas);
+end;
+$function$
+;
+
+revoke execute on function public.emitir_rectificativas_pendientes(uuid) from public, anon, authenticated;
+
+
+-- ── §6.3 · liquidacion_iva — los tres sitios ven el porte 
+--
+-- Extraída del `prosrc` vivo (md5 ec3926352ea17a0666767d69a2bea721) y parcheada por script:
+--     · el CTE `sin_doc`: el dinero, que le faltaba el porte (1 reemplazo)
+--     · la segunda rama del contador de documentos del bloque rectificado (1 reemplazo)
+--     · el aviso `devolucion_sin_rectificativa`, que no contaba las de solo porte (1 reemplazo)
+-- Ni una letra más. El resto de la función es literalmente la que está desplegada.
+
+CREATE OR REPLACE FUNCTION public.liquidacion_iva(p_desde date, p_hasta date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_devengado    jsonb;
+  v_rectificado  jsonb;
+  v_deducible    jsonb;
+  v_avisos       jsonb := '[]'::jsonb;
+  v_arranque     timestamptz;
+  v_d_base       numeric(12,2) := 0;
+  v_d_cuota      numeric(12,2) := 0;
+  v_r_base       numeric(12,2) := 0;
+  v_r_cuota      numeric(12,2) := 0;
+  v_c_base       numeric(12,2) := 0;
+  v_c_cuota      numeric(12,2) := 0;
+  v_d_docs       integer := 0;
+  v_r_docs       integer := 0;
+  v_c_docs       integer := 0;
+  v_cuantos      integer;
+  v_refs         text;
+begin
+  if p_desde is null or p_hasta is null then
+    raise exception 'El periodo necesita fecha de inicio y de fin';
+  end if;
+  if p_hasta < p_desde then
+    raise exception 'La fecha de fin no puede ser anterior a la de inicio';
+  end if;
+
+  select arranque_fiscal_el into v_arranque from public.ajustes_tienda where id;
+
+  -- ── Devengado: lo repercutido en las ventas del periodo ──────────────────
+  -- El filtro es `devengado_el`, NO `created_at`.
+  --
+  -- ⚠️ Sigue leyendo `pedido_iva` y no las facturas emitidas, a diferencia del
+  -- bloque de abajo: el desglose de una factura de venta es una COPIA de
+  -- `pedido_iva` (073), no una segunda aritmética. No hay dos fórmulas que puedan
+  -- divergir. El aviso `venta_sin_factura` es quien cuida que además haya papel.
+  with venta as (
+    select pv.iva_pct, pv.base, pv.cuota, pv.pedido_id
+    from public.pedido_iva pv
+    join public.pedidos p on p.id = pv.pedido_id
+    where p.devengado_el is not null
+      and public.dia_fiscal(p.devengado_el) between p_desde and p_hasta
+  )
+  select
+    coalesce(jsonb_agg(jsonb_build_object(
+      'iva_pct', t.iva_pct, 'base', t.base, 'cuota', t.cuota, 'documentos', t.documentos
+    ) order by t.iva_pct), '[]'::jsonb),
+    coalesce(sum(t.base), 0),
+    coalesce(sum(t.cuota), 0)
+  into v_devengado, v_d_base, v_d_cuota
+  from (
+    select iva_pct, sum(base) as base, sum(cuota) as cuota,
+           count(distinct pedido_id) as documentos
+    from venta group by iva_pct
+  ) t;
+
+  select count(distinct p.id) into v_d_docs
+  from public.pedidos p
+  join public.pedido_iva pv on pv.pedido_id = p.id
+  where p.devengado_el is not null
+    and public.dia_fiscal(p.devengado_el) between p_desde and p_hasta;
+
+  /**
+   * ── Rectificado: las devoluciones del periodo ─────────────────────────────
+   *
+   * ⭐⭐ DESDE LA 078 ESTO SUMA DOCUMENTOS, NO RECALCULA. Antes derivaba la base
+   * de cada reembolso por su cuenta con la misma fórmula que la 077 usaba para
+   * emitir el documento: dos implementaciones de la misma aritmética sobre el
+   * mismo dinero, que es exactamente lo que costó la 074 con el formato del
+   * número de factura. Ahora el documento manda y el 303 lo suma.
+   *
+   * Son dos mitades que parten el conjunto sin solaparse:
+   *
+   *   · `doc`     — las rectificativas emitidas, por `fecha_operacion`, que en
+   *                 una rectificativa ES la fecha de la devolución (077 §2). Su
+   *                 desglose está en negativo y aquí se pasa a positivo, porque
+   *                 este bloque se RESTA después (`repercutido = devengado −
+   *                 rectificado`).
+   *   · `sin_doc` — las devoluciones que todavía no tienen documento, con la
+   *                 derivación de siempre.
+   *
+   * ⚠️⚠️ EL PREDICADO DE `sin_doc` ES EL MISMO, LITERAL, QUE EL DEL AVISO
+   * `devolucion_sin_rectificativa` de la 075. Tiene que serlo: el aviso dice «esta
+   * liquidación YA descuenta su IVA aunque no haya papel», y si los dos
+   * predicados divergieran, el aviso estaría describiendo un número que no es el
+   * que sale. Se cambian juntos o no se cambia ninguno.
+   *
+   * ⚠️ `vigente` en `doc`: una rectificativa no la sustituye nadie hoy, pero el
+   * libro es quien decide qué cuenta, y sumar aquí lo que el libro no cuenta es
+   * la vía de contar el IVA dos veces (073 §5).
+   */
+  with doc as (
+    select f.refund_id                    as ref,
+           (d->>'iva_pct')::numeric       as iva_pct,
+           -(d->>'base')::numeric         as base,
+           -(d->>'cuota')::numeric        as cuota
+    from public.libro_facturas_expedidas f
+    cross join lateral jsonb_array_elements(f.desglose) d
+    where f.tipo = 'rectificativa'
+      and f.vigente
+      and coalesce(f.fecha_operacion, f.fecha_expedicion) between p_desde and p_hasta
+  ),
+  sin_doc as (
+    -- ⭐⭐ §9 de la 083. Antes esto leía \`reembolso_lineas\` con su propio predicado
+    -- y SIN la rama del porte, así que (a) contaba de menos el dinero devuelto y
+    -- (b) no veía las devoluciones de solo porte, que el botón de emitir las
+    -- pendientes SÍ ve. Ahora el conjunto y el importe salen de las dos funciones
+    -- que son el único sitio de cada cosa.
+    select d.refund_id as ref, g.iva_pct, g.con_iva
+    from public.devoluciones_pendientes_de_rectificativa() d
+    cross join lateral public.devolucion_desglose(d.pedido_id, d.refund_id) g
+    where public.dia_fiscal(d.cuando) between p_desde and p_hasta
+  ),
+  por_documento as (
+    select ref, iva_pct, base, cuota from doc
+    union all
+    select ref, iva_pct,
+           round(con_iva / (1 + iva_pct / 100), 2) as base,
+           con_iva - round(con_iva / (1 + iva_pct / 100), 2) as cuota
+    from sin_doc
+  )
+  select
+    coalesce(jsonb_agg(jsonb_build_object(
+      'iva_pct', t.iva_pct, 'base', t.base, 'cuota', t.cuota, 'documentos', t.documentos
+    ) order by t.iva_pct), '[]'::jsonb),
+    coalesce(sum(t.base), 0),
+    coalesce(sum(t.cuota), 0)
+  into v_rectificado, v_r_base, v_r_cuota
+  from (
+    select iva_pct, sum(base) as base, sum(cuota) as cuota,
+           count(distinct ref) as documentos
+    from por_documento group by iva_pct
+  ) t;
+
+  -- Los documentos del bloque: rectificativas emitidas + devoluciones sin ella.
+  -- Mismos dos criterios de arriba, y por eso mismo no se pueden tocar por
+  -- separado.
+  select count(*) into v_r_docs
+  from (
+    select f.refund_id as ref
+    from public.libro_facturas_expedidas f
+    where f.tipo = 'rectificativa'
+      and f.vigente
+      and coalesce(f.fecha_operacion, f.fecha_expedicion) between p_desde and p_hasta
+    union
+    select d.refund_id
+    from public.devoluciones_pendientes_de_rectificativa() d
+    where public.dia_fiscal(d.cuando) between p_desde and p_hasta
+  ) r;
+
+  -- ── Deducible: lo soportado en las compras del periodo ──────────────────
+  -- ⚠️ POR `created_at`, LA FECHA DE REGISTRO, NO POR LA DE LA FACTURA.
+  with compra as (
+    select fci.factura_id, fci.iva_pct,
+           sum(fci.cantidad * fci.costo_unitario) as base_bruta
+    from public.factura_compra_items fci
+    join public.facturas_compra f on f.id = fci.factura_id
+    where fci.iva_pct is not null
+      and fci.costo_unitario is not null
+      and public.dia_fiscal(f.created_at) between p_desde and p_hasta
+    group by fci.factura_id, fci.iva_pct
+  ),
+  por_documento as (
+    select factura_id, iva_pct,
+           round(base_bruta, 2) as base,
+           round(base_bruta * iva_pct / 100, 2) as cuota
+    from compra
+  )
+  select
+    coalesce(jsonb_agg(jsonb_build_object(
+      'iva_pct', t.iva_pct, 'base', t.base, 'cuota', t.cuota, 'documentos', t.documentos
+    ) order by t.iva_pct), '[]'::jsonb),
+    coalesce(sum(t.base), 0),
+    coalesce(sum(t.cuota), 0)
+  into v_deducible, v_c_base, v_c_cuota
+  from (
+    select iva_pct, sum(base) as base, sum(cuota) as cuota,
+           count(distinct factura_id) as documentos
+    from por_documento group by iva_pct
+  ) t;
+
+  -- ⚠️ Los MISMOS filtros que el bloque de arriba, y eso hay que mantenerlo.
+  select count(distinct fci.factura_id) into v_c_docs
+  from public.factura_compra_items fci
+  join public.facturas_compra f on f.id = fci.factura_id
+  where fci.iva_pct is not null
+    and fci.costo_unitario is not null
+    and public.dia_fiscal(f.created_at) between p_desde and p_hasta;
+
+  -- ── Los avisos ─────────────────────────────────────────────────────────
+  -- ⚠️⚠️ NO son decoración, son la mitad del valor del informe.
+
+  -- ── ⭐ AQUÍ ESTABA EL AVISO FALSO (la 068 y la 070 lo ponían siempre) ────────
+  -- ⚠️⚠️ EL PREDICADO ES EL MISMO QUE USA `emitir_facturas_pendientes` (073), y
+  -- tiene que serlo: si el aviso contara una cosa y el botón «emitir las que
+  -- faltan» emitiera otra, el panel se contradiría a sí mismo.
+  --
+  -- No se mira `vigente`: una simplificada sustituida NO cuenta en el libro, pero
+  -- su venta SÍ tiene documento (la completa que la sustituyó). Filtrar por
+  -- vigencia haría que cada canje inventara una venta sin facturar.
+  select count(*), string_agg(p.numero_pedido, ', ' order by p.numero_pedido)
+  into v_cuantos, v_refs
+  from public.pedidos p
+  where p.devengado_el is not null
+    and public.dia_fiscal(p.devengado_el) between p_desde and p_hasta
+    and not exists (
+      select 1 from public.facturas_emitidas f
+      where f.pedido_id = p.id and f.tipo in ('simplificada', 'completa')
+    );
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'venta_sin_factura',
+      'gravedad', 'grave',
+      'titulo', v_cuantos || ' venta(s) devengadas sin factura',
+      'detalle', 'Estas ventas declaran su IVA en esta liquidación y no tienen documento en '
+                 'el libro de facturas expedidas, que es con lo que se soporta un 303. Cada '
+                 'venta emite su simplificada sola, así que esto solo pasa con las anteriores '
+                 'a que el emisor estuviera configurado. Se arregla en Contabilidad → '
+                 'Facturas, con «emitir las que faltan».',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  -- ── Devoluciones sin rectificativa: el libro y esta liquidación discrepan ───
+  -- Mismo criterio de documento y de periodo que el bloque `rectificado`.
+  -- `cuantos` cuenta REEMBOLSOS y `referencias` lista los pedidos afectados, así
+  -- que pueden no coincidir: un pedido admite varias devoluciones parciales.
+  select count(distinct d.refund_id), string_agg(distinct p.numero_pedido, ', ')
+  into v_cuantos, v_refs
+  from public.devoluciones_pendientes_de_rectificativa() d
+  join public.pedidos p on p.id = d.pedido_id
+  where public.dia_fiscal(d.cuando) between p_desde and p_hasta;
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'devolucion_sin_rectificativa',
+      'gravedad', 'aviso',
+      'titulo', v_cuantos || ' devolución(es) sin factura rectificativa',
+      'detalle', 'Esta liquidación YA descuenta su IVA (bloque rectificado), pero el libro de '
+                 'facturas expedidas sigue diciendo que se facturó el importe entero. Los dos '
+                 'tienen razón por separado y no cuadran entre sí: la rectificativa es el '
+                 'documento que los reconcilia y todavía no se emite. La diferencia es esta, '
+                 'y está contada.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  if v_arranque is null then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'sin_arranque_fiscal',
+      'gravedad', 'grave',
+      'titulo', 'La tienda sigue en modo pruebas',
+      'detalle', 'No se ha marcado el arranque fiscal (TI → Ajustes), así que estas ventas '
+                 'son de prueba y pueden borrarse. Nada de esto se presenta.',
+      'cuantos', 0, 'referencias', '[]'::jsonb
+    );
+  elsif public.dia_fiscal(v_arranque) > p_desde then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'periodo_antes_del_arranque',
+      'gravedad', 'grave',
+      'titulo', 'El periodo empieza antes del arranque fiscal',
+      'detalle', 'El arranque fiscal es el ' || to_char(public.dia_fiscal(v_arranque), 'DD/MM/YYYY') ||
+                 '. Lo anterior a esa fecha son datos de prueba y no debería declararse.',
+      'cuantos', 0, 'referencias', '[]'::jsonb
+    );
+  end if;
+
+  select count(*), string_agg(numero_factura, ', ' order by numero_factura)
+  into v_cuantos, v_refs
+  from public.facturas_compra
+  where fecha_factura is null
+    and public.dia_fiscal(created_at) between p_desde and p_hasta;
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'compra_sin_fecha_factura',
+      'gravedad', 'aviso',
+      'titulo', v_cuantos || ' factura(s) de compra sin fecha de expedición',
+      'detalle', 'El libro registro de facturas recibidas exige la fecha que puso el '
+                 'proveedor. Su IVA SÍ se está deduciendo (el periodo lo decide la fecha de '
+                 'registro), pero falta el dato: cógelo del PDF y complétalo en Compras.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  select count(distinct f.id), string_agg(distinct f.numero_factura, ', ')
+  into v_cuantos, v_refs
+  from public.facturas_compra f
+  join public.factura_compra_items fci on fci.factura_id = f.id
+  where (fci.iva_pct is null or fci.costo_unitario is null)
+    and public.dia_fiscal(f.created_at) between p_desde and p_hasta;
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'compra_sin_iva_por_linea',
+      'gravedad', 'grave',
+      'titulo', v_cuantos || ' factura(s) de compra con líneas sin tipo de IVA',
+      'detalle', 'Son anteriores a que las compras guardaran el IVA por línea. Ese IVA '
+                 'soportado NO se está deduciendo, así que el resultado sale más alto de lo '
+                 'que debería.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  select count(*), string_agg(numero_factura, ', ' order by numero_factura)
+  into v_cuantos, v_refs
+  from (
+    select f.id, f.numero_factura, f.total_iva,
+           sum(round(g.base_bruta * g.iva_pct / 100, 2)) as por_tipo
+    from public.facturas_compra f
+    join (
+      select factura_id, iva_pct, sum(cantidad * costo_unitario) as base_bruta
+      from public.factura_compra_items
+      where iva_pct is not null and costo_unitario is not null
+      group by factura_id, iva_pct
+    ) g on g.factura_id = f.id
+    where public.dia_fiscal(f.created_at) between p_desde and p_hasta
+      and f.total_iva is not null
+    group by f.id, f.numero_factura, f.total_iva
+  ) d
+  where abs(d.por_tipo - d.total_iva) > 0.005;
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'compra_descuadre_por_tipo',
+      'gravedad', 'aviso',
+      'titulo', v_cuantos || ' factura(s) con céntimos de diferencia al desglosar por tipo',
+      'detalle', 'El IVA total de la factura se redondeó de una vez y aquí se redondea por '
+                 'tipo, que es como se declara. La diferencia es de céntimos y el desglose '
+                 'por tipo es el bueno, pero conviene mirarlo.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  select count(*), string_agg(numero_pedido, ', ' order by numero_pedido)
+  into v_cuantos, v_refs
+  from public.pedidos p
+  where p.estado = 'CANCELADO'
+    and p.devengado_el is not null
+    and public.dia_fiscal(p.devengado_el) between p_desde and p_hasta
+    and not exists (select 1 from public.reembolso_lineas rl where rl.pedido_id = p.id);
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'cancelado_ya_cobrado_sin_devolucion',
+      'gravedad', 'grave',
+      'titulo', v_cuantos || ' pedido(s) cancelados después de cobrar, sin devolución',
+      'detalle', 'Su IVA está declarado como devengado —la venta ocurrió— y no consta que se '
+                 'haya devuelto el dinero. O se devuelve (y rectifica), o alguien tiene que '
+                 'explicar por qué se cobró y se canceló.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  select count(distinct rl.pedido_id), string_agg(distinct p.numero_pedido, ', ')
+  into v_cuantos, v_refs
+  from public.reembolso_lineas rl
+  join public.pedidos p on p.id = rl.pedido_id
+  where rl.refund_id like 'retro:%'
+    and public.dia_fiscal(rl.created_at) between p_desde and p_hasta;
+
+  if v_cuantos > 0 then
+    v_avisos := v_avisos || jsonb_build_object(
+      'clase', 'devolucion_reconstruida',
+      'gravedad', 'aviso',
+      'titulo', v_cuantos || ' devolución(es) reconstruidas, no registradas en su momento',
+      'detalle', 'Se devolvió el dinero antes de que la aplicación apuntara qué artículos. El '
+                 'desglose se ha deducido de las líneas del pedido y del precio al que se '
+                 'vendieron; es correcto salvo que la devolución fuera parcial y solo se '
+                 'anotara el importe.',
+      'cuantos', v_cuantos,
+      'referencias', to_jsonb(string_to_array(coalesce(v_refs, ''), ', '))
+    );
+  end if;
+
+  return jsonb_build_object(
+    'desde', p_desde,
+    'hasta', p_hasta,
+    'zona', 'Europe/Madrid',
+    'arranque_fiscal_el', v_arranque,
+    'devengado', v_devengado,
+    'rectificado', v_rectificado,
+    'deducible', v_deducible,
+    'totales', jsonb_build_object(
+      'devengado_base', v_d_base,
+      'devengado_cuota', v_d_cuota,
+      'devengado_documentos', v_d_docs,
+      'rectificado_base', v_r_base,
+      'rectificado_cuota', v_r_cuota,
+      'rectificado_documentos', v_r_docs,
+      'repercutido_base', v_d_base - v_r_base,
+      'repercutido_cuota', v_d_cuota - v_r_cuota,
+      'deducible_base', v_c_base,
+      'deducible_cuota', v_c_cuota,
+      'deducible_documentos', v_c_docs,
+      'resultado', (v_d_cuota - v_r_cuota) - v_c_cuota
+    ),
+    'avisos', v_avisos
+  );
+end;
+$function$
+;
+
+revoke execute on function public.liquidacion_iva(date, date) from public, anon, authenticated;
+
+
+-- ── §6.4 · emitir_factura — la linea del descuento y el guardia del §8 
 --
 -- Extraída del `prosrc` vivo (md5 cca415f373e2c67cf66cafe9e5874362) y parcheada por script:
 --     · la declaración de la variable del guardia nuevo (1 reemplazo)
@@ -1276,7 +1859,7 @@ $function$
 revoke execute on function public.emitir_factura(uuid, factura_tipo, jsonb, jsonb, jsonb, uuid, uuid, uuid, date, text) from public, anon, authenticated;
 
 
--- ── §6.2 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
+-- ── §6.5 · registrar_reembolso_lineas — deja de calcular el importe y lo pide 
 --
 -- Extraída del `prosrc` vivo (md5 c663df7162213f7184ab705c1eea28f2) y parcheada por script:
 --     · el CTE `disponible`, que duplicaba el tope y la fórmula del PVP (1 reemplazo)
@@ -1386,7 +1969,7 @@ $function$
 revoke execute on function public.registrar_reembolso_lineas(uuid, jsonb, boolean, text, boolean, uuid) from public, anon, authenticated;
 
 
--- ── §6.3 · reembolsar_pedido_total — lo pendiente se valora en neto 
+-- ── §6.6 · reembolsar_pedido_total — lo pendiente se valora en neto 
 --
 -- Extraída del `prosrc` vivo (md5 3d807a6317fe82402716adbd74836165) y parcheada por script:
 --     · el cuerpo de `pendiente_por_item`, que valoraba a PVP (1 reemplazo)
@@ -1610,7 +2193,9 @@ begin
     'public.codigo_descuento_aplicable(text, numeric)',
     'public.coste_envio_de(numeric, text)',
     'public.importe_a_devolver(uuid, jsonb)',
-    'public.linea_descuento_factura(uuid, integer)'
+    'public.linea_descuento_factura(uuid, integer)',
+    'public.devolucion_desglose(uuid, text)',
+    'public.devoluciones_pendientes_de_rectificativa()'
   ]
   loop
     foreach v_rol in array array['anon', 'authenticated']

@@ -801,6 +801,106 @@ begin
 end $bloque_l$;
 
 
+-- ── N · ⭐⭐ EL §9: EL 303 VE LA DEVOLUCIÓN DE SOLO PORTE ────────────────────
+--
+-- ES EL ESCENARIO EXACTO DE LA AVERÍA que la 080 dejó abierta y que resultó ser
+-- peor de lo que decía: un reembolso que devolvió SOLO el porte no deja ninguna fila
+-- en `reembolso_lineas`, así que el `sin_doc` viejo —que leía esa tabla— no lo veía
+-- de ninguna manera. Ni el dinero ni el aviso.
+--
+-- Y `emitir_rectificativas_pendientes` SÍ lo veía. El panel se contradecía.
+--
+-- EL CASO, aislado en un mes donde no hay nada más para que la medición sea limpia:
+--
+--   artículos  10,00 al 10 %  +  5,00 al 21 %  =  15,00
+--   envío                                          3,40   →  2,27 / 1,13
+--   se devuelve SOLO el porte, sin rectificativa emitida
+--
+--   base 10 % = round(2,27 / 1,10, 2) = 2,06   ·  cuota = 2,27 − 2,06 = 0,21
+--   base 21 % = round(1,13 / 1,21, 2) = 0,93   ·  cuota = 1,13 − 0,93 = 0,20
+--   ────────────────────────────────────────────────────────────────────────
+--   rectificado_base = 2,99   ·  rectificado_cuota = 0,41   ·  suman 3,40 ✓
+--
+-- ⚠️ Con el `sin_doc` viejo los tres salen a 0 y el aviso no aparece. Verificado.
+
+do $bloque_n$
+declare
+  v_p10    uuid;
+  v_p21    uuid;
+  v_pedido uuid;
+  v_liq    jsonb;
+  v_tot    jsonb;
+  v_aviso  jsonb;
+  v_fallos text := '';
+begin
+  select id into v_p10 from productos where activo and iva_pct = 10 order by id limit 1;
+  select id into v_p21 from productos where activo and iva_pct = 21 order by id limit 1;
+
+  -- Sin descuento a propósito: aquí se mide el PORTE, y mezclarlo con el cupón
+  -- haría que un fallo en cualquiera de los dos se leyera como fallo del otro.
+  insert into pedidos (numero_pedido, estado, total, coste_envio, metodo_pago, email_cliente)
+  values ('ENSAYO083LIQ', 'PENDIENTE_PAGO', 18.40, 3.40, 'stripe', 'ensayo-083-liq@valatino.es')
+  returning id into v_pedido;
+
+  insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+  select v_pedido, p.id, p.nombre, 1, 10.00 from productos p where p.id = v_p10
+  union all
+  select v_pedido, p.id, p.nombre, 1,  5.00 from productos p where p.id = v_p21;
+
+  -- ⭐ LA DEVOLUCIÓN DE SOLO PORTE: se marca en el pedido y NO deja fila en
+  -- `reembolso_lineas`. Es justo lo que el `sin_doc` viejo no podía ver.
+  update pedidos
+  set envio_devuelto_en_refund = 'ENSAYO_N_PORTE',
+      envio_devuelto_el        = date '2026-01-15'
+  where id = v_pedido;
+
+  -- El desglose de esa devolución, que es lo que el 303 tiene que leer.
+  if (select coalesce(sum(con_iva), 0) from devolucion_desglose(v_pedido, 'ENSAYO_N_PORTE')) <> 3.40 then
+    v_fallos := v_fallos || format(' devolucion_desglose suma %s y el porte es 3,40;',
+      (select coalesce(sum(con_iva), 0) from devolucion_desglose(v_pedido, 'ENSAYO_N_PORTE')));
+  end if;
+
+  -- Y que el conjunto la incluye, que es la otra mitad del arreglo.
+  if not exists (
+    select 1 from devoluciones_pendientes_de_rectificativa()
+    where refund_id = 'ENSAYO_N_PORTE'
+  ) then
+    v_fallos := v_fallos ||
+      ' devoluciones_pendientes_de_rectificativa NO ve la devolución de solo porte;';
+  end if;
+
+  -- ── El 303 del mes, aislado ──
+  v_liq := liquidacion_iva(date '2026-01-01', date '2026-01-31');
+  v_tot := v_liq -> 'totales';
+
+  if (v_tot->>'rectificado_base')::numeric <> 2.99 then
+    v_fallos := v_fallos || format(' rectificado_base = %s (esperado 2.99);', v_tot->>'rectificado_base');
+  end if;
+  if (v_tot->>'rectificado_cuota')::numeric <> 0.41 then
+    v_fallos := v_fallos || format(' rectificado_cuota = %s (esperado 0.41);', v_tot->>'rectificado_cuota');
+  end if;
+  if (v_tot->>'rectificado_documentos')::int <> 1 then
+    v_fallos := v_fallos || format(' rectificado_documentos = %s (esperado 1);', v_tot->>'rectificado_documentos');
+  end if;
+
+  -- ⭐ Y EL AVISO. Que el importe salga bien y el aviso no aparezca sería peor que
+  -- las dos cosas mal: el 303 estaría correcto y nadie sabría que falta un papel.
+  select a into v_aviso
+  from jsonb_array_elements(v_liq -> 'avisos') a
+  where a->>'clase' = 'devolucion_sin_rectificativa';
+
+  if v_aviso is null then
+    v_fallos := v_fallos ||
+      ' NO salta el aviso devolucion_sin_rectificativa. El botón de «emitir las que faltan» sí la ve: el panel se contradice;';
+  elsif (v_aviso->>'cuantos')::int <> 1 then
+    v_fallos := v_fallos || format(' el aviso cuenta %s devoluciones (esperado 1);', v_aviso->>'cuantos');
+  end if;
+
+  if v_fallos <> '' then raise exception 'N · el 303 con la devolución de solo porte:%', v_fallos; end if;
+  raise notice 'N · §9 OK: rectificado 2,99/0,41 (suman 3,40), 1 documento, y el aviso salta';
+end $bloque_n$;
+
+
 -- ── Resumen legible, para pegarlo en ESTADO.md ───────────────────────────────
 
 select 'reparto'  as bloque, rc.iva_pct::text as tipo,
