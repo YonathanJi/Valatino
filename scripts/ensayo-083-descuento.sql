@@ -306,6 +306,219 @@ begin
 end $bloque_e$;
 
 
+-- ── F · ⭐⭐ EL ORDEN DEL ACUMULADO DEL §4, CON UN CASO QUE SÍ LO DETECTA ─────
+--
+-- ⚠️⚠️ LA PRIMERA VERSIÓN DE ESTE BLOQUE ERA UNA TAUTOLOGÍA, y merece quedar
+-- escrito. Comparaba `Σ descuento_imputado` por tipo contra
+-- `reparto_conceptos_pedido.descuento`… que ES esa suma desde que el §2 dejó de
+-- repartir el descuento por su cuenta. Comparaba un número consigo mismo y salía en
+-- verde siempre. Se cazó al preguntarse «¿y esto sabe salir rojo?».
+--
+-- ⚠️⚠️ Y EL CASO DE LOS BLOQUES A–E TAMPOCO DETECTA UN ERROR DE ORDEN: con UNA
+-- línea por tipo, el reparto acumulado da lo mismo se ordene como se ordene, porque
+-- cada tipo se lleva su propio trozo en cualquier secuencia. Hacen falta DOS líneas
+-- del mismo tipo y unos importes que hagan que el acumulado cruce el medio céntimo
+-- en distinto sitio.
+--
+-- EL CASO SENSIBLE:  1,11 + 1,11 al 10 %   ·   1,11 al 21 %   =  3,33
+--                    descuento 20 % = round(0,666, 2) = 0,67 · envío 3,40
+--                    total = 3,33 + 3,40 − 0,67 = 6,06
+--
+--   Ordenando por (iva_pct, id) — los dos del 10 % juntos:
+--     acum: round(0,67×1,11/3,33)=0,22 · round(0,67×2,22/3,33)=0,45 · 0,67
+--     líneas: 0,22 · 0,23 · 0,22        →  10 % = 0,45   21 % = 0,22
+--
+--   Ordenando por (id, …) con las líneas intercaladas 10-21-10:
+--     acum: 0,22 · 0,45 · 0,67
+--     líneas: 0,22 · 0,23(al 21 %) · 0,22  →  10 % = 0,44   21 % = 0,23
+--
+-- ⭐ Un céntimo de diferencia EN LA BASE DECLARADA de cada tipo, con el mismo total.
+-- Eso es lo que el orden compra, y es lo que este bloque comprueba: que el reparto
+-- por tipo NO depende de en qué orden se insertaron las líneas ni de qué uuid les
+-- tocó.
+
+do $bloque_f$
+declare
+  v_p10    uuid;
+  v_p21    uuid;
+  v_pedido uuid;
+  v_fallos text;
+  v_lineas numeric;
+begin
+  select id into v_p10 from productos where activo and iva_pct = 10 order by id limit 1;
+  select id into v_p21 from productos where activo and iva_pct = 21 order by id limit 1;
+
+  insert into pedidos (numero_pedido, estado, total, coste_envio, descuento, descuento_codigo,
+                       metodo_pago, email_cliente)
+  values ('ENSAYO083ORD', 'PENDIENTE_PAGO', 6.06, 3.40, 0.67, 'ENSAYO20',
+          'stripe', 'ensayo-083-ord@valatino.es')
+  returning id into v_pedido;
+
+  -- ⚠️ Las tres líneas INTERCALADAS a propósito (10 %, 21 %, 10 %). Si el acumulado
+  -- se ordenara por inserción o por uuid, el reparto por tipo saldría 0,44/0,23 en
+  -- vez de 0,45/0,22. Insertarlas agrupadas no probaría nada.
+  insert into pedido_items (pedido_id, producto_id, nombre_producto, cantidad, precio_unitario)
+  select v_pedido, p.id, p.nombre, 1, 1.11 from productos p where p.id = v_p10
+  union all
+  select v_pedido, p.id, p.nombre, 1, 1.11 from productos p where p.id = v_p21
+  union all
+  select v_pedido, p.id, p.nombre, 1, 1.11 from productos p where p.id = v_p10;
+
+  -- El reparto por tipo, contra el valor calculado a mano arriba. Escrito UNA vez.
+  with esperado(iva_pct, valor) as (
+    values (10::numeric, 0.45::numeric),
+           (21::numeric, 0.22::numeric)
+  ),
+  obtenido as (
+    select pi.iva_pct, sum(pi.descuento_imputado) as valor
+    from pedido_items pi where pi.pedido_id = v_pedido group by pi.iva_pct
+  )
+  select string_agg(
+           format('%s%% imputado = %s (esperado %s)',
+                  coalesce(e.iva_pct, o.iva_pct),
+                  coalesce(o.valor::text, '<sin líneas de ese tipo>'),
+                  coalesce(e.valor::text, '<tipo inesperado>')), '; ')
+    into v_fallos
+  from esperado e
+  full outer join obtenido o on o.iva_pct = e.iva_pct
+  where o.valor is distinct from e.valor;
+
+  if v_fallos is not null then
+    raise exception
+      'F · el reparto por tipo DEPENDE del orden de inserción: %. El acumulado del §4 '
+      'tiene que ordenar por (iva_pct, id) con el TIPO PRIMERO.', v_fallos;
+  end if;
+
+  -- Y el total sigue exacto: ni un céntimo perdido ni sobrante.
+  select coalesce(sum(descuento_imputado), 0) into v_lineas
+  from pedido_items where pedido_id = v_pedido;
+  if v_lineas <> 0.67 then
+    raise exception 'F · las líneas llevan imputados % y el descuento del pedido es 0,67', v_lineas;
+  end if;
+
+  raise notice 'F · orden OK: 10%% 0,45 · 21%% 0,22 con las líneas intercaladas, y suman 0,67';
+end $bloque_f$;
+
+
+-- ── G · §5 · Qué hace cada código, y cada motivo de rechazo ─────────────────
+--
+-- ⚠️ Se prueban los RECHAZOS uno a uno, no solo el camino bueno. Un validador que
+-- solo se ha visto aceptar no se ha visto validar.
+
+do $bloque_g$
+declare
+  v_fallos text := '';
+  r        record;
+
+  -- (código, subtotal, ¿válido?, ¿envío gratis?, descuento esperado)
+  casos text[][] := array[
+    ['ENSAYO20',       '15.00', 't', 'f', '3.00'],   -- 20 % de 15,00
+    ['ensayo20',       '15.00', 't', 'f', '3.00'],   -- minúsculas: mismo código
+    ['  ENSAYO20  ',   '15.00', 't', 'f', '3.00'],   -- con espacios: mismo código
+    ['ENSAYOPORTE',    '15.00', 't', 't', '0.00'],   -- envío gratis no descuenta base
+    ['NOEXISTE',       '15.00', 'f', 'f', '0.00'],
+    [null,             '15.00', 'f', 'f', '0.00'],
+    ['ENSAYOAPAGADO',  '15.00', 'f', 'f', '0.00'],
+    ['ENSAYOCADUCADO', '15.00', 'f', 'f', '0.00'],
+    ['ENSAYOFUTURO',   '15.00', 'f', 'f', '0.00'],
+    ['ENSAYOAGOTADO',  '15.00', 'f', 'f', '0.00'],
+    ['ENSAYOMINIMO',   '15.00', 'f', 'f', '0.00'],   -- pide 100 € de mínimo
+    ['ENSAYOMINIMO',  '150.00', 't', 'f', '30.00'],  -- el mismo código, ya cumplido
+    -- ⚠️⚠️ EL SUELO DE STRIPE: el envío gratis lo hace alcanzable, y hay que verlo.
+    ['ENSAYOPORTE',     '0.40', 'f', 'f', '0.00']
+  ];
+  i int;
+begin
+  insert into codigos_descuento (codigo, tipo, porcentaje, activo, valido_desde, valido_hasta, usos_maximos, usos, minimo_articulos)
+  values
+    ('ENSAYO20',       'porcentaje',   20, true,  null, null, null, 0, null),
+    ('ENSAYOPORTE',    'envio_gratis', null, true, null, null, null, 0, null),
+    ('ENSAYOAPAGADO',  'porcentaje',   20, false, null, null, null, 0, null),
+    ('ENSAYOCADUCADO', 'porcentaje',   20, true,  null, now() - interval '1 day', null, 0, null),
+    ('ENSAYOFUTURO',   'porcentaje',   20, true,  now() + interval '1 day', null, null, 0, null),
+    ('ENSAYOAGOTADO',  'porcentaje',   20, true,  null, null, 1, 1, null),
+    ('ENSAYOMINIMO',   'porcentaje',   20, true,  null, null, null, 0, 100.00);
+
+  for i in 1 .. array_length(casos, 1) loop
+    select * into r from codigo_descuento_aplicable(casos[i][1], casos[i][2]::numeric);
+
+    if r.valido <> casos[i][3]::boolean then
+      v_fallos := v_fallos || format(' [%s / %s] valido=%s (esperado %s, motivo «%s»);',
+        coalesce(casos[i][1], 'NULL'), casos[i][2], r.valido, casos[i][3], coalesce(r.motivo, '—'));
+    end if;
+    if r.envio_gratis <> casos[i][4]::boolean then
+      v_fallos := v_fallos || format(' [%s / %s] envio_gratis=%s (esperado %s);',
+        coalesce(casos[i][1], 'NULL'), casos[i][2], r.envio_gratis, casos[i][4]);
+    end if;
+    if r.descuento <> casos[i][5]::numeric then
+      v_fallos := v_fallos || format(' [%s / %s] descuento=%s (esperado %s);',
+        coalesce(casos[i][1], 'NULL'), casos[i][2], r.descuento, casos[i][5]);
+    end if;
+    -- Un rechazo SIN motivo es un rechazo que la pantalla no puede explicar.
+    if not r.valido and (r.motivo is null or btrim(r.motivo) = '') then
+      v_fallos := v_fallos || format(' [%s] rechazado sin motivo;', coalesce(casos[i][1], 'NULL'));
+    end if;
+  end loop;
+
+  if v_fallos <> '' then raise exception 'G · códigos:%', v_fallos; end if;
+  raise notice 'G · los % casos de validación salen como deben, y cada rechazo trae motivo', array_length(casos, 1);
+end $bloque_g$;
+
+
+-- ── H · §5.2 · coste_envio_de con y sin código ──────────────────────────────
+
+do $bloque_h$
+declare
+  v_fallos text := '';
+  -- (subtotal, código, porte esperado)
+  casos text[][] := array[
+    ['15.00', null,             '3.40'],  -- tarifa plana
+    ['15.00', 'ENSAYOPORTE',    '0.00'],  -- ⭐ el código pone el porte a 0
+    ['15.00', 'ENSAYO20',       '3.40'],  -- ⚠️ un % NO toca el porte
+    ['35.00', null,             '0.00'],  -- pasa del umbral de 30
+    -- ⭐⭐ EL UMBRAL SE MIDE SOBRE EL BRUTO (§0.5): 35,00 con un −20 % sigue
+    -- teniendo envío gratis, aunque el neto (28,00) no llegue a 30. Si esto
+    -- devolviera 3,40 el cliente vería SUBIR el total al aplicar un código.
+    ['35.00', 'ENSAYO20',       '0.00'],
+    ['15.00', 'ENSAYOCADUCADO', '3.40'],  -- código inválido: se ignora
+    ['0',     'ENSAYOPORTE',    '0.00'],  -- carrito vacío
+    ['0.40',  'ENSAYOPORTE',    '3.40']   -- rechazado por el suelo de Stripe → tarifa
+  ];
+  i int;
+  v_real numeric;
+begin
+  update ajustes_tienda set envio_coste = 3.40, envio_gratis_desde = 30.00 where id;
+
+  for i in 1 .. array_length(casos, 1) loop
+    v_real := coste_envio_de(casos[i][1]::numeric, casos[i][2]);
+    if v_real <> casos[i][3]::numeric then
+      v_fallos := v_fallos || format(' [subtotal %s / %s] porte=%s (esperado %s);',
+        casos[i][1], coalesce(casos[i][2], 'sin código'), v_real, casos[i][3]);
+    end if;
+  end loop;
+
+  if v_fallos <> '' then raise exception 'H · coste_envio_de:%', v_fallos; end if;
+  raise notice 'H · coste_envio_de: los % casos correctos, umbral medido sobre el bruto', array_length(casos, 1);
+end $bloque_h$;
+
+
+-- ── I · Que la firma vieja de coste_envio_de NO quedó colgando ──────────────
+
+do $bloque_i$
+declare v_n int;
+begin
+  select count(*) into v_n from pg_proc
+  where pronamespace = 'public'::regnamespace and proname = 'coste_envio_de';
+  if v_n <> 1 then
+    raise exception
+      'I · coste_envio_de tiene % firmas y debe tener 1. Con dos, coste_envio_de(numeric) '
+      'queda ambigua y la llamada de confirmar_venta falla DENTRO del webhook de un pago '
+      'ya cobrado. Es el fallo clásico de ampliar una firma con create or replace.', v_n;
+  end if;
+  raise notice 'I · coste_envio_de: una sola firma';
+end $bloque_i$;
+
+
 -- ── Resumen legible, para pegarlo en ESTADO.md ───────────────────────────────
 
 select 'reparto'  as bloque, rc.iva_pct::text as tipo,
