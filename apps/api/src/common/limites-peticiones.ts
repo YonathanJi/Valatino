@@ -35,6 +35,26 @@ export const LIMITE_CARRITO = { default: { ttl: 60_000, limit: 40 } };
  */
 export const LIMITE_SUBIDAS = { default: { ttl: 60_000, limit: 20 } };
 
+/**
+ * Probar un código de descuento (083).
+ *
+ * ⚠️⚠️ ESTA RUTA ES UN ORÁCULO, y por eso no hereda `LIMITE_CARRITO`. El carrito no
+ * exige cuenta, así que cualquiera puede preguntarle «¿existe VERANO20?» y la
+ * respuesta —el motivo del rechazo— distingue «no existe» de «no llegas al mínimo».
+ * Con 40/min se enumeran códigos cortos en una tarde.
+ *
+ * 8 y no 3: alguien que teclea mal un código lo reintenta dos o tres veces, y
+ * quedarse corto aquí es no dejar usar un descuento que la tienda quiso dar. El daño
+ * del abuso está acotado además por `usos_maximos` y `minimo_articulos` del propio
+ * código, así que esto es una barrera de coste, no la única defensa.
+ *
+ * ⚠️ Y no elimina el problema: con muchas IPs y paciencia se puede seguir
+ * enumerando. Lo que de verdad lo cierra es que los códigos que valgan dinero sean
+ * largos y no adivinables — eso es una decisión de quien los crea, y el panel de TI
+ * tiene que decirlo.
+ */
+export const LIMITE_CODIGO_DESCUENTO = { default: { ttl: 60_000, limit: 8 } };
+
 // El otro endpoint público sin sesión —la calificación de la compra, por
 // token— ya trae su propio techo de 20/min desde que se creó; se deja donde
 // está, junto al comentario que explica por qué esa ruta no distingue un token

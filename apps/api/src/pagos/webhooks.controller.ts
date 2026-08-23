@@ -24,6 +24,7 @@ import {
   InventarioService,
   type DireccionSnapshotPedido,
 } from "../inventario/inventario.service";
+import type { CarritoConItems } from "@valatino/types";
 import { CarritoService } from "../carrito/carrito.service";
 import { ConfirmacionPedidoService } from "../pedidos/confirmacion-pedido.service";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
@@ -69,7 +70,17 @@ export class PagosController {
     sessionId: string,
     userId: string | undefined,
     dto: CrearPagoDto,
-    costeEnvio: number,
+    /**
+     * ⚠️⚠️ EL CARRITO ENTERO, y no solo el porte como antes. La razón es que el
+     * snapshot y el COBRO tienen que salir del MISMO objeto: dos líneas más abajo
+     * se llama a `createPaymentIntent(carrito.total)`, y si el snapshot se armara
+     * con números traídos por separado podrían no ser los de ese total. Pasando el
+     * carrito, la consistencia es estructural y no una cosa que haya que recordar.
+     *
+     * Es la misma idea que la 080 §2 —congelar lo que se enseña, no releerlo al
+     * cobrar— llevada un paso más: congelar lo que se COBRA, de la misma lectura.
+     */
+    carrito: CarritoConItems,
   ): Promise<void> {
     if (userId && dto.direccion_envio_id) {
       // Usuario autenticado con dirección guardada: verificar propiedad
@@ -109,7 +120,11 @@ export class PagosController {
       // El porte que se está a punto de cobrar. Ver la 080 §2 y
       // `guardarCheckoutDatos`: se congela aquí para que el webhook facture
       // exactamente lo cobrado.
-      costeEnvio,
+      costeEnvio: carrito.costeEnvio,
+      // ⚠️ Y el descuento, que sin snapshot NO se recalcula: se aplica 0. Ver 083 §11.
+      descuento: carrito.descuento,
+      descuentoCodigo: carrito.codigoDescuento,
+      envioDescontado: carrito.envioDescontado,
     });
   }
 
@@ -151,7 +166,7 @@ export class PagosController {
       throw new BadRequestException("El carrito está vacío");
     }
 
-    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito);
 
     return this.stripeService.createPaymentIntent(carrito.total, {
       session_id: sessionId,
@@ -198,7 +213,7 @@ export class PagosController {
 
     // Misma validación de dirección y datos que los otros métodos: la provincia
     // se recalcula desde el CP y el municipio se comprueba contra ella.
-    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito);
 
     return this.transferenciaService.crearPedido({
       sessionId,
@@ -233,7 +248,7 @@ export class PagosController {
       throw new BadRequestException("El carrito está vacío");
     }
 
-    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito.costeEnvio);
+    await this.validarYGuardarCheckout(sessionId, userId, dto, carrito);
 
     // custom_id ≤127 chars en PayPal: solo session+user; el resto se lee de
     // checkout_datos en el webhook

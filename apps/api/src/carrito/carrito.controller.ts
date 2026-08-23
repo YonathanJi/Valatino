@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Delete,
   Param,
   Body,
@@ -15,8 +16,8 @@ import { Throttle } from "@nestjs/throttler";
 import { CarritoService } from "./carrito.service";
 import { JwtGuard } from "../auth/guards/jwt.guard";
 import { OptionalJwtGuard } from "../auth/guards/optional-jwt.guard";
-import { AddItemDto, UpdateItemDto } from "./dto/carrito.dto";
-import { LIMITE_CARRITO } from "../common/limites-peticiones";
+import { AddItemDto, UpdateItemDto, AplicarCodigoDto } from "./dto/carrito.dto";
+import { LIMITE_CARRITO, LIMITE_CODIGO_DESCUENTO } from "../common/limites-peticiones";
 
 type SessionRequest = Request & { sessionId?: string; user?: { sub: string } };
 
@@ -68,6 +69,40 @@ export class CarritoController {
   ) {
     const { sessionId, userId } = this.getSession(req);
     return this.carritoService.removeItem(sessionId, itemId, userId);
+  }
+
+  /**
+   * Aplica un código de descuento al carrito.
+   *
+   * ⚠️ PUT y no POST: aplicar el mismo código dos veces deja el carrito en el mismo
+   * estado, así que es idempotente y un reintento del navegador no hace daño.
+   *
+   * ⚠️⚠️ Y CON SU PROPIO TECHO, mucho más bajo que el del resto del carrito: esta
+   * ruta es un oráculo que dice si un código existe, y el carrito no exige cuenta.
+   * Ver `LIMITE_CODIGO_DESCUENTO`.
+   *
+   * Devuelve el carrito entero, no solo el descuento: la pantalla necesita el total
+   * nuevo y el porte —que un código de envío gratis también cambia— y pedirlos en
+   * otra llamada abriría una ventana en la que enseña dos números que no encajan.
+   */
+  @Put("codigo")
+  @Throttle(LIMITE_CODIGO_DESCUENTO)
+  aplicarCodigo(@Req() req: SessionRequest, @Body() dto: AplicarCodigoDto) {
+    const { sessionId, userId } = this.getSession(req);
+    return this.carritoService.aplicarCodigo(dto.codigo, sessionId, userId);
+  }
+
+  /**
+   * Quita el código del carrito. Idempotente: quitar el que no hay no es un error.
+   *
+   * ⚠️ Este NO es un oráculo —no dice nada de ningún código— así que lleva el techo
+   * normal del carrito.
+   */
+  @Delete("codigo")
+  @Throttle(LIMITE_CARRITO)
+  quitarCodigo(@Req() req: SessionRequest) {
+    const { sessionId, userId } = this.getSession(req);
+    return this.carritoService.quitarCodigo(sessionId, userId);
   }
 
   @Post("fusionar")

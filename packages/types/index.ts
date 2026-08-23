@@ -1174,10 +1174,45 @@ export interface CarritoConItems {
    */
   envioGratisDesde: number | null;
   /**
-   * ⚠️ LO QUE SE COBRA: `subtotal + costeEnvio`. Cambió de significado en la 080
-   * —antes era solo los artículos— y es a propósito que siga llamándose `total`:
-   * los dos sitios que crean el pago (`createPaymentIntent` y `createOrder`)
-   * cobran esto, y así el envío entró en el cobro sin poder olvidarse.
+   * El descuento del código aplicado, **en positivo**. 0 si no hay código o si el
+   * que hay ya no vale (083).
+   *
+   * ⚠️ Va en positivo y se RESTA en `total` porque así se lee en la pantalla y en
+   * la factura: «Descuento −3,00». Guardarlo negativo obligaría a recordar el signo
+   * en cada sitio que lo sume.
+   */
+  descuento: number;
+  /** El código aplicado y VÁLIDO, o `null`. Ya normalizado como lo guardó el panel. */
+  codigoDescuento: string | null;
+  /**
+   * El porte que un código de `envio_gratis` está dejando de cobrar, en positivo.
+   * 0 cuando no hay código de ese tipo, o cuando el carrito ya tenía envío gratis
+   * por pasar del umbral (ahí el código no ahorra nada).
+   *
+   * ⚠️ NO se resta de `total`: `costeEnvio` ya viene a 0. Existe para dos cosas —
+   * decirle al cliente «te ahorras 3,40 €», y poder responder después cuánto costó
+   * la campaña, que sin esto habría que adivinarlo.
+   */
+  envioDescontado: number;
+  /**
+   * Por qué el código guardado NO se está aplicando, o `null`.
+   *
+   * ⚠️⚠️ ESTO EXISTE PARA QUE NO SEA SILENCIOSO. Un código puede caducar o agotarse
+   * entre que el cliente lo aplica y que vuelve al carrito. Sin este campo el
+   * descuento desaparecería de la pantalla sin explicación y el cliente vería subir
+   * el total sin saber por qué — que es la peor forma de perder una venta.
+   *
+   * El texto lo redacta la BASE (`codigo_descuento_aplicable`), no la pantalla: si
+   * lo escribiera el cliente diría «caducado» cuando lo que pasa es que no llega al
+   * mínimo.
+   */
+  avisoDescuento: string | null;
+  /**
+   * ⚠️ LO QUE SE COBRA: `subtotal + costeEnvio − descuento`. Cambió de significado
+   * en la 080 —antes era solo los artículos— y otra vez en la 083, y es a propósito
+   * que siga llamándose `total`: los dos sitios que crean el pago
+   * (`createPaymentIntent` y `createOrder`) cobran esto, así que el envío y el
+   * descuento entraron en el cobro sin poder olvidarse.
    */
   total: number;
 }

@@ -276,6 +276,21 @@ export class InventarioService {
      * congela cuando se enseña, no se vuelve a leer cuando se cobra.
      */
     costeEnvio?: number;
+    /**
+     * ⚠️⚠️ EL DESCUENTO QUE SE LE ESTÁ RESTANDO, por la misma razón que el porte y con
+     * una diferencia que importa: sin snapshot del porte, `confirmar_venta` aplica la
+     * tarifa vigente; sin snapshot del descuento aplica CERO (083 §11). O sea que
+     * olvidarse de congelar esto no es «se recalcula», es «no se aplica», y el pedido
+     * diría más de lo que se cobró.
+     *
+     * El código va además del importe porque es el «medio de prueba admitido en
+     * derecho» que exige el art. 78.Tres.2 LIVA para que el descuento no forme parte
+     * de la base imponible, y porque es lo que identifica qué uso hay que consumir.
+     */
+    descuento?: number;
+    descuentoCodigo?: string | null;
+    /** El porte que un código de `envio_gratis` dejó de cobrar. Solo para poder medir la campaña. */
+    envioDescontado?: number;
   }): Promise<void> {
     const { error } = await this.supabase.from("checkout_datos").upsert({
       session_id: params.sessionId,
@@ -285,6 +300,9 @@ export class InventarioService {
       direccion_envio_id: params.direccionEnvioId ?? null,
       direccion: params.direccion ?? null,
       coste_envio: params.costeEnvio ?? null,
+      descuento_importe: params.descuento ?? null,
+      descuento_codigo: params.descuentoCodigo ?? null,
+      envio_descontado: params.envioDescontado ?? null,
       updated_at: new Date().toISOString(),
     });
 

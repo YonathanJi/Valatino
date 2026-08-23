@@ -32,6 +32,20 @@ interface Opciones {
   umbral?: number | null;
   /** Líneas del carrito: [precio, cantidad]. Vacío = carrito vacío. */
   lineas?: Array<[number, number]>;
+  /** El código guardado en `carritos.codigo_descuento` (083). */
+  codigo?: string | null;
+  /**
+   * Lo que contesta `codigo_descuento_aplicable`. `"error"` simula que la RPC falla.
+   *
+   * ⚠️ Es una fila SUELTA, no un array, aunque PostgREST entregue arrays para
+   * `returns table`: el servicio tiene que saber tratar las dos formas y esto lo
+   * comprueba envolviéndola.
+   */
+  aplicable?:
+    | { valido: boolean; motivo: string | null; descuento: number; envio_gratis: boolean }
+    | "error";
+  /** El porte SIN código, para medir lo que ahorra un código de envío gratis. */
+  costeEnvioSinCodigo?: number;
 }
 
 function montar(opciones: Opciones) {
@@ -42,7 +56,10 @@ function montar(opciones: Opciones) {
     if (nombre === "carritos") {
       // `getOrCreate` encadena distinto según haya usuario o no: con sesión
       // anónima añade `.is("user_id", null)`. Se simulan las dos formas.
-      const encontrado = async () => ({ data: { id: CARRITO_ID }, error: null });
+      const encontrado = async () => ({
+        data: { id: CARRITO_ID, codigo_descuento: opciones.codigo ?? null },
+        error: null,
+      });
       return {
         select: () => ({
           eq: () => ({ maybeSingle: encontrado, is: () => ({ maybeSingle: encontrado }) }),
@@ -95,9 +112,25 @@ function montar(opciones: Opciones) {
     from: (nombre: string) => tabla(nombre),
     rpc: async (fn: string, args: Record<string, unknown>) => {
       registro.rpc.push({ fn, args });
+
+      if (fn === "codigo_descuento_aplicable") {
+        if (opciones.aplicable === "error") {
+          return { data: null, error: { message: "conexión perdida con la base" } };
+        }
+        // Envuelto en array, que es como lo entrega PostgREST un `returns table`.
+        return { data: opciones.aplicable ? [opciones.aplicable] : [], error: null };
+      }
+
       if (opciones.costeEnvio === "error") {
         return { data: null, error: { message: "conexión perdida con la base" } };
       }
+
+      // Con código de envío gratis el porte es 0; sin código, la tarifa. Es lo que
+      // permite medir `envioDescontado` sin reimplementar nada.
+      if (fn === "coste_envio_de" && args.p_codigo == null && opciones.costeEnvioSinCodigo !== undefined) {
+        return { data: opciones.costeEnvioSinCodigo, error: null };
+      }
+
       return { data: opciones.costeEnvio, error: null };
     },
   } as unknown as SupabaseClient;
@@ -129,8 +162,11 @@ describe("el envío en el carrito", () => {
 
     expect(carrito.costeEnvio).toBe(0);
     expect(carrito.total).toBe(carrito.subtotal);
+    // ⚠️ `p_codigo` va SIEMPRE, aunque sea null: desde la 083 es `coste_envio_de`
+    // quien decide si un código de envío gratis pone el porte a 0, y filtrar aquí
+    // los códigos inválidos sería tomar esa decisión dos veces.
     expect(registro.rpc).toEqual([
-      { fn: "coste_envio_de", args: { p_subtotal: 9 } },
+      { fn: "coste_envio_de", args: { p_subtotal: 9, p_codigo: null } },
     ]);
   });
 
@@ -140,7 +176,95 @@ describe("el envío en el carrito", () => {
 
     // 0,62 × 3 = 1,86 — y no 6,81, que sería con el porte dentro. Preguntar con
     // el porte incluido haría que un umbral se alcanzara antes de lo debido.
-    expect(registro.rpc[0]?.args).toEqual({ p_subtotal: 1.86 });
+    expect(registro.rpc[0]?.args).toEqual({ p_subtotal: 1.86, p_codigo: null });
+  });
+
+  // ── 083 · el código de descuento en el carrito ──────────────────────────────
+
+  it("resta el descuento del total, que es lo que se cobra", async () => {
+    const { servicio } = montar({
+      costeEnvio: 4.95,
+      codigo: "verano20",
+      aplicable: { valido: true, motivo: null, descuento: 1.8, envio_gratis: false },
+    });
+    const carrito = await servicio.getCarrito(SESSION);
+
+    // 9,00 de artículos + 4,95 de porte − 1,80 de descuento
+    expect(carrito.subtotal).toBe(9);
+    expect(carrito.descuento).toBe(1.8);
+    expect(carrito.total).toBe(12.15);
+    // Normalizado, que es como lo guardó el panel y como saldrá en la factura.
+    expect(carrito.codigoDescuento).toBe("VERANO20");
+    expect(carrito.avisoDescuento).toBeNull();
+  });
+
+  it("le pasa el código CRUDO a la base, sin filtrarlo antes", async () => {
+    const { servicio, registro } = montar({
+      costeEnvio: 4.95,
+      codigo: "  verano20 ",
+      aplicable: { valido: true, motivo: null, descuento: 1.8, envio_gratis: false },
+    });
+    await servicio.getCarrito(SESSION);
+
+    // ⚠️ Las DOS funciones lo reciben tal cual. Decidir aquí si vale sería tomar la
+    // decisión dos veces, y el día que difirieran el carrito enseñaría un porte y
+    // la venta cobraría otro.
+    expect(registro.rpc.find((r) => r.fn === "codigo_descuento_aplicable")?.args).toEqual({
+      p_codigo: "  verano20 ",
+      p_subtotal: 9,
+    });
+    expect(registro.rpc.find((r) => r.fn === "coste_envio_de")?.args).toEqual({
+      p_codigo: "  verano20 ",
+      p_subtotal: 9,
+    });
+  });
+
+  /**
+   * ⚠️⚠️ UN CÓDIGO QUE DEJÓ DE VALER NO PUEDE DESAPARECER EN SILENCIO. Puede caducar
+   * o agotarse entre que el cliente lo aplica y que vuelve al carrito, y sin aviso
+   * vería subir el total sin saber por qué. El texto lo redacta la BASE.
+   */
+  it("un código que ya no vale no descuenta, pero lo DICE", async () => {
+    const { servicio } = montar({
+      costeEnvio: 4.95,
+      codigo: "caducado",
+      aplicable: { valido: false, motivo: "Ese código ha caducado", descuento: 0, envio_gratis: false },
+    });
+    const carrito = await servicio.getCarrito(SESSION);
+
+    expect(carrito.descuento).toBe(0);
+    expect(carrito.total).toBe(13.95);
+    expect(carrito.codigoDescuento).toBeNull();
+    expect(carrito.avisoDescuento).toBe("Ese código ha caducado");
+  });
+
+  it("un código de envío gratis pone el porte a 0 y dice cuánto ahorra", async () => {
+    const { servicio } = montar({
+      costeEnvio: 0, // lo que devuelve `coste_envio_de` CON el código
+      costeEnvioSinCodigo: 4.95, // lo que habría costado sin él
+      codigo: "ENVIOGRATIS",
+      aplicable: { valido: true, motivo: null, descuento: 0, envio_gratis: true },
+    });
+    const carrito = await servicio.getCarrito(SESSION);
+
+    expect(carrito.costeEnvio).toBe(0);
+    // ⚠️ El envío gratis NO es un descuento sobre la base: no toca `descuento`.
+    expect(carrito.descuento).toBe(0);
+    expect(carrito.envioDescontado).toBe(4.95);
+    expect(carrito.total).toBe(9);
+  });
+
+  it("si no se puede comprobar el código, el carrito sigue en pie y avisa", async () => {
+    // ⚠️ El signo del fallo es el CONTRARIO que en el porte: quedarse sin descuento
+    // le cobra al cliente más de lo que esperaba, que es un motivo para no comprar.
+    // Así que la tienda no se cae, pero el cliente se entera.
+    const { servicio } = montar({ costeEnvio: 4.95, codigo: "verano20", aplicable: "error" });
+    const carrito = await servicio.getCarrito(SESSION);
+
+    expect(carrito.descuento).toBe(0);
+    expect(carrito.total).toBe(13.95);
+    expect(carrito.codigoDescuento).toBeNull();
+    expect(carrito.avisoDescuento).toMatch(/no podemos comprobar tu c/i);
   });
 
   /**

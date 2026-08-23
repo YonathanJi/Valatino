@@ -69,10 +69,15 @@ export class CarritoService {
   async getCarrito(sessionId: string, userId?: string): Promise<CarritoConItems> {
     const carritoId = await this.getOrCreate(sessionId, userId);
 
-    const { data: items, error } = await this.supabase
-      .from("carrito_items")
-      .select("id, cantidad, precio_unitario, producto_id")
-      .eq("carrito_id", carritoId);
+    // En paralelo: el código no depende de los artículos y el carrito es la pantalla
+    // más pedida de la tienda. Encadenarlos añadiría un viaje a la base por vista.
+    const [{ data: items, error }, codigoGuardado] = await Promise.all([
+      this.supabase
+        .from("carrito_items")
+        .select("id, cantidad, precio_unitario, producto_id")
+        .eq("carrito_id", carritoId),
+      this.codigoDelCarrito(carritoId),
+    ]);
 
     if (error) throw new InternalServerErrorException("No se pudo cargar el carrito");
 
@@ -87,12 +92,20 @@ export class CarritoService {
       // Un carrito vacío no paga porte. `coste_envio_de` también devolvería 0,
       // pero salir aquí ahorra dos viajes a la base en la pantalla que más se
       // pide: la del icono del carrito.
+      //
+      // ⚠️ Y tampoco se valida el código: sobre 0 € ningún código vale, y
+      // `codigo_descuento_aplicable` lo rechazaría con un motivo que no viene a
+      // cuento en un carrito vacío.
       return {
         id: carritoId,
         items: [],
         subtotal: 0,
         costeEnvio: 0,
         envioGratisDesde: await this.umbralEnvioGratis(),
+        descuento: 0,
+        codigoDescuento: null,
+        envioDescontado: 0,
+        avisoDescuento: null,
         total: 0,
       };
     }
@@ -142,13 +155,40 @@ export class CarritoService {
      * un importe y se facturaría otro, y el guardia del desglose abortaría
      * DENTRO del webhook de un pago ya cobrado. Es la lección de la 074.
      *
+     * ⚠️⚠️ Y DESDE LA 083, EL DESCUENTO TAMPOCO, por la misma razón y con más
+     * motivo: lo que se le cobra al cliente es este `total`, y lo que factura
+     * `confirmar_venta` sale del snapshot de ese mismo número.
+     * `codigo_descuento_aplicable` (083 §5) es el único sitio que decide si un
+     * código vale y cuánto descuenta.
+     *
+     * ⭐ Y EL CÓDIGO SE LE PASA CRUDO A `coste_envio_de`, sin comprobar antes si es
+     * válido. Esa función ya se lo pregunta a la misma función que esto. Filtrarlo
+     * aquí sería tomar la decisión dos veces, y el día que difirieran el carrito
+     * enseñaría un porte y la venta cobraría otro.
+     *
      * El umbral sí se lee suelto, y no es lo mismo: no decide nada, solo se
-     * enseña.
+     * enseña. Y se mide sobre el subtotal BRUTO, igual que en la base (083 §0.5).
      */
-    const [costeEnvio, envioGratisDesde] = await Promise.all([
-      this.costeEnvio(subtotal),
+    const [dto, costeEnvio, envioGratisDesde] = await Promise.all([
+      this.descuentoDe(codigoGuardado, subtotal),
+      this.costeEnvio(subtotal, codigoGuardado),
       this.umbralEnvioGratis(),
     ]);
+
+    /**
+     * Cuánto porte ahorra el código, para poder decírselo al cliente y para poder
+     * medir la campaña después.
+     *
+     * ⚠️ Solo se pregunta cuando el código es de `envio_gratis` Y el porte quedó en
+     * 0: es una RPC más en la pantalla más vista de la tienda, y en cualquier otro
+     * caso la respuesta es 0 sin necesidad de preguntar. Si el carrito ya pasaba del
+     * umbral, `sinCodigo` también sale 0 y el ahorro es 0 — que es la verdad: ahí el
+     * código no está ahorrando nada.
+     */
+    const envioDescontado =
+      dto.valido && dto.envioGratis && costeEnvio === 0
+        ? await this.costeEnvio(subtotal, null)
+        : 0;
 
     return {
       id: carritoId,
@@ -156,14 +196,139 @@ export class CarritoService {
       subtotal,
       costeEnvio,
       envioGratisDesde,
-      total: redondear(subtotal + costeEnvio),
+      descuento: dto.descuento,
+      codigoDescuento: dto.valido ? dto.codigo : null,
+      envioDescontado,
+      avisoDescuento: dto.valido ? null : dto.motivo,
+      total: redondear(subtotal + costeEnvio - dto.descuento),
     };
   }
 
-  /** Los gastos de envío de un subtotal, según la tarifa de la tienda. */
-  private async costeEnvio(subtotal: number): Promise<number> {
+  /** El código guardado en el carrito, sin validar. `null` si no hay. */
+  private async codigoDelCarrito(carritoId: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from("carritos")
+      .select("codigo_descuento")
+      .eq("id", carritoId)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return (data as { codigo_descuento: string | null }).codigo_descuento;
+  }
+
+  /**
+   * Qué hace un código sobre un subtotal, tal como lo dice la base.
+   *
+   * ⚠️ Un fallo aquí NO tumba el carrito y devuelve «sin descuento», pero SÍ deja
+   * aviso: el signo del fallo es el contrario que en el porte. Quedarse sin
+   * descuento le cobra al cliente MÁS de lo que esperaba, que es un motivo para no
+   * comprar, no una pérdida para la tienda. Así que la tienda sigue en pie y el
+   * cliente se entera de que su código no se está aplicando.
+   */
+  private async descuentoDe(
+    codigo: string | null,
+    subtotal: number,
+  ): Promise<{
+    valido: boolean;
+    codigo: string | null;
+    descuento: number;
+    envioGratis: boolean;
+    motivo: string | null;
+  }> {
+    if (!codigo?.trim())
+      return { valido: false, codigo: null, descuento: 0, envioGratis: false, motivo: null };
+
+    const { data, error } = await this.supabase.rpc("codigo_descuento_aplicable", {
+      p_codigo: codigo,
+      p_subtotal: subtotal,
+    });
+
+    if (error) {
+      this.logger.error(
+        `No se pudo validar el código «${codigo}» sobre ${subtotal} €, no se aplica: ${error.message}`,
+      );
+      return {
+        valido: false,
+        codigo: null,
+        descuento: 0,
+        envioGratis: false,
+        motivo: "Ahora mismo no podemos comprobar tu código. Vuelve a intentarlo en un momento.",
+      };
+    }
+
+    // `returns table` de una fila: PostgREST lo entrega como array.
+    const fila = (Array.isArray(data) ? data[0] : data) as
+      | {
+          valido: boolean;
+          motivo: string | null;
+          descuento: string | number;
+          envio_gratis: boolean;
+        }
+      | undefined;
+
+    if (!fila)
+      return { valido: false, codigo: null, descuento: 0, envioGratis: false, motivo: null };
+
+    return {
+      valido: fila.valido,
+      codigo: codigo.trim().toUpperCase(),
+      descuento: fila.valido ? redondear(Number(fila.descuento ?? 0)) : 0,
+      envioGratis: Boolean(fila.envio_gratis),
+      motivo: fila.motivo,
+    };
+  }
+
+  /**
+   * Aplica un código al carrito.
+   *
+   * ⚠️ SOLO SE GUARDA SI VALE. Guardar uno inválido dejaría el carrito con un aviso
+   * permanente y al cliente sin saber si lo tiene puesto o no. Si no vale, se
+   * rechaza con el motivo que redacta la base y el carrito no cambia.
+   */
+  async aplicarCodigo(codigo: string, sessionId: string, userId?: string): Promise<CarritoConItems> {
+    const carrito = await this.getCarrito(sessionId, userId);
+
+    if (carrito.items.length === 0) {
+      throw new BadRequestException("Añade algo al carrito antes de usar un código");
+    }
+
+    const r = await this.descuentoDe(codigo, carrito.subtotal);
+    if (!r.valido) {
+      throw new BadRequestException(r.motivo ?? "Ese código no se puede aplicar");
+    }
+
+    const { error } = await this.supabase
+      .from("carritos")
+      .update({ codigo_descuento: codigo.trim(), updated_at: new Date().toISOString() })
+      .eq("id", carrito.id);
+
+    if (error) throw new InternalServerErrorException("No se pudo aplicar el código");
+
+    return this.getCarrito(sessionId, userId);
+  }
+
+  /** Quita el código del carrito. Idempotente: quitar el que no hay no es un error. */
+  async quitarCodigo(sessionId: string, userId?: string): Promise<CarritoConItems> {
+    const carritoId = await this.getOrCreate(sessionId, userId);
+
+    const { error } = await this.supabase
+      .from("carritos")
+      .update({ codigo_descuento: null, updated_at: new Date().toISOString() })
+      .eq("id", carritoId);
+
+    if (error) throw new InternalServerErrorException("No se pudo quitar el código");
+
+    return this.getCarrito(sessionId, userId);
+  }
+
+  /**
+   * Los gastos de envío de un subtotal, según la tarifa de la tienda y el código
+   * que lleve el carrito (un código de `envio_gratis` lo pone a 0).
+   */
+  private async costeEnvio(subtotal: number, codigo?: string | null): Promise<number> {
     const { data, error } = await this.supabase.rpc("coste_envio_de", {
       p_subtotal: subtotal,
+      p_codigo: codigo ?? null,
     });
 
     /**
