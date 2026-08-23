@@ -49,6 +49,17 @@ interface Opciones {
   rpcLineas?: Record<string, unknown>;
   /** El RPC de líneas falla: el dinero ya salió y no puede propagarse */
   rpcLineasError?: string;
+  /**
+   * Lo que contesta `importe_a_devolver` por línea, en euros (083 §6).
+   *
+   * Sin esto el doble devuelve el BRUTO —`cantidad × precio_unitario`—, que es lo
+   * que valía una devolución antes de que existieran los cupones y deja intactos
+   * los tests anteriores. Poniéndolo se prueba lo que de verdad importa: que el
+   * servicio usa el número que le da la base y NO uno que calcule él.
+   */
+  netoPorLinea?: Record<string, number>;
+  /** `importe_a_devolver` falla: NO se puede devolver a ciegas. */
+  rpcValorError?: string;
 }
 
 const ITEMS_POR_DEFECTO: ItemMock[] = [
@@ -69,6 +80,8 @@ function montar(o: Opciones = {}) {
     lineasPrevias = [],
     rpcLineas,
     rpcLineasError,
+    netoPorLinea,
+    rpcValorError,
   } = o;
 
   const registro = {
@@ -83,6 +96,19 @@ function montar(o: Opciones = {}) {
     }>,
     rpc: [] as string[],
     rpcParams: [] as Array<Record<string, unknown>>,
+    /**
+     * Los parámetros de una RPC buscada POR NOMBRE.
+     *
+     * ⚠️ Antes los tests miraban `rpcParams[0]`, y al añadir la llamada a
+     * `importe_a_devolver` (083 §6) las tres se rompieron sin que hubiera nada mal:
+     * la primera RPC ya era otra. Acoplar un test al ORDEN de las llamadas lo hace
+     * frágil ante cualquier añadido; buscar por nombre dice lo que se quiere decir.
+     */
+    paramsDe(fn: string) {
+      const i = this.rpc.findIndex((r) => r.startsWith(`${fn}:`));
+      if (i < 0) throw new Error(`No se llamó a ${fn}. Se llamó a: ${this.rpc.join(", ") || "nada"}`);
+      return this.rpcParams[i];
+    },
     emails: [] as Array<{ importe?: number }>,
   };
 
@@ -134,6 +160,21 @@ function montar(o: Opciones = {}) {
             repuesto: Boolean(params["p_reponer_stock"]),
             marcado_total: Boolean(params["p_marcar_total"]),
           },
+          error: null,
+        };
+      }
+
+      if (fn === "importe_a_devolver") {
+        if (rpcValorError) return { data: null, error: { message: rpcValorError } };
+        const pedidas = params["p_lineas"] as Array<{ pedido_item_id: string; cantidad: number }>;
+        return {
+          data: pedidas.map((pl) => ({
+            pedido_item_id: pl.pedido_item_id,
+            cantidad: pl.cantidad,
+            importe:
+              netoPorLinea?.[pl.pedido_item_id] ??
+              pl.cantidad * (items.find((i) => i.id === pl.pedido_item_id)?.precio_unitario ?? 0),
+          })),
           error: null,
         };
       }
@@ -534,6 +575,108 @@ describe("ReembolsosService.reembolsar por artículos", () => {
     expect(r.unidades_devueltas).toBe(2);
   });
 
+  /**
+   * ── 083 §6 · SE DEVUELVE LO QUE EL CLIENTE PAGO, NO EL PVP ──────────────────
+   *
+   * ⚠️⚠️ ES DINERO REAL. Aquí el servicio multiplicaba `precio_unitario × cantidad`,
+   * o sea PVP de catálogo. Con un cupón eso manda a Stripe MÁS de lo que se cobró, y
+   * no es un descuadre de informe: es dinero que sale por la pasarela. Art. 107
+   * RDL 1/2007 obliga a devolver lo efectivamente cobrado.
+   */
+  it("le pregunta a la base cuánto se devuelve, ANTES de apuntarlo", async () => {
+    const { servicio, registro } = montar({ total: 50 });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+      "admin@valatino.es",
+    );
+
+    // El orden importa: primero cuánto, después apuntarlo. Al revés habría que
+    // deshacer un apunte si el importe no se puede calcular.
+    expect(registro.rpc.indexOf("importe_a_devolver:ped-1")).toBeGreaterThanOrEqual(0);
+    expect(registro.rpc.indexOf("importe_a_devolver:ped-1")).toBeLessThan(
+      registro.rpc.indexOf("registrar_reembolso_lineas:ped-1"),
+    );
+    // Y le manda las líneas ya validadas, no las del navegador tal cual.
+    expect(registro.paramsDe("importe_a_devolver")).toMatchObject({
+      p_pedido_id: "ped-1",
+      p_lineas: [{ pedido_item_id: "it-1", cantidad: 2 }],
+    });
+  });
+
+  it("manda a Stripe el NETO que dice la base, no el PVP de catálogo", async () => {
+    // 2 × Nucita a 2,50 = 5,00 de PVP. Con un cupón que le imputó 1,00, el cliente
+    // pagó 4,00 por esas dos unidades. Es lo que hay que devolverle.
+    const { servicio, registro } = montar({ total: 50, netoPorLinea: { "it-1": 4.0 } });
+
+    const r = await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0]!.importeCents).toBe(400);
+    expect(r.importe).toBe(4);
+    // Y no el bruto, que es el euro que se estaba regalando.
+    expect(registro.refunds[0]!.importeCents).not.toBe(500);
+  });
+
+  it("si la base no puede valorar la devolución, NO devuelve nada", async () => {
+    // ⚠️ Sin fallback al bruto A PROPÓSITO: caer al PVP sería devolver de más con el
+    // dinero ya fuera. El signo del fallo se razona, no se hereda.
+    const { servicio, registro } = montar({ total: 50, rpcValorError: "la base dice que no" });
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/no se pudo calcular el importe/i);
+
+    expect(registro.refunds).toHaveLength(0);
+    expect(registro.rpc).not.toContain("registrar_reembolso_lineas:ped-1");
+  });
+
+  it("unidades que el descuento cubrió por completo se rechazan diciendo por qué", async () => {
+    // Stripe no acepta un reembolso de 0, así que hay que decirlo — y decir que fue
+    // el descuento, no que «no has elegido nada», que es lo que decía antes.
+    const { servicio, registro } = montar({ total: 50, netoPorLinea: { "it-1": 0 } });
+
+    await expect(
+      servicio.reembolsar(
+        "ped-1",
+        { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+        "admin@valatino.es",
+      ),
+    ).rejects.toThrow(/el descuento del pedido las cubrió por completo/i);
+
+    expect(registro.refunds).toHaveLength(0);
+  });
+
+  it("el techo de «lo que queda por devolver» se mide sobre el neto", async () => {
+    /**
+     * ⭐ Este es el caso que hacía IMPOSIBLE cerrar un pedido con cupón desde el
+     * panel. Con importes brutos, devolver los artículos de un pedido descontado
+     * sumaba más de lo que quedaba por devolver y saltaba «Esos artículos suman
+     * 12,00 € y de este pedido solo quedan 7,00 €». Con netos, cuadra.
+     */
+    const { servicio, registro } = montar({
+      total: 4,
+      // El pedido cobró 4,00: 5,00 de PVP menos 1,00 de cupón.
+      netoPorLinea: { "it-1": 4.0 },
+    });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 2 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0]!.importeCents).toBe(400);
+  });
+
   it("suma varias líneas con precios distintos", async () => {
     const { servicio, registro } = montar({ total: 50 });
 
@@ -679,8 +822,12 @@ describe("ReembolsosService.reembolsar por artículos", () => {
       "admin@valatino.es",
     );
 
-    expect(registro.rpc).toEqual(["registrar_reembolso_lineas:ped-1"]);
-    expect(registro.rpcParams[0]).toMatchObject({
+    // ⚠️ DOS llamadas y en este orden desde la 083 §6: primero se le pregunta a la
+    // base CUÁNTO se devuelve (`importe_a_devolver`, que es el único sitio que sabe
+    // valorarlo) y después se apunta. Antes el servicio multiplicaba
+    // `precio_unitario` él mismo, y con un cupón eso devolvía el PVP.
+    expect(registro.rpc).toEqual(["importe_a_devolver:ped-1", "registrar_reembolso_lineas:ped-1"]);
+    expect(registro.paramsDe("registrar_reembolso_lineas")).toMatchObject({
       p_lineas: [{ pedido_item_id: "it-1", cantidad: 1 }],
       p_reponer_stock: true,
       p_marcar_total: false,
@@ -698,7 +845,7 @@ describe("ReembolsosService.reembolsar por artículos", () => {
       "admin@valatino.es",
     );
 
-    expect(registro.rpcParams[0]).toMatchObject({ p_reponer_stock: false });
+    expect(registro.paramsDe("registrar_reembolso_lineas")).toMatchObject({ p_reponer_stock: false });
     expect(r.stock_repuesto).toBe(false);
   });
 
@@ -716,9 +863,13 @@ describe("ReembolsosService.reembolsar por artículos", () => {
       "admin@valatino.es",
     );
 
-    expect(registro.rpc).toEqual(["registrar_reembolso_lineas:ped-1"]);
+    // ⚠️ DOS llamadas y en este orden desde la 083 §6: primero se le pregunta a la
+    // base CUÁNTO se devuelve (`importe_a_devolver`, que es el único sitio que sabe
+    // valorarlo) y después se apunta. Antes el servicio multiplicaba
+    // `precio_unitario` él mismo, y con un cupón eso devolvía el PVP.
+    expect(registro.rpc).toEqual(["importe_a_devolver:ped-1", "registrar_reembolso_lineas:ped-1"]);
     expect(registro.rpc).not.toContain("reembolsar_pedido_total:ped-1");
-    expect(registro.rpcParams[0]).toMatchObject({ p_marcar_total: true });
+    expect(registro.paramsDe("registrar_reembolso_lineas")).toMatchObject({ p_marcar_total: true });
     expect(r.es_total).toBe(true);
     expect(r.estado).toBe("REEMBOLSADO");
   });

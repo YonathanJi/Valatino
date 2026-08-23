@@ -234,7 +234,8 @@ export class ReembolsosService {
     const vistas = new Set<string>();
     const lineas: LineaReembolso[] = [];
     const resumen: string[] = [];
-    let importeCents = 0;
+    // ⚠️ `importeCents` ya NO se acumula en el bucle: lo da la base al final. Ver el
+    // comentario de la llamada a `importe_a_devolver` más abajo.
     let unidades = 0;
 
     for (const pedida of pedidas) {
@@ -262,16 +263,66 @@ export class ReembolsosService {
         );
       }
 
-      // Entero por entero: multiplicar euros en coma flotante y redondear
-      // después arrastra el error de 0,1 × 3 = 0,30000000000000004.
-      importeCents += pedida.cantidad * cents(Number(item.precio_unitario));
       unidades += pedida.cantidad;
       lineas.push({ pedido_item_id: item.id, cantidad: pedida.cantidad });
       resumen.push(`${pedida.cantidad} × ${item.nombre_producto}`);
     }
 
-    if (importeCents <= 0) {
+    if (!lineas.length) {
       throw new BadRequestException("Elige al menos una unidad para devolver");
+    }
+
+    /**
+     * ⚠️⚠️ EL DINERO NO SE CALCULA AQUÍ: LO DA LA BASE. Aquí había
+     * `pedida.cantidad * cents(item.precio_unitario)`, o sea PVP DE CATÁLOGO. Con un
+     * cupón (083) eso devuelve MÁS de lo que el cliente pagó, y no es un descuadre de
+     * informe: es dinero real saliendo por la pasarela. Art. 107 RDL 1/2007 obliga a
+     * devolver «todos los pagos recibidos», que con cupón es lo efectivamente
+     * cobrado.
+     *
+     * ⭐ `importe_a_devolver` (083 §6) es el ÚNICO sitio que sabe valorar una
+     * devolución, y de ahí leen también los dos escritores de `reembolso_lineas`. Si
+     * esto lo calculara aparte, la ficha del cliente y el documento fiscal se
+     * contradirían sobre el mismo dinero: la lección de la 074.
+     *
+     * ⭐ Y SIGUE SIENDO CIERTO QUE EL PRECIO NO VIENE DEL NAVEGADOR. El panel manda
+     * qué línea y cuántas unidades; lo que valen lo dice la base. Solo cambia QUIÉN
+     * lo calcula, no de dónde sale.
+     *
+     * ⚠️⚠️ NO HAY FALLBACK AL BRUTO, y es deliberado. Si la RPC falla, el panel no
+     * devuelve. El signo del fallo se razona, no se hereda: en `costeEnvio` el fallo
+     * barato es dejar de cobrar un porte y se cae a 0, pero aquí caer al bruto sería
+     * devolver de más con el dinero ya fuera. Un fallo de la base que bloquea las
+     * devoluciones es el comportamiento correcto.
+     */
+    const { data: valorado, error: errValor } = await this.supabase.rpc("importe_a_devolver", {
+      p_pedido_id: pedidoId,
+      p_lineas: lineas,
+    });
+
+    if (errValor || !valorado) {
+      throw new InternalServerErrorException(
+        "No se pudo calcular el importe a devolver. No se devuelve nada hasta saber cuánto.",
+      );
+    }
+
+    // Entero por entero: sumar euros en coma flotante y redondear después arrastra
+    // el error de 0,1 × 3 = 0,30000000000000004.
+    const importeCents = (valorado as { importe: string | number }[]).reduce(
+      (a, f) => a + cents(Number(f.importe)),
+      0,
+    );
+
+    /**
+     * ⚠️ Con netos esto ya no significa «no has elegido nada» —eso lo caza el
+     * `lineas.length` de arriba— sino que lo elegido no vale nada: un cupón que
+     * cubrió esas unidades por completo. Stripe no acepta un reembolso de 0, así que
+     * hay que decirlo, y decir POR QUÉ.
+     */
+    if (importeCents <= 0) {
+      throw new BadRequestException(
+        "Esas unidades no tienen importe que devolver: el descuento del pedido las cubrió por completo",
+      );
     }
 
     return { lineas, importeCents, unidades, resumen: resumen.join(", ") };
