@@ -146,7 +146,7 @@ Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caract
 
 #### Estado al cerrar
 
-**528 tests API + 404 web = 932**, los dos `type-check` y los dos builds en verde, corridos **por separado** (juntos el `type-check` de la web falla a veces y sigue sin diagnosticar). Árbol limpio.
+**532 tests API + 404 web = 936**, los dos `type-check` y los dos builds en verde, corridos **por separado** (juntos el `type-check` de la web falla a veces y sigue sin diagnosticar). Árbol limpio.
 
 #### Lo que queda
 
@@ -154,7 +154,8 @@ Es la técnica de la 082 llevada más lejos: `liquidacion_iva` son 17.909 caract
 |---|---|
 | ✅ ~~**Tienda**~~ | **HECHO** (`b6dcb70`). La caja va **solo en el carrito**, no en el checkout: allí la máquina de estados de la reserva reemplaza la página entera y un refetch desde la caja puede reentrar en su `useEffect`. En el checkout el descuento se VE en el resumen y no se toca. Y «faltan X para el envío gratis» ya se ocultaba solo: `costeEnvio === 0` cae en `estado === "gratis"` |
 | ⚠️ **Decisión de Jonathan** | **la presentación de la RECTIFICATIVA.** Sus líneas de artículo usan `sum(rl.importe)`, que desde el §6 ya es el neto: el total es correcto pero el papel dice «1 ud · 5,00 € · −4,00 €» y no se explica solo. Las dos opciones —dejarlo, o espejo de la venta con líneas a PVP más la del descuento en positivo— son presentación, y la 082 dejó el precedente de que eso lo decide él mirando el papel. **Recomendación: el espejo**, que además ahora encaja porque el bloque de totales ya sabe pintar la fila. |
-| **Deuda nombrada** | llevar el código en la **metadata del pago** (por intent, no por sesión) para que sobreviva a la limpieza de 48 h de `checkout_datos`. Hoy, sin snapshot, el descuento cae a 0 y el pedido diría más de lo cobrado — se anota `venta_sin_snapshot_checkout` para que no sea silencioso, pero la cura de fondo es esa. Y es la única defensa real contra que nadie compare `intent.amount` con `pedidos.total` |
+| ✅ **~~Deuda nombrada~~ — HECHA para Stripe** | El dinero viaja ya en la **metadata del intent** (`coste_envio`, `descuento`, `descuento_codigo`, `envio_descontado`), y si `checkout_datos` se limpió a las 48 h se **rehace su mitad de dinero** desde ahí antes de confirmar. ⚠️ Con `ignoreDuplicates`: si la fila existe se deja EN PAZ, porque lleva la dirección y un upsert normal la borraría para escribir cuatro números. ⭐ Y la metadata sale del **mismo objeto `carrito`** que el importe que se cobra, en líneas contiguas: no pueden discrepar. |
+| ⚠️ **Lo que sigue abierto de eso** | **La dirección y PayPal.** La dirección no cabe en la metadata, así que un invitado cuyo webhook llegue pasadas las 48 h sigue quedándose sin ella — agujero anterior, no lo cierra esto. Y PayPal viaja con un `customId` de un solo campo: por esa vía el agujero sigue igual, y **es mejor así que rellenarlo con ceros** (un descuento inventado es peor que uno que falta y se anota). Todos los pedidos reales son `stripe`. |
 | **Gestoría** | el descuento añade el art. 78.Tres.2, la frontera con el 80.Uno.2 y su tratamiento en VeriFactu. **Es la MISMA llamada que la del porte** (art. 78.Dos.1º), y antes de marcar `arranque_fiscal_el` |
 
 #### Hallazgos incidentales, que no son de esta migración

@@ -2,9 +2,17 @@
 
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 
-// URL absoluta de la API — para fetches SIN cookie desde server components o
-// polling público (no dependen de la sesión del carrito).
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+/**
+ * ⚠️⚠️ SE REEXPORTA, NO SE DEFINE AQUI, y hay que dejarlo escrito porque definirla
+ * aqui costo dos sesiones. Este modulo lleva `"use client"`, y un componente de
+ * SERVIDOR que importe un valor de un modulo de cliente no recibe el valor: recibe un
+ * stub que lanza. Las tres paginas legales salieron vacias del 22/08 al 23/08 por eso.
+ * Ver la cabecera de `@lib/api/url`.
+ *
+ * ⚠️ El reexport es para el codigo de NAVEGADOR, que ya la importaba de aqui. Si lo
+ * que escribes corre en el servidor, importala de `@lib/api/url` directamente.
+ */
+export { API_URL } from "./url";
 
 // Base para las llamadas del NAVEGADOR que llevan la cookie de sesión: mismo
 // origen que la web (proxy /api de next.config.mjs) → la cookie es de primera

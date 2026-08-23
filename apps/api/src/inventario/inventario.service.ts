@@ -313,6 +313,58 @@ export class InventarioService {
   }
 
   /**
+   * Rehace la mitad de DINERO del snapshot del checkout desde la metadata del pago
+   * (083), cuando la limpieza de 48 h ya se llevó la fila.
+   *
+   * ⚠️⚠️ `ignoreDuplicates` NO ES OPCIONAL. Si la fila existe hay que dejarla EN PAZ:
+   * lleva la dirección, el email y el documento, y un upsert normal los borraría para
+   * escribir cuatro números. Con esto, si alguien insertó la fila entre la lectura y
+   * esta llamada, no pasa nada.
+   *
+   * ⚠️ Y solo la mitad de dinero. La dirección no viaja en la metadata, así que un
+   * invitado cuyo webhook llegue pasadas las 48 h sigue quedándose sin ella. Ese
+   * agujero es anterior a esto y no lo cierra.
+   */
+  async rehacerSnapshotDinero(
+    sessionId: string,
+    dinero: {
+      costeEnvio: number;
+      descuento: number;
+      descuentoCodigo: string | null;
+      envioDescontado: number;
+    },
+  ): Promise<void> {
+    const { error } = await this.supabase.from("checkout_datos").upsert(
+      {
+        session_id: sessionId,
+        coste_envio: dinero.costeEnvio,
+        descuento_importe: dinero.descuento,
+        descuento_codigo: dinero.descuentoCodigo,
+        envio_descontado: dinero.envioDescontado,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "session_id", ignoreDuplicates: true },
+    );
+
+    if (error) {
+      // ⚠️ No propaga: si esto falla, `confirmar_venta` cae a su fallback y anota
+      // `venta_sin_snapshot_checkout`. Reventar aquí dejaría un pago cobrado SIN
+      // pedido, que es infinitamente peor que un descuento no aplicado.
+      this.logger.error(
+        `No se pudo rehacer el snapshot de dinero de la sesión ${sessionId}: ${error.message}`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `Snapshot de checkout rehecho desde la metadata del pago (sesión ${sessionId}): ` +
+        `porte ${dinero.costeEnvio}, descuento ${dinero.descuento}` +
+        `${dinero.descuentoCodigo ? ` (${dinero.descuentoCodigo})` : ""}. ` +
+        "Significa que el webhook llegó pasadas las 48 h de la limpieza.",
+    );
+  }
+
+  /**
    * Busca un pedido por la referencia del proveedor de pago. El total sirve
    * para distinguir un reembolso parcial de uno completo.
    */

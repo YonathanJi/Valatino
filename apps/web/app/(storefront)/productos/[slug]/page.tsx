@@ -7,8 +7,9 @@ import { AddToCartButton } from "@components/storefront/AddToCartButton";
 import { hermanosDeVariante, tieneVariante, varianteVisible } from "@lib/productos/variantes";
 import { ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
 import { formatEUR } from "@lib/utils";
+import { API_URL } from "@lib/api/url";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
 
 async function getProducto(slug: string): Promise<Producto | null> {
   try {

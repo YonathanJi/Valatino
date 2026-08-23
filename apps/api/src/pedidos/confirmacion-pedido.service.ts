@@ -29,6 +29,29 @@ export interface PagoConfirmado {
    * también sirve Bizum eso ya no describe la forma de pago.
    */
   metodoDetalle?: string | null;
+  /**
+   * El dinero TAL COMO ERA AL COBRAR, leído de la metadata del pago (083).
+   *
+   * ⚠️⚠️ EXISTE PARA SOBREVIVIR A LA LIMPIEZA DE `checkout_datos`. Ese snapshot se
+   * borra a las 48 h por pg_cron (019), y un webhook que llegue después dejaba a
+   * `confirmar_venta` sin saber el porte —caía a la tarifa vigente— ni el descuento
+   * —caía a CERO—. Lo segundo es peor que lo primero: el pedido diría MÁS de lo que
+   * se cobró.
+   *
+   * La metadata va por INTENT y no por sesión, así que no la borra nadie y es
+   * exactamente el dinero de ESTE pago. Es el cinturón del snapshot, no su
+   * sustituto: si el snapshot está, manda él (lleva además la dirección).
+   *
+   * ⚠️ Solo lo trae STRIPE. PayPal viaja con un `customId` de un solo campo y meter
+   * el dinero ahí es otro trabajo: por esa vía el agujero de las 48 h sigue abierto,
+   * igual que estaba.
+   */
+  dineroDelIntent?: {
+    costeEnvio: number;
+    descuento: number;
+    descuentoCodigo: string | null;
+    envioDescontado: number;
+  };
 }
 
 export interface ReembolsoNotificado {
@@ -63,6 +86,20 @@ export class ConfirmacionPedidoService {
     const checkoutDatos = pago.sessionId
       ? await this.inventarioService.getCheckoutDatos(pago.sessionId)
       : null;
+
+    /**
+     * ⚠️⚠️ SI EL SNAPSHOT SE LIMPIÓ, SE REHACE SU MITAD DE DINERO DESDE LA METADATA
+     * antes de confirmar. Sin esto, `confirmar_venta` aplicaría el descuento a CERO y
+     * el pedido diría más de lo que se cobró — en silencio salvo por el evento
+     * `venta_sin_snapshot_checkout`.
+     *
+     * ⚠️ Solo la mitad de DINERO, y hay que saberlo: la dirección no viaja en la
+     * metadata, así que un invitado cuyo webhook llegue pasadas las 48 h sigue
+     * quedándose sin ella. Ese agujero es anterior y no lo cierra esto.
+     */
+    if (!checkoutDatos && pago.sessionId && pago.dineroDelIntent) {
+      await this.inventarioService.rehacerSnapshotDinero(pago.sessionId, pago.dineroDelIntent);
+    }
 
     const emailCliente = (checkoutDatos?.email ?? pago.emailCliente ?? "").toLowerCase();
     const documentoCliente = checkoutDatos?.documento ?? pago.documentoCliente ?? "";

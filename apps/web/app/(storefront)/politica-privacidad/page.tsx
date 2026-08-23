@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getIdentidad, domicilioEnUnaLinea } from "@lib/tienda/identidad";
+import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
 
 /**
  * Política de privacidad — RGPD (UE 2016/679) y LOPDGDD (3/2018).
@@ -44,6 +45,11 @@ export default async function PoliticaPrivacidadPage() {
   const domicilio = domicilioEnUnaLinea(identidad);
 
   return (
+    <>
+      {/* Ver la cabecera de `HuellaDiagnostico`: el commit desplegado y, si la
+          identidad no se pudo traer, el motivo. Dos sesiones se perdieron por no
+          tener ni una cosa ni la otra. */}
+      <HuellaDiagnostico fallo={identidad.fallo} />
     <main className="max-w-3xl mx-auto px-4 py-16 space-y-8">
       <h1 className="text-3xl font-bold">Política de privacidad</h1>
       <p className="text-muted-foreground leading-relaxed">
@@ -169,5 +175,6 @@ export default async function PoliticaPrivacidadPage() {
         Última actualización: agosto de 2026.
       </p>
     </main>
+    </>
   );
 }

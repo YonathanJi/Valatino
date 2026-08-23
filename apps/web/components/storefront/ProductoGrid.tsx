@@ -2,8 +2,9 @@ import type { Producto } from "@valatino/types";
 import { ProductoCard } from "./ProductoCard";
 import { ProductoCardVariantes } from "./ProductoCardVariantes";
 import { agruparPorVariante } from "@lib/productos/variantes";
+import { API_URL } from "@lib/api/url";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
 
 async function getProductos(): Promise<Producto[]> {
   try {

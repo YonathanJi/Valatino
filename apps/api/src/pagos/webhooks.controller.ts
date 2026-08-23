@@ -168,11 +168,29 @@ export class PagosController {
 
     await this.validarYGuardarCheckout(sessionId, userId, dto, carrito);
 
+    /**
+     * ⚠️⚠️ EL DINERO VA TAMBIÉN EN LA METADATA, y no es redundante con
+     * `checkout_datos`: ese snapshot se borra a las 48 h por pg_cron (019), y un
+     * webhook que llegue después dejaba a `confirmar_venta` sin el porte —caía a la
+     * tarifa vigente— y sin el descuento —caía a CERO, o sea que el pedido diría MÁS
+     * de lo que se acaba de cobrar aquí mismo—.
+     *
+     * La metadata va por INTENT: no la borra nadie y es exactamente el dinero de
+     * ESTE pago. Es el cinturón del snapshot, no su sustituto — el snapshot lleva
+     * además la dirección, que aquí no cabe.
+     *
+     * ⭐ Y sale del MISMO `carrito` que el importe que se cobra dos líneas arriba, así
+     * que no pueden discrepar.
+     */
     return this.stripeService.createPaymentIntent(carrito.total, {
       session_id: sessionId,
       user_id: userId ?? "",
       email_cliente: dto.email?.toLowerCase() ?? "",
       documento_cliente: dto.documento ?? "",
+      coste_envio: carrito.costeEnvio.toFixed(2),
+      descuento: carrito.descuento.toFixed(2),
+      descuento_codigo: carrito.codigoDescuento ?? "",
+      envio_descontado: carrito.envioDescontado.toFixed(2),
     });
   }
 
@@ -335,6 +353,14 @@ export class PagosController {
         referenciaPago: intent.id,
         importe: intent.amount / 100,
         payloadRaw: event.data.object as object,
+        // El dinero como era al cobrar. Ver `dineroDelIntent` en PagoConfirmado: es
+        // lo que salva la venta cuando `checkout_datos` ya se limpió.
+        dineroDelIntent: {
+          costeEnvio: Number(intent.metadata["coste_envio"] ?? 0) || 0,
+          descuento: Number(intent.metadata["descuento"] ?? 0) || 0,
+          descuentoCodigo: intent.metadata["descuento_codigo"] || null,
+          envioDescontado: Number(intent.metadata["envio_descontado"] ?? 0) || 0,
+        },
       });
     }
 

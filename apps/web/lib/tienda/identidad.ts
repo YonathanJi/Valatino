@@ -1,4 +1,8 @@
-import { API_URL } from "@lib/api/client";
+// ⚠️⚠️ DE `@lib/api/url` Y NO DE `@lib/api/client`, QUE ES LO QUE ROMPIO ESTA PAGINA
+// DURANTE DOS SESIONES. `client` lleva `"use client"`, y este fichero corre en el
+// SERVIDOR: importar de ahi daba un stub que lanza en vez de la URL, y el `catch` de
+// abajo lo convertia en la identidad vacia. Ver la cabecera de `@lib/api/url`.
+import { API_URL } from "@lib/api/url";
 import type { IdentidadPublica } from "@valatino/types";
 
 /**
@@ -71,23 +75,74 @@ const CORTE_MS = 5_000;
  */
 const EN_BUILD = process.env.NEXT_PHASE === "phase-production-build";
 
-export async function getIdentidad(): Promise<IdentidadPublica> {
+/**
+ * ⚠️⚠️ POR QUÉ ESTO EXISTE, Y ES LA LECCIÓN DE DOS SESIONES PERDIDAS. Las tres
+ * páginas legales llevan desde el 22/08 saliendo vacías en producción, y no se ha
+ * podido averiguar por qué **porque el `catch` de abajo convierte cualquier fallo en
+ * silencio**. Se descartó el `AbortSignal` (el 23/08 se comprobó que el despliegue
+ * llevaba 23 h vivo, que el build compila `NEXT_PHASE` como lectura en ejecución, que
+ * la API responde 200 en 0,9 s y que el ISR regenera con `Revalidate 5m`) y no queda
+ * ninguna hipótesis que se pueda probar DESDE FUERA.
+ *
+ * Así que el motivo del fallo deja de morir aquí: viaja con la identidad vacía y las
+ * páginas lo escriben en un comentario HTML. No se le enseña al cliente —un comentario
+ * no se pinta— pero convierte «no sé por qué falla» en un `curl | grep`.
+ *
+ * ⚠️ Y se queda para siempre, no es andamio: el día que esto vuelva a fallar —por otra
+ * causa, en otro despliegue— la respuesta estará en la página en vez de en cuatro
+ * horas de bisección.
+ */
+export interface IdentidadConDiagnostico extends IdentidadPublica {
+  /**
+   * Qué pasó cuando no se pudo traer la identidad. `null` si fue bien.
+   *
+   * ⚠️ Truncado a 200 caracteres: es para un comentario HTML, no para un log. Y solo
+   * el mensaje del error, nunca el objeto entero, que arrastraría la URL con lo que
+   * llevara dentro.
+   */
+  fallo: string | null;
+}
+
+/**
+ * La huella del despliegue, para que «¿está esto desplegado?» sea un `grep`.
+ *
+ * ⚠️⚠️ ES LA OTRA MITAD DE LA LECCIÓN. El 22/08 se perdió media hora sin poder
+ * distinguir «Vercel todavía no ha desplegado» de «el arreglo no sirve», porque el
+ * commit no cambiaba NADA visible en el cliente: `identidad.ts` es código de servidor
+ * y los tipos se borran al compilar. Se intentó con `buildId`, con los chunks y con el
+ * hash del CSS, y los tres eran inservibles.
+ *
+ * `VERCEL_GIT_COMMIT_SHA` lo pone Vercel en el build. En local no existe y sale
+ * `local`, que también es la verdad.
+ */
+export const HUELLA_DESPLIEGUE = (
+  process.env.VERCEL_GIT_COMMIT_SHA ?? "local"
+).slice(0, 7);
+
+export async function getIdentidad(): Promise<IdentidadConDiagnostico> {
   try {
     const res = await fetch(`${API_URL}/tienda/identidad`, {
       // Cinco minutos. Son datos que cambian una vez al año.
       next: { revalidate: 300 },
       signal: EN_BUILD ? AbortSignal.timeout(CORTE_MS) : undefined,
     });
-    if (!res.ok) return IDENTIDAD_VACIA;
-    return (await res.json()) as IdentidadPublica;
-  } catch {
+    if (!res.ok) {
+      return { ...IDENTIDAD_VACIA, fallo: `HTTP ${res.status} ${res.statusText}` };
+    }
+    return { ...((await res.json()) as IdentidadPublica), fallo: null };
+  } catch (e) {
     /**
-     * ⚠️ Se traga TODO —red caída, timeout, JSON roto— y devuelve la identidad
-     * vacía, que las pantallas ya saben tratar porque es el mismo caso que
-     * «todavía sin configurar». Dejar que esto lance convertiría un hipo de la
-     * API en una página que no existe.
+     * ⚠️ Sigue tragándose TODO —red caída, timeout, JSON roto— y devolviendo la
+     * identidad vacía, que las pantallas ya saben tratar porque es el mismo caso que
+     * «todavía sin configurar». Dejar que esto lance convertiría un hipo de la API en
+     * una página que no existe, y esa página es la que existe para dar confianza.
+     *
+     * ⭐ LO QUE CAMBIA ES QUE YA NO SE TRAGA EL MOTIVO. Antes se perdía aquí y no
+     * quedaba forma de saber qué había pasado en el servidor de Vercel.
      */
-    return IDENTIDAD_VACIA;
+    const fallo =
+      e instanceof Error ? `${e.name}: ${e.message}`.slice(0, 200) : String(e).slice(0, 200);
+    return { ...IDENTIDAD_VACIA, fallo };
   }
 }
 

@@ -6,6 +6,7 @@ import {
   enlaceWhatsapp,
   whatsappLegible,
 } from "@lib/tienda/identidad";
+import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
 
 /**
  * Cómo preguntar antes de comprar.
@@ -42,6 +43,9 @@ export default async function ContactoPage() {
   const whatsapp = enlaceWhatsapp(identidad, "Hola, tengo una duda sobre un producto de Valatino.");
 
   return (
+    <>
+      {/* Ver la cabecera de `HuellaDiagnostico`. */}
+      <HuellaDiagnostico fallo={identidad.fallo} />
     <main className="max-w-3xl mx-auto px-4 py-16 space-y-8">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">Contacto</h1>
@@ -169,5 +173,6 @@ export default async function ContactoPage() {
         </section>
       )}
     </main>
+    </>
   );
 }

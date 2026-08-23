@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getIdentidad, domicilioEnUnaLinea } from "@lib/tienda/identidad";
+import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
 
 /**
  * Aviso legal — art. 10 de la Ley 34/2002 (LSSI-CE).
@@ -37,6 +38,11 @@ export default async function AvisoLegalPage() {
   const domicilio = domicilioEnUnaLinea(identidad);
 
   return (
+    <>
+      {/* Ver la cabecera de `HuellaDiagnostico`: el commit desplegado y, si la
+          identidad no se pudo traer, el motivo. Dos sesiones se perdieron por no
+          tener ni una cosa ni la otra. */}
+      <HuellaDiagnostico fallo={identidad.fallo} />
     <main className="max-w-3xl mx-auto px-4 py-16 space-y-8">
       <h1 className="text-3xl font-bold">Aviso legal</h1>
 
@@ -157,5 +163,6 @@ export default async function AvisoLegalPage() {
         </Link>
       </nav>
     </main>
+    </>
   );
 }
