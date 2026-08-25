@@ -52,6 +52,21 @@ interface PedidoParaReembolso {
   metodo_pago: string;
   referencia_pago: string | null;
   numero_pedido: string | null;
+  /** El porte cobrado, que está DENTRO de `total` (080). 0 si no se cobró. */
+  coste_envio: number | null;
+  /**
+   * En qué reembolso se devolvió ya el porte, o `null` si todavía no se ha
+   * devuelto (080).
+   *
+   * ⚠️⚠️ ES EL GUARDIA CONTRA DEVOLVER EL PORTE DOS VECES, y se lee aquí para
+   * poder negarse ANTES de mandar dinero a Stripe. La base tiene el suyo —el
+   * `where envio_devuelto_en_refund is null` de la 084— pero ese llega tarde: si
+   * solo estuviera ahí, el porte se le habría cobrado ya al negocio y la RPC se
+   * limitaría a no apuntarlo, dejando dinero fuera sin rectificativa que lo
+   * declare. Los dos hacen falta: este para no cobrar, y el de la base para que
+   * dos peticiones simultáneas no se cuelen las dos.
+   */
+  envio_devuelto_en_refund: string | null;
 }
 
 interface ItemDelPedido {
@@ -341,6 +356,18 @@ export class ReembolsosService {
       );
     }
 
+    /**
+     * ⚠️ El porte no se suma a un importe escrito a mano (084). Quien teclea una
+     * cifra ya está diciendo el total que quiere devolver, y añadirle el porte
+     * encima cobraría de más sin que lo hubiera pedido nadie. Con artículos sí se
+     * combina, porque ahí el importe lo calcula el servidor.
+     */
+    if (dto.devolver_envio && dto.importe !== undefined) {
+      throw new BadRequestException(
+        "Con un importe escrito a mano no se puede marcar además el envío: incluye en el importe lo que quieras devolver, porte incluido",
+      );
+    }
+
     const pedido = await this.cargarPedido(pedidoId);
 
     if (!ESTADOS_REEMBOLSABLES.includes(pedido.estado)) {
@@ -383,21 +410,52 @@ export class ReembolsosService {
       throw new ConflictException("Ya se ha devuelto el importe completo de este pedido");
     }
 
-    // Tres formas de decir cuánto, por orden de precisión:
+    /**
+     * ⬇️ EL PORTE (084). Los dos «no» van ANTES de Stripe, que es lo que importa:
+     * negarse cuando el dinero ya ha salido no sirve de nada.
+     *
+     * ⚠️ El segundo es el guardia contra devolverlo dos veces. La base tiene el
+     * suyo —`envio_devuelto_en_refund is null`— pero ese solo evita apuntarlo mal;
+     * el cobro ya se habría hecho. Ver `PedidoParaReembolso.envio_devuelto_en_refund`.
+     */
+    const devolverEnvio = dto.devolver_envio === true;
+    const envioCents = devolverEnvio ? cents(Number(pedido.coste_envio ?? 0)) : 0;
+
+    if (devolverEnvio) {
+      if (envioCents <= 0) {
+        throw new BadRequestException(
+          "Este pedido no pagó gastos de envío, así que no hay porte que devolver",
+        );
+      }
+      if (pedido.envio_devuelto_en_refund) {
+        throw new ConflictException(
+          "Los gastos de envío de este pedido ya se devolvieron en una devolución anterior",
+        );
+      }
+    }
+
+    // Cuatro formas de decir cuánto, por orden de precisión:
     //   · artículos elegidos → lo dicen los precios de `pedido_items`
     //   · un importe suelto  → lo dice quien lo escribe
+    //   · solo el porte      → lo dice `pedidos.coste_envio` (084)
     //   · nada               → todo lo que quede pendiente
+    //
+    // ⚠️ El porte se SUMA a los artículos cuando van juntos, y es la única
+    // combinación posible: con `importe` está prohibido más arriba, y «nada» ya
+    // devuelve el pedido entero con el porte dentro.
     const seleccion = dto.lineas ? await this.validarSeleccion(pedidoId, dto.lineas) : null;
     const importeCents = seleccion
-      ? seleccion.importeCents
-      : dto.importe === undefined
-        ? restanteCents
-        : cents(dto.importe);
+      ? seleccion.importeCents + envioCents
+      : dto.importe !== undefined
+        ? cents(dto.importe)
+        : devolverEnvio
+          ? envioCents
+          : restanteCents;
 
     if (importeCents > restanteCents) {
       throw new BadRequestException(
         seleccion
-          ? `Esos artículos suman ${(importeCents / 100).toFixed(2)} € y de este pedido solo quedan ${(restanteCents / 100).toFixed(2)} € por devolver`
+          ? `Esos artículos${devolverEnvio ? " y el envío" : ""} suman ${(importeCents / 100).toFixed(2)} € y de este pedido solo quedan ${(restanteCents / 100).toFixed(2)} € por devolver`
           : `Solo quedan ${(restanteCents / 100).toFixed(2)} € por devolver de este pedido`,
       );
     }
@@ -414,14 +472,20 @@ export class ReembolsosService {
       // mismo pedido pueden costar lo mismo, y sin esto devolver la primera y
       // luego la segunda daría la misma clave — Stripe devolvería el refund de
       // la primera sin cobrar nada, y el panel diría que la segunda se devolvió.
+      // ⚠️ El `:envio` no es redundante aunque el porte ya cambie `importeCents`:
+      // devolver un artículo de 3,40 € y devolver un porte de 3,40 € sobre el mismo
+      // punto de partida darían la MISMA clave, y Stripe reutilizaría el primer
+      // reembolso sin cobrar el segundo — con el panel diciendo que sí se cobró.
+      // Es el mismo razonamiento que la huella de las líneas de aquí al lado.
       idempotencyKey: `reembolso:${pedidoId}:${yaCents}:${importeCents}${
         seleccion ? `:${huellaLineas(seleccion.lineas)}` : ""
-      }`,
+      }${devolverEnvio ? ":envio" : ""}`,
       metadata: {
         pedido_id: pedidoId,
         numero_pedido: pedido.numero_pedido ?? "",
         solicitado_por: solicitadoPor,
         ...(seleccion ? { articulos: seleccion.resumen.slice(0, 500) } : {}),
+        ...(devolverEnvio ? { envio_devuelto: (envioCents / 100).toFixed(2) } : {}),
         ...(dto.motivo ? { motivo: dto.motivo } : {}),
       },
     });
@@ -433,21 +497,50 @@ export class ReembolsosService {
     const esTotal = acumuladoCents >= totalCents;
     let stockRepuesto = false;
 
-    if (seleccion) {
-      // Las líneas y el cierre del pedido van en la misma llamada, y por dentro
-      // en la misma transacción y en este orden. Si se marcara REEMBOLSADO
-      // antes de apuntar las líneas, `reembolsar_pedido_total` no las vería y
-      // repondría su stock por segunda vez. Ver el apartado 2 de la 044.
-      stockRepuesto = await this.registrarLineas(
+    let envioDevuelto = false;
+
+    if (seleccion || devolverEnvio) {
+      /**
+       * Las líneas y el cierre del pedido van en la misma llamada, y por dentro
+       * en la misma transacción y en este orden. Si se marcara REEMBOLSADO
+       * antes de apuntar las líneas, `reembolsar_pedido_total` no las vería y
+       * repondría su stock por segunda vez. Ver el apartado 2 de la 044.
+       *
+       * ⚠️⚠️ Y EL PORTE VA POR AQUÍ TAMBIÉN, INCLUSO SIN ARTÍCULOS (084), y no por
+       * una llamada aparte. El motivo está en la cabecera de la migración y es la
+       * decisión de diseño de todo esto: el trigger que emite la rectificativa es
+       * DIFERIDO, así que el sellado del porte tiene que ocurrir en la MISMA
+       * transacción que las líneas y antes de que el trigger corra. Una segunda
+       * llamada llegaría tarde y la rectificativa saldría sin la línea del envío
+       * — con el dinero ya devuelto y sin documento que lo declare.
+       */
+      const resultado = await this.registrarLineas(
         pedidoId,
         seleccion,
         dto.reponer_stock ?? false,
         refund.id,
         esTotal,
+        devolverEnvio,
         actorId,
       );
+      stockRepuesto = resultado.repuesto;
+      envioDevuelto = resultado.envioDevuelto;
     } else if (esTotal) {
-      stockRepuesto = await this.marcarReembolsadoYReponerStock(pedidoId, actorId);
+      const cerro = await this.marcarReembolsadoYReponerStock(pedidoId, actorId);
+      stockRepuesto = cerro;
+      /**
+       * El cierre devuelve el porte él solo, si el pedido lo llevaba y no estaba ya
+       * devuelto: lo hace `reembolsar_pedido_total` desde la 080. Aquí solo se
+       * refleja para poder contarlo en pantalla.
+       *
+       * ⚠️ Y va condicionado a que la RPC **haya actuado**. `cerro = false` significa
+       * que el pedido ya estaba REEMBOLSADO —el webhook llegó primero— y entonces el
+       * porte lo devolvió ese otro camino, no este. Decir que fue este haría que el
+       * panel anunciara «incluye 3,40 € de envío» sobre una devolución que no lo
+       * incluía.
+       */
+      envioDevuelto =
+        cerro && Number(pedido.coste_envio ?? 0) > 0 && !pedido.envio_devuelto_en_refund;
     }
 
     try {
@@ -470,8 +563,19 @@ export class ReembolsosService {
           origen: "panel",
           // Con artículos, la línea de tiempo dice cuáles en vez de solo el
           // importe: es la diferencia entre «se devolvieron 4 €» y «se devolvió
-          // la caja de galletas».
-          ...(seleccion ? { detalle: `reembolso.backoffice · ${seleccion.resumen}` } : {}),
+          // la caja de galletas». Y con el porte lo dice también, que si no la
+          // ficha enseña un importe mayor que la suma de los artículos y parece
+          // un error de cálculo.
+          ...(seleccion || devolverEnvio
+            ? {
+                detalle: `reembolso.backoffice · ${[
+                  seleccion?.resumen,
+                  devolverEnvio ? `envío ${(envioCents / 100).toFixed(2)} €` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}`,
+              }
+            : {}),
           /**
            * ⚠️⚠️ LO DEVUELTO AHORA, no el acumulado que va a la transacción. La
            * transacción lleva el acumulado a propósito (`totalesReembolsados`
@@ -497,7 +601,7 @@ export class ReembolsosService {
     void this.avisarCliente(pedidoId, acumuladoCents / 100);
 
     this.logger.log(
-      `Reembolso de ${(importeCents / 100).toFixed(2)} € en pedido ${pedido.numero_pedido ?? pedidoId} por ${solicitadoPor} (acumulado ${(acumuladoCents / 100).toFixed(2)} €${esTotal ? ", total" : ", parcial"})`,
+      `Reembolso de ${(importeCents / 100).toFixed(2)} € en pedido ${pedido.numero_pedido ?? pedidoId} por ${solicitadoPor} (acumulado ${(acumuladoCents / 100).toFixed(2)} €${esTotal ? ", total" : ", parcial"}${envioDevuelto ? `, incluye ${(envioCents / 100).toFixed(2)} € de envío` : ""})`,
     );
 
     return {
@@ -508,6 +612,9 @@ export class ReembolsosService {
       estado: esTotal ? "REEMBOLSADO" : pedido.estado,
       stock_repuesto: stockRepuesto,
       ...(seleccion ? { unidades_devueltas: seleccion.unidades } : {}),
+      // Solo cuando de verdad se devolvió: `envioDevuelto` sale de lo que dijo la
+      // base, no de lo que se pidió. Ver el aviso de `registrarLineas`.
+      ...(envioDevuelto ? { envio_devuelto: true } : {}),
     };
   }
 
@@ -521,27 +628,36 @@ export class ReembolsosService {
    */
   private async registrarLineas(
     pedidoId: string,
-    seleccion: SeleccionValidada,
+    /** `null` cuando la devolución es SOLO del porte y no hay artículos (084). */
+    seleccion: SeleccionValidada | null,
     reponerStock: boolean,
     refundId: string,
     marcarTotal: boolean,
+    devolverEnvio: boolean,
     actorId?: string,
-  ): Promise<boolean> {
+  ): Promise<{ repuesto: boolean; envioDevuelto: boolean }> {
     const { data, error } = await this.supabase.rpc("registrar_reembolso_lineas", {
       p_pedido_id: pedidoId,
-      p_lineas: seleccion.lineas,
+      // Array vacío y no `null` en la devolución de solo porte: la RPC ya hace
+      // `coalesce(p_lineas, '[]')`, pero mandarlo explícito dice que no hay
+      // artículos a propósito, no que se nos olvidaron.
+      p_lineas: seleccion?.lineas ?? [],
       p_reponer_stock: reponerStock,
       p_refund_id: refundId,
       p_marcar_total: marcarTotal,
       p_actor_id: actorId ?? null,
+      p_devolver_envio: devolverEnvio,
     });
 
     if (error) {
       this.logger.error(
-        `Reembolso ${refundId} cobrado pero sus artículos no se apuntaron (pedido ${pedidoId}): ${error.message}. ` +
-          "El dinero sí se devolvió; el stock de esas unidades habrá que ajustarlo desde Inventario.",
+        `Reembolso ${refundId} cobrado pero no se apuntó (pedido ${pedidoId}): ${error.message}. ` +
+          "El dinero sí se devolvió; el stock de esas unidades habrá que ajustarlo desde Inventario" +
+          (devolverEnvio
+            ? ", y el porte se cobró SIN sellar: revisa si falta su rectificativa."
+            : "."),
       );
-      return false;
+      return { repuesto: false, envioDevuelto: false };
     }
 
     const r = (data ?? {}) as {
@@ -549,12 +665,13 @@ export class ReembolsosService {
       pedidas?: number;
       importe?: number | string;
       repuesto?: boolean;
+      envio_devuelto?: boolean;
     };
 
     // La RPC recorta a lo que de verdad quedaba en vez de abortar (el dinero ya
     // salió). Que recorte significa que se ha cobrado más de lo que consta
     // devuelto en artículos, y eso hay que poder verlo sin adivinarlo.
-    if ((r.registradas ?? 0) < (r.pedidas ?? 0)) {
+    if (seleccion && (r.registradas ?? 0) < (r.pedidas ?? 0)) {
       this.logger.error(
         `Reembolso ${refundId}: se cobraron ${(seleccion.importeCents / 100).toFixed(2)} € ` +
           `pero solo se apuntaron ${Number(r.importe ?? 0).toFixed(2)} € en artículos ` +
@@ -563,7 +680,26 @@ export class ReembolsosService {
       );
     }
 
-    return r.repuesto === true;
+    /**
+     * ⚠️⚠️ SE PIDIÓ DEVOLVER EL PORTE Y LA BASE DICE QUE NO LO SELLÓ ELLA. Solo
+     * puede pasar por una cosa: otra devolución se lo llevó entre la comprobación
+     * de `reembolsar` y esta llamada, y el `where envio_devuelto_en_refund is null`
+     * de la 084 hizo su trabajo. Eso significa que el porte se ha COBRADO DOS
+     * VECES —una por cada petición— y solo una tiene rectificativa.
+     *
+     * No se puede arreglar aquí (el dinero ya salió las dos veces), pero tiene que
+     * salir en el log como lo que es: dinero de más fuera de la caja. Se revisa
+     * contra Stripe y se corrige con un cargo o dejándolo como atención al cliente.
+     */
+    if (devolverEnvio && r.envio_devuelto !== true) {
+      this.logger.error(
+        `Reembolso ${refundId}: se cobró el porte del pedido ${pedidoId} pero la base no lo selló ` +
+          "porque ya estaba devuelto. Dos devoluciones simultáneas se lo han llevado las dos: " +
+          "hay un porte cobrado de más y sin rectificativa. Revisar en Stripe.",
+      );
+    }
+
+    return { repuesto: r.repuesto === true, envioDevuelto: r.envio_devuelto === true };
   }
 
   /**
@@ -591,7 +727,9 @@ export class ReembolsosService {
   private async cargarPedido(pedidoId: string): Promise<PedidoParaReembolso> {
     const { data, error } = await this.supabase
       .from("pedidos")
-      .select("id, estado, total, metodo_pago, referencia_pago, numero_pedido")
+      .select(
+        "id, estado, total, metodo_pago, referencia_pago, numero_pedido, coste_envio, envio_devuelto_en_refund",
+      )
       .eq("id", pedidoId)
       .maybeSingle();
 
@@ -610,6 +748,16 @@ export class ReembolsosService {
         numeroPedido: pedido.numero_pedido,
         email: pedido.email_cliente,
         items: pedido.items,
+        /**
+         * ⚠️ ESTAS DOS FALTABAN TAMBIÉN AQUÍ, y no solo en la confirmación. El
+         * correo de devolución pinta las mismas líneas y el mismo «Total», así que
+         * arrastraba el mismo descuadre: el porte desde la 080 y el descuento
+         * desde la 083. Y en este correo duele más, porque es el que se lee con la
+         * calculadora en la mano para comprobar si lo devuelto es lo que toca.
+         */
+        costeEnvio: Number(pedido.coste_envio ?? 0),
+        descuento: Number(pedido.descuento ?? 0),
+        descuentoCodigo: pedido.descuento_codigo,
         total: Number(pedido.total),
         metodoPago: pedido.metodo_pago,
         metodoDetalle: pedido.metodo_detalle,

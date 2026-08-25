@@ -382,6 +382,10 @@ export class ConfirmacionPedidoService {
         items: pedido.items,
         // Aparte del total a propósito: el correo lo pinta como línea propia.
         costeEnvio: Number(pedido.coste_envio ?? 0),
+        // Y el descuento por lo mismo, que se olvidó al salir la 083: sin él las
+        // líneas del correo no sumaban el total. Ver `DatosEmailPedido.descuento`.
+        descuento: Number(pedido.descuento ?? 0),
+        descuentoCodigo: pedido.descuento_codigo,
         total: Number(pedido.total),
         metodoPago: pedido.metodo_pago,
         metodoDetalle: pedido.metodo_detalle,

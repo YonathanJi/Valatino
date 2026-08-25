@@ -60,6 +60,22 @@ interface Opciones {
   netoPorLinea?: Record<string, number>;
   /** `importe_a_devolver` falla: NO se puede devolver a ciegas. */
   rpcValorError?: string;
+  /** El porte cobrado en el pedido (080). 0 = no se cobró envío. */
+  costeEnvio?: number;
+  /**
+   * En qué reembolso se devolvió ya el porte (080). `null` = sigue por devolver.
+   * Con un valor, pedir devolverlo otra vez tiene que salir rechazado.
+   */
+  envioDevueltoEn?: string | null;
+  /**
+   * Lo que contesta `registrar_reembolso_lineas` en `envio_devuelto` (084).
+   *
+   * ⚠️ Por defecto sigue a `p_devolver_envio`, que es el caso normal. Poniéndolo a
+   * `false` con la petición a `true` se simula lo único malo que puede pasar: otra
+   * devolución simultánea se llevó el porte y el `where … is null` de la base lo
+   * paró — o sea, porte cobrado dos veces y una sin rectificativa.
+   */
+  rpcEnvioDevuelto?: boolean;
 }
 
 const ITEMS_POR_DEFECTO: ItemMock[] = [
@@ -82,6 +98,9 @@ function montar(o: Opciones = {}) {
     rpcLineasError,
     netoPorLinea,
     rpcValorError,
+    costeEnvio = 0,
+    envioDevueltoEn = null,
+    rpcEnvioDevuelto,
   } = o;
 
   const registro = {
@@ -137,6 +156,8 @@ function montar(o: Opciones = {}) {
                   metodo_pago: metodoPago,
                   referencia_pago: referenciaPago,
                   numero_pedido: "260725018055",
+                  coste_envio: costeEnvio,
+                  envio_devuelto_en_refund: envioDevueltoEn,
                 },
                 error: null,
               }
@@ -159,6 +180,7 @@ function montar(o: Opciones = {}) {
             unidades_repuestas: params["p_reponer_stock"] ? 1 : 0,
             repuesto: Boolean(params["p_reponer_stock"]),
             marcado_total: Boolean(params["p_marcar_total"]),
+            envio_devuelto: rpcEnvioDevuelto ?? Boolean(params["p_devolver_envio"]),
           },
           error: null,
         };
@@ -967,5 +989,205 @@ describe("ReembolsosService.reembolsar por artículos", () => {
     expect(r.importe).toBe(2.5);
     expect(r.stock_repuesto).toBe(false);
     expect(registro.refunds).toHaveLength(1);
+  });
+});
+
+/**
+ * ⚠️⚠️ DEVOLVER LOS GASTOS DE ENVÍO APARTE (084).
+ *
+ * Petición del dueño, 2026-08-25. Hasta ahora el porte se devolvía en un solo
+ * momento y sin poder elegir: al cerrar el pedido por completo (080). En una
+ * devolución parcial no había forma, y el caso es real — el pedido llegó tarde y se
+ * le compensa el envío sin que devuelva la mercancía.
+ *
+ * Lo que se fija aquí, por orden de lo que cuesta si se rompe:
+ *
+ *   1. Que el porte se SUME a lo que se le cobra a Stripe. Si no, la casilla no hace
+ *      nada y el cliente no recibe su dinero.
+ *   2. Que NO se pueda devolver dos veces. Es dinero saliendo dos veces por lo mismo.
+ *   3. Que la RPC reciba `[]` y NUNCA `null` en la devolución de solo porte. Con
+ *      `null`, `importe_a_devolver` entiende «TODO LO PENDIENTE»: registraría como
+ *      devueltas todas las unidades, repondría su stock y emitiría una rectificativa
+ *      del pedido entero habiendo devuelto 3,40 €. En un libro append-only eso no se
+ *      deshace.
+ */
+describe("la devolución de los gastos de envío", () => {
+  it("suma el porte a lo que se le cobra a Stripe", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 3.4 });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }], devolver_envio: true },
+      "admin@valatino.es",
+    );
+
+    // 1 × 2,50 del artículo + 3,40 del porte = 5,90
+    expect(registro.refunds[0].importeCents).toBe(590);
+    expect(registro.paramsDe("registrar_reembolso_lineas")["p_devolver_envio"]).toBe(true);
+  });
+
+  it("sin marcar la casilla no se devuelve el porte", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 3.4 });
+
+    await servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }] },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0].importeCents).toBe(250);
+    expect(registro.paramsDe("registrar_reembolso_lineas")["p_devolver_envio"]).toBe(false);
+  });
+
+  /**
+   * ⭐⭐ LA TRAMPA. `importe_a_devolver` interpreta `p_lineas IS NULL` como TODO LO
+   * PENDIENTE. Este test es lo único que impide que alguien «simplifique» el
+   * `?? []` a un `null` porque «no hay líneas».
+   */
+  it("devolver solo el porte manda un array VACÍO, nunca null", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 3.4 });
+
+    const resultado = await servicio.reembolsar(
+      "ped-1",
+      { devolver_envio: true },
+      "admin@valatino.es",
+    );
+
+    expect(registro.refunds[0].importeCents).toBe(340);
+
+    const params = registro.paramsDe("registrar_reembolso_lineas");
+    expect(params["p_lineas"]).toEqual([]);
+    expect(params["p_lineas"]).not.toBeNull();
+    expect(params["p_devolver_envio"]).toBe(true);
+    expect(resultado.envio_devuelto).toBe(true);
+    // Y no cierra el pedido: quedan 46,60 € por devolver.
+    expect(resultado.es_total).toBe(false);
+  });
+
+  it("no deja devolver el porte dos veces", async () => {
+    const { servicio, registro } = montar({
+      total: 50,
+      costeEnvio: 3.4,
+      envioDevueltoEn: "re_anterior",
+    });
+
+    await expect(
+      servicio.reembolsar("ped-1", { devolver_envio: true }, "admin@valatino.es"),
+    ).rejects.toThrow(ConflictException);
+
+    // Y lo importante: se negó ANTES de tocar Stripe.
+    expect(registro.refunds).toHaveLength(0);
+  });
+
+  it("no deja devolver un porte que nunca se cobró", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 0 });
+
+    await expect(
+      servicio.reembolsar("ped-1", { devolver_envio: true }, "admin@valatino.es"),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(registro.refunds).toHaveLength(0);
+  });
+
+  /**
+   * El importe suelto ya lo escribe una persona y puede incluir lo que quiera:
+   * sumarle el porte encima cobraría de más sin que nadie lo hubiera pedido.
+   */
+  it("rechaza combinar un importe a mano con la casilla del envío", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 3.4 });
+
+    await expect(
+      servicio.reembolsar("ped-1", { importe: 10, devolver_envio: true }, "admin@valatino.es"),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(registro.refunds).toHaveLength(0);
+  });
+
+  /**
+   * ⚠️ La clave de idempotencia tiene que distinguir «devuelvo un artículo de 3,40 €»
+   * de «devuelvo un porte de 3,40 €». Sin el marcador, Stripe reutilizaría el primer
+   * reembolso y el segundo no se cobraría — con el panel diciendo que sí.
+   */
+  it("la clave de idempotencia distingue el porte de un artículo del mismo importe", async () => {
+    const a = montar({ total: 50, costeEnvio: 3.4 });
+    await a.servicio.reembolsar("ped-1", { devolver_envio: true }, "admin@valatino.es");
+
+    const b = montar({ total: 50, costeEnvio: 3.4, items: [
+      { id: "it-1", nombre_producto: "Nucita", cantidad: 1, precio_unitario: 3.4 },
+    ] });
+    await b.servicio.reembolsar(
+      "ped-1",
+      { lineas: [{ pedido_item_id: "it-1", cantidad: 1 }] },
+      "admin@valatino.es",
+    );
+
+    expect(a.registro.refunds[0].importeCents).toBe(340);
+    expect(b.registro.refunds[0].importeCents).toBe(340);
+    expect(a.registro.refunds[0].idempotencyKey).not.toBe(b.registro.refunds[0].idempotencyKey);
+  });
+
+  it("la línea de tiempo dice que se devolvió el envío, y cuánto", async () => {
+    const { servicio, registro } = montar({ total: 50, costeEnvio: 3.4 });
+
+    await servicio.reembolsar("ped-1", { devolver_envio: true }, "admin@valatino.es");
+
+    expect(registro.transacciones[0].detalle).toContain("envío 3.40");
+  });
+
+  /**
+   * ⚠️⚠️ El caso malo: se pidió el porte y la base dice que no lo selló ella porque
+   * ya estaba devuelto. Solo puede pasar con dos devoluciones simultáneas, y significa
+   * que el porte se ha cobrado DOS VECES y una no tiene rectificativa. El dinero ya
+   * salió, así que no se puede lanzar — pero NO se puede decir que se devolvió.
+   */
+  it("si la base no selló el porte, no se dice que se devolvió", async () => {
+    const { servicio, registro } = montar({
+      total: 50,
+      costeEnvio: 3.4,
+      rpcEnvioDevuelto: false,
+    });
+
+    const resultado = await servicio.reembolsar(
+      "ped-1",
+      { devolver_envio: true },
+      "admin@valatino.es",
+    );
+
+    // El cobro se hizo: no se puede deshacer.
+    expect(registro.refunds).toHaveLength(1);
+    // Pero el resultado no miente sobre el porte.
+    expect(resultado.envio_devuelto).toBeUndefined();
+  });
+
+  /**
+   * El cierre total sigue devolviendo el porte solo, sin casilla: lo exige el art.
+   * 107 RDL 1/2007 y lo hace `reembolsar_pedido_total` desde la 080. Que la 084 no
+   * lo haya cambiado es parte de lo que hay que fijar.
+   */
+  it("el cierre total sigue devolviendo el porte sin que nadie lo pida", async () => {
+    const { servicio } = montar({ total: 50, costeEnvio: 3.4 });
+
+    const resultado = await servicio.reembolsar("ped-1", {}, "admin@valatino.es");
+
+    expect(resultado.es_total).toBe(true);
+    expect(resultado.envio_devuelto).toBe(true);
+  });
+});
+
+/**
+ * ⚠️ El caso del webhook que llega primero. `reembolsar_pedido_total` devuelve `false`
+ * cuando el pedido ya estaba REEMBOLSADO, y entonces el porte lo devolvió ESE camino,
+ * no este. Sin la condición, el panel anunciaría «incluye 3,40 € de envío» sobre una
+ * devolución que no lo incluía.
+ */
+describe("el cierre total cuando el webhook llegó primero", () => {
+  it("no dice que devolvió el porte si el pedido ya estaba cerrado", async () => {
+    const { servicio } = montar({ total: 50, costeEnvio: 3.4, rpcActuo: false });
+
+    const resultado = await servicio.reembolsar("ped-1", {}, "admin@valatino.es");
+
+    expect(resultado.es_total).toBe(true);
+    expect(resultado.envio_devuelto).toBeUndefined();
+    expect(resultado.stock_repuesto).toBe(false);
   });
 });

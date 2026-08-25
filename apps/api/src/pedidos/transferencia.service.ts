@@ -391,6 +391,16 @@ export class TransferenciaService {
         numeroPedido: pedido.numero_pedido,
         email: pedido.email_cliente,
         items: pedido.items,
+        /**
+         * ⚠️ LAS TRES, y aquí es donde MÁS importa de los cuatro correos: este
+         * lleva el IBAN y el importe que el cliente va a TECLEAR en su banco. Sin
+         * el porte (080) y sin el descuento (083), las líneas no sumaban el total y
+         * quien intentara cuadrar la transferencia con el detalle no podía —y si se
+         * fía de la resta, ingresa una cifra que no es la del pedido.
+         */
+        costeEnvio: Number(pedido.coste_envio ?? 0),
+        descuento: Number(pedido.descuento ?? 0),
+        descuentoCodigo: pedido.descuento_codigo,
         total: Number(pedido.total),
         metodoPago: "transferencia",
         direccionEnvio: pedido.envio_nombre

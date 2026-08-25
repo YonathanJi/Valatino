@@ -10,6 +10,23 @@ export interface DatosEmailEstado {
   nombre?: string | null;
   estado: PedidoEstado;
   items: ItemPedidoEmail[];
+  /**
+   * Los gastos de envío (080) y el descuento del código (083). Los DOS están
+   * dentro de `total` y FUERA de las líneas.
+   *
+   * ⚠️⚠️ ESTE CORREO NACIÓ SIN ELLOS Y POR ESO MENTÍA MÁS QUE LOS OTROS: aquí no
+   * es que la llamada se olvidara de pasarlos, es que el campo **no existía**, así
+   * que ni había forma. Pinta las líneas a PVP y debajo el «Total» ya minorado, y
+   * la diferencia —el porte sumando y el descuento restando— no salía en ningún
+   * sitio. Es el correo que el cliente recibe cuando su pedido se envía, o sea el
+   * que más se abre.
+   *
+   * Ausentes o 0 = no se cobró envío y no hubo código, y entonces el resumen sale
+   * exactamente como antes de la 084.
+   */
+  costeEnvio?: number | null;
+  descuento?: number | null;
+  descuentoCodigo?: string | null;
   total: number;
   fecha: string;
 }
@@ -69,8 +86,22 @@ export const COPIAS_ESTADO: Partial<Record<PedidoEstado, CopiaEstado>> = {
   },
 };
 
-const renderResumen = (items: ItemPedidoEmail[], total: number): string => {
+const renderResumen = (
+  items: ItemPedidoEmail[],
+  total: number,
+  envio: number,
+  descuento: number,
+  descuentoCodigo: string | null,
+): string => {
   if (items.length === 0) return "";
+
+  // A PVP, como las líneas de arriba: es la cifra de la que el descuento resta.
+  // Solo se pinta cuando hay descuento; ver el mismo razonamiento en
+  // `confirmacion-pedido.ts`, que es de donde sale esta presentación.
+  const subtotalArticulos = items.reduce(
+    (suma, i) => suma + Number(i.cantidad) * Number(i.precio_unitario),
+    0,
+  );
 
   const filas = items
     .map(
@@ -96,6 +127,30 @@ const renderResumen = (items: ItemPedidoEmail[], total: number): string => {
                     <span style="font-size:13px;font-weight:600;color:#1d1d1f;text-transform:uppercase;letter-spacing:0.8px;">Tu pedido</span>
                   </td>
                 </tr>${filas}
+                ${
+                  descuento > 0
+                    ? `<tr>
+                  <td style="padding-top:10px;font-size:14px;color:#86868b;">Subtotal</td>
+                  <td style="padding-top:10px;font-size:14px;color:#1d1d1f;text-align:right;font-variant-numeric:tabular-nums;">${formatEUR(subtotalArticulos)}</td>
+                </tr>
+                <tr>
+                  <td style="padding-top:8px;font-size:14px;color:#1d8f4e;font-weight:600;">Descuento${
+                    descuentoCodigo
+                      ? ` <span style="font-weight:400;color:#86868b;">(${escapeHtml(descuentoCodigo)})</span>`
+                      : ""
+                  }</td>
+                  <td style="padding-top:8px;font-size:14px;color:#1d8f4e;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;">−${formatEUR(descuento)}</td>
+                </tr>`
+                    : ""
+                }
+                ${
+                  envio > 0
+                    ? `<tr>
+                  <td style="padding-top:8px;font-size:14px;color:#86868b;">Envío</td>
+                  <td style="padding-top:8px;font-size:14px;color:#1d1d1f;text-align:right;font-variant-numeric:tabular-nums;">${formatEUR(envio)}</td>
+                </tr>`
+                    : ""
+                }
                 <tr>
                   <td style="padding-top:12px;font-size:15px;color:#1d1d1f;font-weight:600;">Total</td>
                   <td style="padding-top:12px;font-size:18px;color:#1d1d1f;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;">${formatEUR(total)}</td>
@@ -128,7 +183,13 @@ export function renderCambioEstado(
     bannerTexto: copia.banner,
     bannerColor: copia.color,
     subtitulo: `Pedido <strong style="color:#1d1d1f;">#${escapeHtml(numeroPedido)}</strong> — ${escapeHtml(datos.fecha)}`,
-    cuerpo: `${aviso(saludo + copia.mensaje)}${renderResumen(datos.items, datos.total)}`,
+    cuerpo: `${aviso(saludo + copia.mensaje)}${renderResumen(
+      datos.items,
+      datos.total,
+      Number(datos.costeEnvio ?? 0),
+      Number(datos.descuento ?? 0),
+      datos.descuentoCodigo ?? null,
+    )}`,
     email: datos.email,
     motivo: "tienes un pedido",
   });

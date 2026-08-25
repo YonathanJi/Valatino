@@ -395,6 +395,18 @@ export class InventarioService {
     /** Los gastos de envío, que están DENTRO de `total`. El correo los pinta
         como línea propia: sin ellos, las líneas y el total no cuadran. */
     coste_envio: number;
+    /**
+     * El descuento del código, en positivo y ya restado de `total` (083).
+     *
+     * ⚠️⚠️ POR EXACTAMENTE EL MISMO MOTIVO QUE `coste_envio`, y se olvidó cuando
+     * la 083 salió: sin esto el correo pintaba las líneas a PVP y debajo el total
+     * cobrado, que ya llevaba el descuento restado. Las líneas NO sumaban el
+     * total y al cliente le faltaba dinero sin explicación. En el pedido
+     * 260824015658 la resta daba 7,30 y el total decía 6,52.
+     */
+    descuento: number;
+    /** El código que se aplicó, para poder decir por qué hay un descuento. */
+    descuento_codigo: string | null;
     metodo_pago: "stripe" | "paypal" | "transferencia";
     metodo_detalle: string | null;
     email_cliente: string | null;
@@ -406,12 +418,18 @@ export class InventarioService {
     envio_provincia: string | null;
     envio_pais: string | null;
     created_at: string;
-    items: Array<{ nombre_producto: string; cantidad: number; precio_unitario: number }>;
+    items: Array<{
+      nombre_producto: string;
+      cantidad: number;
+      precio_unitario: number;
+      /** La parte del descuento que le tocó a esta línea (083 §4). */
+      descuento_imputado: number;
+    }>;
   } | null> {
     const { data: pedido } = await this.supabase
       .from("pedidos")
       .select(
-        "id, numero_pedido, estado, total, coste_envio, metodo_pago, metodo_detalle, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
+        "id, numero_pedido, estado, total, coste_envio, descuento, descuento_codigo, metodo_pago, metodo_detalle, email_cliente, envio_nombre, envio_linea1, envio_linea2, envio_ciudad, envio_codigo_postal, envio_provincia, envio_pais, created_at",
       )
       .eq("id", pedidoId)
       .maybeSingle();
@@ -420,7 +438,7 @@ export class InventarioService {
 
     const { data: items } = await this.supabase
       .from("pedido_items")
-      .select("nombre_producto, cantidad, precio_unitario")
+      .select("nombre_producto, cantidad, precio_unitario, descuento_imputado")
       .eq("pedido_id", pedidoId);
 
     return {
@@ -430,8 +448,10 @@ export class InventarioService {
         estado: string;
         total: number;
         coste_envio: number;
+        descuento: number;
+        descuento_codigo: string | null;
         metodo_pago: "stripe" | "paypal" | "transferencia";
-    metodo_detalle: string | null;
+        metodo_detalle: string | null;
         email_cliente: string | null;
         envio_nombre: string | null;
         envio_linea1: string | null;
@@ -442,7 +462,13 @@ export class InventarioService {
         envio_pais: string | null;
         created_at: string;
       }),
-      items: (items as Array<{ nombre_producto: string; cantidad: number; precio_unitario: number }>) ?? [],
+      items:
+        (items as Array<{
+          nombre_producto: string;
+          cantidad: number;
+          precio_unitario: number;
+          descuento_imputado: number;
+        }>) ?? [],
     };
   }
 }

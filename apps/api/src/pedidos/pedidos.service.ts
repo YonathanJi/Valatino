@@ -583,6 +583,11 @@ export class PedidosService {
         nombre: pedido.envio_nombre,
         estado: nuevoEstado,
         items: pedido.items,
+        // Las dos que están dentro del total y fuera de las líneas: el porte (080)
+        // y el descuento (083). Ver `DatosEmailEstado`.
+        costeEnvio: Number(pedido.coste_envio ?? 0),
+        descuento: Number(pedido.descuento ?? 0),
+        descuentoCodigo: pedido.descuento_codigo,
         total: Number(pedido.total),
         fecha: new Date(pedido.created_at).toLocaleDateString("es-ES", {
           day: "numeric",

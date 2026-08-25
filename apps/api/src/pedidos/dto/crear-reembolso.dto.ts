@@ -66,6 +66,27 @@ export class CrearReembolsoDto {
   @IsBoolean()
   reponer_stock?: boolean;
 
+  /**
+   * Si esta devolución incluye además los gastos de envío (084).
+   *
+   * Petición del dueño: hasta ahora el porte solo se devolvía al cerrar el pedido
+   * por completo, y en una devolución parcial no había forma de devolverlo. El
+   * caso real es el pedido que llegó tarde o llegó mal y se le compensa el envío
+   * sin que el cliente devuelva la mercancía.
+   *
+   * ⚠️ Se puede combinar con `lineas` («devuelvo estos artículos Y el porte») o ir
+   * sola («solo el porte»), pero NO con `importe`: el importe suelto lo escribe
+   * una persona y ya puede incluir lo que quiera, así que sumarle el porte encima
+   * cobraría de más sin que nadie lo hubiera pedido. El servicio lo rechaza.
+   *
+   * ⚠️⚠️ Y NO ES IDEMPOTENTE POR SÍ SOLA: el porte de un pedido se devuelve UNA
+   * vez. Si ya estaba devuelto —en un parcial anterior o al cerrar el pedido—, el
+   * servicio se niega en vez de cobrarlo otra vez.
+   */
+  @IsOptional()
+  @IsBoolean()
+  devolver_envio?: boolean;
+
   /** Nota interna para la traza contable. No se le muestra al cliente. */
   @IsOptional()
   @IsString()

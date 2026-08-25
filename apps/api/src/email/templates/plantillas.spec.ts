@@ -276,3 +276,171 @@ describe("instrucciones de transferencia", () => {
     expect(html).not.toContain("Ana <b>");
   });
 });
+
+/**
+ * ⚠️⚠️ EL DESCUENTO EN EL RECIBO DEL CLIENTE (migración 083, pintado en la 084).
+ *
+ * Es el mismo agujero que el del envío de arriba, y se abrió otra vez cuando salió
+ * la 083 — con el comentario del envío tres líneas más arriba explicando por qué no
+ * se podía hacer eso. La diferencia es el signo, y hace que este se lea peor: al del
+ * envío le faltaba un CARGO, y a este le falta un ABONO. El cliente ve que le cobran
+ * de menos y no sabe por qué, y el descuento que le convenció de comprar no aparece
+ * en su recibo.
+ *
+ * El caso real, medido contra producción: pedido 260824015658, con el código
+ * VALENTINO al 20 %.
+ *
+ *     2 × Jugo Hit Mora   2,40   ← PVP
+ *     1 × Pony Malta      1,50   ← PVP
+ *     Envío               3,40
+ *                        -----
+ *     suma de lo escrito  7,30
+ *     Total               6,52   ← el cobrado, con el descuento dentro
+ *
+ * 0,78 € de aire. Eso es lo que fijan estos tests.
+ */
+describe("el descuento en el recibo del cliente", () => {
+  /**
+   * ⚠️ La aguja es la CELDA y el SIGNO, no la palabra, por lo mismo que el envío:
+   * «Descuento» a secas podría aparecer en cualquier rótulo futuro, y el importe sin
+   * el «−» delante no distingue un abono de un cargo. Los cuatro tests de ausencia
+   * se vieron ROJOS antes de escribir la plantilla.
+   */
+  const CELDA_DESCUENTO = ">Descuento";
+  const CELDA_SUBTOTAL = ">Subtotal</td>";
+
+  const conDescuento = () =>
+    datosPedido({
+      items: [
+        { nombre_producto: "Jugo Hit Mora", cantidad: 2, precio_unitario: 1.2 },
+        { nombre_producto: "Pony Malta", cantidad: 1, precio_unitario: 1.5 },
+      ],
+      costeEnvio: 3.4,
+      descuento: 0.78,
+      descuentoCodigo: "VALENTINO",
+      total: 6.52,
+    });
+
+  it("pinta el descuento con su signo y su código", () => {
+    const html = renderConfirmacionPedido(conDescuento());
+
+    expect(html).toContain(CELDA_DESCUENTO);
+    expect(html).toContain("VALENTINO");
+    expect(html).toContain("−0,78");
+  });
+
+  /**
+   * ⭐ ESTE ES EL TEST QUE IMPORTA, y no comprueba una fila: comprueba que el recibo
+   * SUMA. Con las cuatro cifras escritas, subtotal − descuento + envío tiene que dar
+   * el total. Si alguien vuelve a quitar una de las filas, esto se pone rojo aunque
+   * la plantilla siga siendo válida y bonita.
+   */
+  it("lo escrito cuadra con el total cobrado", () => {
+    const html = renderConfirmacionPedido(conDescuento());
+
+    // Se leen del HTML, no de los datos de entrada: un test que compruebe la
+    // aritmética sobre sus propias variables no comprueba la plantilla.
+    expect(html).toContain(CELDA_SUBTOTAL);
+    expect(html).toContain("3,90"); // subtotal a PVP: 2×1,20 + 1,50
+    expect(html).toContain("−0,78"); // el abono
+    expect(html).toContain("3,40"); // el porte
+    expect(html).toContain("6,52"); // y el total: 3,90 − 0,78 + 3,40
+
+    // La cuenta, hecha aquí para que quede escrita y no haya que fiarse del ojo.
+    expect(Math.round((3.9 - 0.78 + 3.4) * 100) / 100).toBe(6.52);
+  });
+
+  /**
+   * El subtotal solo cuando hay descuento: sin él repetiría el número que las
+   * líneas ya suman, y una fila que dice lo mismo dos veces estorba.
+   */
+  it("sin descuento no aparece ni la fila del descuento ni la del subtotal", () => {
+    const html = renderConfirmacionPedido(datosPedido({ costeEnvio: 3.4, total: 8.4 }));
+
+    expect(html).not.toContain(CELDA_DESCUENTO);
+    expect(html).not.toContain(CELDA_SUBTOTAL);
+  });
+
+  it("un descuento a cero no pinta nada", () => {
+    const html = renderConfirmacionPedido(datosPedido({ descuento: 0, total: 5 }));
+
+    expect(html).not.toContain(CELDA_DESCUENTO);
+  });
+
+  /** Los pedidos anteriores a la 083 no traen el campo. No se inventa una fila. */
+  it("un descuento nulo tampoco", () => {
+    const html = renderConfirmacionPedido(datosPedido({ descuento: null, total: 5 }));
+
+    expect(html).not.toContain(CELDA_DESCUENTO);
+  });
+
+  /** Sin código, el abono se sigue pintando: es peor callarlo que no poder nombrarlo. */
+  it("sin código pinta el descuento igual", () => {
+    const html = renderConfirmacionPedido(
+      datosPedido({ descuento: 1, descuentoCodigo: null, total: 4 }),
+    );
+
+    expect(html).toContain(CELDA_DESCUENTO);
+    expect(html).toContain("−1,00");
+  });
+
+  /** Un código con `<` no puede romper la maquetación ni inyectar nada. */
+  it("escapa el código del descuento", () => {
+    const html = renderConfirmacionPedido(
+      datosPedido({ descuento: 1, descuentoCodigo: '<b>"X"', total: 4 }),
+    );
+
+    expect(html).toContain("&lt;b&gt;&quot;X&quot;");
+    expect(html).not.toContain("<b>&quot;X");
+  });
+
+  /**
+   * El de reembolso reutiliza esta plantilla, y es el que se lee con la calculadora
+   * en la mano para comprobar si lo devuelto es lo que toca.
+   */
+  it("en el correo de reembolso el desglose también cuadra", () => {
+    const html = renderConfirmacionPedido({
+      ...conDescuento(),
+      esReembolso: true,
+      importeReembolsado: 6.52,
+    });
+
+    expect(html).toContain(CELDA_DESCUENTO);
+    expect(html).toContain("−0,78");
+    expect(html).toContain("3,40");
+  });
+
+  /**
+   * ⚠️ Y EL CORREO DEL CAMBIO DE ESTADO, que es el que más se abre —«tu pedido va de
+   * camino»— y el que peor estaba: no es que la llamada se olvidara de pasar las
+   * cifras, es que la plantilla NO TENÍA los campos, así que no había forma.
+   */
+  it("el correo del cambio de estado enseña las dos cifras", () => {
+    const html = renderCambioEstado(
+      datosEstado("ENVIADO", {
+        items: [
+          { nombre_producto: "Jugo Hit Mora", cantidad: 2, precio_unitario: 1.2 },
+          { nombre_producto: "Pony Malta", cantidad: 1, precio_unitario: 1.5 },
+        ],
+        costeEnvio: 3.4,
+        descuento: 0.78,
+        descuentoCodigo: "VALENTINO",
+        total: 6.52,
+      }),
+    );
+
+    expect(html).not.toBeNull();
+    expect(html!.html).toContain(CELDA_DESCUENTO);
+    expect(html!.html).toContain("−0,78");
+    expect(html!.html).toContain("3,40");
+    expect(html!.html).toContain("6,52");
+  });
+
+  it("y sin descuento ni envío sigue saliendo como antes de la 084", () => {
+    const html = renderCambioEstado(datosEstado("ENVIADO"));
+
+    expect(html).not.toBeNull();
+    expect(html!.html).not.toContain(CELDA_DESCUENTO);
+    expect(html!.html).not.toContain(CELDA_SUBTOTAL);
+  });
+});

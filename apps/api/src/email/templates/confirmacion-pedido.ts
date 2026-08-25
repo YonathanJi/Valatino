@@ -24,6 +24,29 @@ export interface DatosEmailPedido {
    * hay que enseñarle «Envío: 0,00 €» a nadie.
    */
   costeEnvio?: number | null;
+  /**
+   * El descuento del código, en positivo y ya restado de `total` (083).
+   *
+   * ⚠️⚠️ Y ESTE ES EL MISMO AGUJERO QUE `costeEnvio`, abierto de nuevo por la 083 y
+   * tapado en la 084. Sin esto el correo pintaba las líneas a PVP y debajo el total
+   * cobrado —que ya llevaba el descuento restado— así que **las líneas no sumaban
+   * el total y faltaba dinero sin explicación**. En el pedido 260824015658 las
+   * líneas y el envío daban 7,30 y el «Total» decía 6,52: 0,78 € de aire.
+   *
+   * Peor que el caso del envío, además: al del envío le faltaba una línea de un
+   * cargo, y a este le faltaba una de un ABONO. El cliente lee que le cobran de
+   * menos sin saber por qué, y el descuento que le convenció de comprar no
+   * aparece en su recibo.
+   *
+   * Ausente o 0 = no hubo código, y entonces el correo se pinta exactamente como
+   * antes de la 084: ni línea de descuento ni línea de subtotal.
+   */
+  descuento?: number | null;
+  /**
+   * El código que se aplicó, para poder decir POR QUÉ hay un abono. Si falta, la
+   * línea sale como «Descuento» a secas: es preferible a no pintar el abono.
+   */
+  descuentoCodigo?: string | null;
   total: number;
   metodoPago: "stripe" | "paypal" | "transferencia";
   /**
@@ -137,6 +160,28 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
   // los dos «no se cobró envío», y comprobarlo dos veces en el HTML es donde se
   // cuela un «Envío: 0,00 €».
   const envio = Number(datos.costeEnvio ?? 0);
+  /**
+   * El descuento y el subtotal que lo acompaña. Se normalizan aquí por lo mismo
+   * que el envío: `null` y `undefined` son los dos «no hubo código».
+   *
+   * ⚠️ EL SUBTOTAL SOLO SE PINTA CUANDO HAY DESCUENTO, y no es capricho: sin
+   * descuento, las líneas ya suman lo que hay encima del envío y una fila
+   * «Subtotal» repetiría el mismo número dos veces. Cuando hay descuento, en
+   * cambio, es la fila que hace que la resta se pueda seguir con el dedo.
+   *
+   * ⚠️⚠️ Y SE CALCULA A PVP —`cantidad × precio_unitario`— A PROPÓSITO, para que
+   * cuadre con las líneas de arriba, que van a PVP. Restarle aquí el
+   * `descuento_imputado` de cada línea daría el neto, y entonces el subtotal no
+   * sería la suma de lo que el cliente está viendo. Es la misma presentación que
+   * la 083 §7 eligió para la FACTURA: el descuento va abajo con el subtotal y no
+   * dentro de la tabla. El correo y el documento fiscal tienen que contar lo
+   * mismo, o quien compare los dos encuentra dos versiones de su compra.
+   */
+  const descuento = Number(datos.descuento ?? 0);
+  const subtotalArticulos = datos.items.reduce(
+    (suma, item) => suma + Number(item.cantidad) * Number(item.precio_unitario),
+    0,
+  );
   const devuelto = datos.importeReembolsado ?? datos.total;
   const esParcial =
     esReembolso && Math.round(devuelto * 100) < Math.round(datos.total * 100);
@@ -176,6 +221,22 @@ export function renderConfirmacionPedido(datos: DatosEmailPedido): string {
           <tr>
             <td style="padding:16px 40px 0;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                ${
+                  descuento > 0
+                    ? `<tr>
+                  <td style="font-size:14px;color:#86868b;padding-bottom:10px;">Subtotal</td>
+                  <td style="font-size:14px;color:#1d1d1f;text-align:right;font-variant-numeric:tabular-nums;padding-bottom:10px;">${formatEUR(subtotalArticulos)}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:14px;color:#1d8f4e;font-weight:600;padding-bottom:10px;">Descuento${
+                    datos.descuentoCodigo
+                      ? ` <span style="font-weight:400;color:#86868b;">(${escapeHtml(datos.descuentoCodigo)})</span>`
+                      : ""
+                  }</td>
+                  <td style="font-size:14px;color:#1d8f4e;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;padding-bottom:10px;">−${formatEUR(descuento)}</td>
+                </tr>`
+                    : ""
+                }
                 ${
                   envio > 0
                     ? `<tr>

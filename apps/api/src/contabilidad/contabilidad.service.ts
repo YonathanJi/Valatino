@@ -389,6 +389,25 @@ export class ContabilidadService {
       );
     }
 
+    /**
+     * ⚠️⚠️ AQUÍ NO SE APUNTA NADA EN EL HISTORIAL DEL PEDIDO, Y ES DELIBERADO.
+     *
+     * Lo pide el dueño («que quede que se emitió y quién la emitió») y está hecho
+     * —en la 084—, pero con un DISPARADOR sobre `facturas_emitidas`, no con una
+     * llamada desde aquí. El motivo es que este método NO es el único sitio donde
+     * nace una factura: la simplificada de cada venta la emite un trigger al
+     * devengar, las rectificativas otro al devolver, y `emitirFacturasPendientes`
+     * / `emitirRectificativasPendientes` emiten en lote devolviendo solo un
+     * recuento, sin la lista de pedidos que habría que anotar.
+     *
+     * Apuntarlo desde TypeScript habría cubierto UNO de los cuatro caminos y
+     * dejado la ficha de una venta normal —el caso corriente— igual de muda que
+     * antes. El libro es append-only, así que su INSERT es el único punto por el
+     * que pasan los cuatro. Ver el §3 de la 084.
+     *
+     * Si algún día hace falta añadir algo al evento que solo se sepa aquí, el sitio
+     * es el disparador y el dato hay que hacérselo llegar por la fila.
+     */
     return this.factura(data as string);
   }
 
