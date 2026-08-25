@@ -269,6 +269,30 @@ export function PedidoClienteModal({ pedidoId, onClose }: Props) {
 
               <dl className="mt-4 space-y-1.5 border-t pt-4 text-sm">
                 {/*
+                  El descuento del código (083, pintado en la 084), y va PRIMERO
+                  porque se resta antes del envío.
+
+                  ⚠️⚠️ Exactamente el mismo argumento que la fila del envío de
+                  abajo, y aquí es el caso más grave de los tres sitios donde
+                  faltaba: es la pantalla del PROPIO CLIENTE mirando su compra. El
+                  descuadre iba en su contra al leerlo —las líneas sumaban más que
+                  el total— y encima el descuento que le convenció de comprar no
+                  aparecía en ningún sitio.
+                */}
+                {Number(pedido.descuento ?? 0) > 0 && (
+                  <div className="flex justify-between text-emerald-700 dark:text-emerald-400">
+                    <dt>
+                      Descuento
+                      {pedido.descuento_codigo ? (
+                        <span className="ml-1 font-mono text-xs uppercase">
+                          {pedido.descuento_codigo}
+                        </span>
+                      ) : null}
+                    </dt>
+                    <dd className="tabular-nums">−{formatEUR(Number(pedido.descuento))}</dd>
+                  </div>
+                )}
+                {/*
                   El envío va fuera de las líneas y dentro del total (migración
                   080). Sin esta fila, el cliente suma sus artículos, mira el
                   total y no le cuadra — y es su propio pedido, así que lo suma.

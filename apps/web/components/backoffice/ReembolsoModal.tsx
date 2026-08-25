@@ -34,6 +34,11 @@ type Modo = "articulos" | "total" | "importe";
 interface LineaDisponible {
   item: PedidoItem;
   precio: number;
+  /**
+   * Lo pagado por la línea ENTERA: PVP × unidades − el descuento imputado (083).
+   * Es la base de lo que se devuelve; ver dónde se calcula.
+   */
+  neto: number;
   yaDevueltas: number;
   disponibles: number;
 }
@@ -58,6 +63,16 @@ export function ReembolsoModal({
   const [modo, setModo] = useState<Modo>("total");
   const [elegidas, setElegidas] = useState<Record<string, number>>({});
   const [reponerStock, setReponerStock] = useState(true);
+  /**
+   * Si además se le devuelve el porte (084).
+   *
+   * ⚠️ Arranca en `false` a propósito, al contrario que `reponerStock`. Devolver
+   * mercancía al inventario es lo normal; devolver el porte es una decisión
+   * comercial que alguien toma. Y en el modo «todo lo que queda» ni se ofrece: ahí
+   * el porte va dentro solo, porque cerrar el pedido ES devolverlo (art. 107 RDL
+   * 1/2007) y lo hace la base desde la 080.
+   */
+  const [devolverEnvio, setDevolverEnvio] = useState(false);
   const [importe, setImporte] = useState("");
   const [motivo, setMotivo] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -112,6 +127,20 @@ export function ReembolsoModal({
       return {
         item,
         precio: Number(item.precio_unitario),
+        /**
+         * Lo que el cliente pagó de VERDAD por la línea entera: el PVP menos la
+         * parte del descuento que le tocó (083 §4).
+         *
+         * ⚠️⚠️ ESTO ES LO QUE SE DEVUELVE, Y NO EL PVP. Antes de la 084 este modal
+         * sumaba `precio × unidades` y enseñaba esa cifra en el botón, mientras el
+         * servidor devolvía el neto: en el pedido 260824015658 el botón decía
+         * «Devolver 3,90 €» y Stripe cobraba 3,12 €. El operario no tenía forma de
+         * saberlo hasta ver el resultado.
+         *
+         * ⚠️ `?? 0` para los pedidos anteriores a la 083 y para la ventana de
+         * despliegue: sin descuento, neto = PVP y todo queda como estaba.
+         */
+        neto: item.cantidad * Number(item.precio_unitario) - Number(item.descuento_imputado ?? 0),
         yaDevueltas,
         disponibles: item.cantidad - yaDevueltas,
       };
@@ -120,12 +149,34 @@ export function ReembolsoModal({
 
   const hayArticulos = lineas.some((l) => l.disponibles > 0);
 
+  /**
+   * Lo que se va a devolver por los artículos elegidos.
+   *
+   * ⚠️⚠️ LA AUTORIDAD DE ESTA CIFRA ES `importe_a_devolver` (083 §6), NO ESTA
+   * PANTALLA. Aquí se repite su fórmula —a regañadientes— porque el botón tiene que
+   * decir cuánto se va a cobrar ANTES de cobrarlo, y preguntárselo al servidor en
+   * cada clic sería un viaje de ida y vuelta por cada unidad. Si algún día las dos
+   * discrepan, **manda el servidor** y lo que hay que arreglar es esto.
+   *
+   * La fórmula, tal cual está en la RPC:
+   *
+   *     round(neto × (ya + pide) / unidades) − round(neto × ya / unidades)
+   *
+   * ⚠️ Los dos redondeos ACUMULADOS y no uno por devolución: es lo que hace que
+   * devolver 1 y luego 2 unidades sume exactamente lo mismo que devolver 3 de
+   * golpe. Redondear el importe de cada devolución por separado dejaría un céntimo
+   * suelto en el pedido, que es justo el fallo que la 078 arregló en las
+   * rectificativas.
+   */
   const { importeArticulos, unidadesElegidas } = useMemo(() => {
     let c = 0;
     let u = 0;
     for (const l of lineas) {
       const n = elegidas[l.item.id] ?? 0;
-      c += n * cents(l.precio);
+      if (n <= 0) continue;
+      const hasta = cents((l.neto * (l.yaDevueltas + n)) / l.item.cantidad);
+      const desde = cents((l.neto * l.yaDevueltas) / l.item.cantidad);
+      c += hasta - desde;
       u += n;
     }
     return { importeArticulos: c / 100, unidadesElegidas: u };
@@ -135,13 +186,39 @@ export function ReembolsoModal({
   const importeParcial = Number(importe.replace(",", "."));
   const importeValido = importe !== "" && importeParcial > 0 && importeParcial <= restante;
 
+  /**
+   * El porte de este pedido y si queda por devolver (084).
+   *
+   * ⚠️ Esto solo decide si se ENSEÑA la casilla, para no ofrecer algo que el
+   * servidor va a rechazar. **Los guardias de verdad están en otro sitio**: en
+   * `ReembolsosService`, que se niega antes de tocar Stripe, y en el
+   * `where envio_devuelto_en_refund is null` de la 084, que es el que impide que
+   * dos peticiones simultáneas se cuelen las dos. Creerle a la pantalla sería
+   * dejar que quien tenga dos pestañas abiertas cobre el porte dos veces.
+   */
+  const costeEnvio = Number(detalle?.pedido.coste_envio ?? pedido.coste_envio ?? 0);
+  const envioYaDevuelto = Boolean(detalle?.pedido.envio_devuelto_en_refund);
+  const puedeDevolverEnvio = costeEnvio > 0 && !envioYaDevuelto;
+  // Solo cuenta donde se ofrece: con «todo lo que queda» ya está dentro del
+  // restante, y con un importe a mano el servidor lo rechaza a propósito.
+  const envioAEnviar = modo === "articulos" && devolverEnvio && puedeDevolverEnvio ? costeEnvio : 0;
+
   // Puede pasar si antes se devolvió dinero sin decir de qué artículo: quedan
   // artículos sin devolver pero ya no queda dinero que devolver por ellos.
-  const articulosExcedenRestante = cents(importeArticulos) > cents(restante);
-  const articulosValidos = unidadesElegidas > 0 && !articulosExcedenRestante;
+  // El porte cuenta para el tope igual que los artículos: es dinero que sale.
+  const articulosExcedenRestante = cents(importeArticulos + envioAEnviar) > cents(restante);
+  // Con el porte marcado y ninguna unidad elegida, la devolución es SOLO del
+  // porte, y es un caso legítimo (084): el pedido llegó tarde y se le compensa el
+  // envío sin que devuelva nada.
+  const articulosValidos =
+    (unidadesElegidas > 0 || envioAEnviar > 0) && !articulosExcedenRestante;
 
   const importeAEnviar =
-    modo === "total" ? restante : modo === "articulos" ? importeArticulos : importeParcial;
+    modo === "total"
+      ? restante
+      : modo === "articulos"
+        ? Math.round((importeArticulos + envioAEnviar) * 100) / 100
+        : importeParcial;
   // NaN mientras se teclea «0,»: formatEUR lo pintaría como «NaN €» en el botón.
   const importeMostrado = Number.isFinite(importeAEnviar) && importeAEnviar > 0 ? importeAEnviar : 0;
 
@@ -193,7 +270,16 @@ export function ReembolsoModal({
             // Sin importe ni artículos = "todo lo pendiente": lo calcula la API,
             // así no depende de que aquí la resta cuadre al céntimo.
             ...(modo === "articulos"
-              ? { lineas: lineasAEnviar, reponer_stock: reponerStock }
+              ? {
+                  // ⚠️ Sin `lineas` cuando no se eligió ninguna unidad: es la
+                  // devolución de SOLO el porte, y mandar un array vacío haría que
+                  // la API lo tomara por «todo lo pendiente» (que es lo que
+                  // significa no mandar nada… con el porte a false). Ver el DTO.
+                  ...(lineasAEnviar.length > 0
+                    ? { lineas: lineasAEnviar, reponer_stock: reponerStock }
+                    : {}),
+                  ...(envioAEnviar > 0 ? { devolver_envio: true } : {}),
+                }
               : {}),
             ...(modo === "importe" ? { importe: importeParcial } : {}),
             ...(motivo.trim() ? { motivo: motivo.trim() } : {}),
@@ -202,14 +288,18 @@ export function ReembolsoModal({
       );
 
       const devueltos = formatEUR(resultado.importe);
+      // Se dice cuánto de eso era el porte, que si no el importe no cuadra con las
+      // unidades y parece un error de cálculo. Sale de lo que confirmó el servidor,
+      // no de lo que se pidió.
+      const conEnvio = resultado.envio_devuelto ? ` · incluye ${formatEUR(costeEnvio)} de envío` : "";
       toast.success(
         resultado.es_total
-          ? `Devueltos ${devueltos}. Pedido reembolsado${resultado.stock_repuesto ? " y unidades repuestas al inventario" : ""}.`
+          ? `Devueltos ${devueltos}. Pedido reembolsado${resultado.stock_repuesto ? " y unidades repuestas al inventario" : ""}${conEnvio}.`
           : `Devueltos ${devueltos} de ${formatEUR(total)}${
               resultado.unidades_devueltas
                 ? ` · ${resultado.unidades_devueltas} ${resultado.unidades_devueltas === 1 ? "unidad" : "unidades"}${resultado.stock_repuesto ? " de vuelta en el inventario" : ""}`
                 : ""
-            }.`,
+            }${conEnvio}.`,
       );
       onReembolsado(resultado);
       onClose();
@@ -421,15 +511,26 @@ export function ReembolsoModal({
               <div className="flex justify-between border-t pt-2.5 text-sm font-medium">
                 <span>
                   {unidadesElegidas === 0
-                    ? "Nada seleccionado"
+                    ? envioAEnviar > 0
+                      ? "Solo los gastos de envío"
+                      : "Nada seleccionado"
                     : `${unidadesElegidas} ${unidadesElegidas === 1 ? "unidad" : "unidades"}`}
                 </span>
                 <span className="font-mono">{formatEUR(importeArticulos)}</span>
               </div>
 
+              {/* Con el porte marcado, la suma se desglosa: si no, el botón dice un
+                  importe mayor que esta línea y parece un error de cálculo. */}
+              {envioAEnviar > 0 && unidadesElegidas > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Gastos de envío</span>
+                  <span className="font-mono">{formatEUR(envioAEnviar)}</span>
+                </div>
+              )}
+
               {articulosExcedenRestante && (
                 <p className="text-xs text-destructive">
-                  Esos artículos suman {formatEUR(importeArticulos)} y de este pedido solo
+                  Eso suma {formatEUR(importeArticulos + envioAEnviar)} y de este pedido solo
                   quedan {formatEUR(restante)} por devolver.
                 </p>
               )}
@@ -452,6 +553,54 @@ export function ReembolsoModal({
                   </span>
                 </span>
               </label>
+
+              {/*
+                El porte (084). Solo aparece si este pedido pagó envío y no se ha
+                devuelto ya: ofrecer algo que el servidor va a rechazar es peor que
+                no ofrecerlo.
+
+                ⚠️ Sin marcar por defecto, al contrario que la de arriba: devolver
+                el porte es una decisión comercial, no el curso normal de una
+                devolución. En una devolución parcial el porte NO se devuelve salvo
+                que alguien lo decida — el cliente se queda parte del pedido, así
+                que el envío se prestó.
+
+                ⚠️⚠️ Y se puede marcar SIN elegir ninguna unidad: es la devolución
+                de solo el porte, para el pedido que llegó tarde o llegó mal y se le
+                compensa el envío sin que devuelva nada.
+              */}
+              {puedeDevolverEnvio && (
+                <label className="flex cursor-pointer items-start gap-2.5 border-t pt-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={devolverEnvio}
+                    onChange={(e) => setDevolverEnvio(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">
+                      Devolver también los gastos de envío
+                      <span className="ml-1.5 font-mono text-muted-foreground">
+                        {formatEUR(costeEnvio)}
+                      </span>
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      {unidadesElegidas === 0
+                        ? "Sin artículos seleccionados se devolverá solo el porte."
+                        : "Se suma a los artículos elegidos. Se devuelve una sola vez por pedido."}
+                    </span>
+                  </span>
+                </label>
+              )}
+
+              {/* Cuando ya se devolvió, decirlo evita que alguien lo busque y
+                  acabe devolviéndolo por importe suelto sin darse cuenta. */}
+              {costeEnvio > 0 && envioYaDevuelto && (
+                <p className="border-t pt-2.5 text-xs text-muted-foreground">
+                  Los gastos de envío ({formatEUR(costeEnvio)}) ya se devolvieron en una
+                  devolución anterior de este pedido.
+                </p>
+              )}
             </div>
           )}
 

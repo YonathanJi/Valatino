@@ -279,6 +279,42 @@ export function PedidoDetalleModal({ pedidoId, onClose, recargarToken }: PedidoD
                       </tr>
                     ))}
                     {/*
+                      El descuento del código (migración 083, pintado en la 084).
+
+                      ⚠️⚠️ MISMO RAZONAMIENTO QUE EL ENVÍO DE AQUÍ ABAJO, y por eso
+                      va justo encima: está DENTRO del total y FUERA de las líneas.
+                      Sin esta fila las líneas sumaban MÁS que el total y quien
+                      mirara la ficha pensaría que el pedido se cobró de menos. Con
+                      el envío el descuadre sobraba dinero; con el descuento
+                      faltaba, que se lee peor.
+
+                      ⚠️ Va DEBAJO del desglose de IVA a propósito: esas bases ya
+                      vienen minoradas por el descuento (la 083 lo aplica antes de
+                      congelar `pedido_iva`), así que la resta que el ojo tiene que
+                      seguir es líneas → descuento → envío → total.
+
+                      Se pinta en positivo con el signo delante, como «Devuelto al
+                      cliente»: en esta tabla un número sin signo es un cargo.
+
+                      `?? 0` cubre la ventana de despliegue —Vercel llega antes que
+                      Render— y los pedidos anteriores a la 083.
+                    */}
+                    {Number(p.descuento ?? 0) > 0 && (
+                      <tr className="text-xs text-emerald-700">
+                        <td colSpan={4} className="px-3 pt-3 text-right">
+                          Descuento
+                          {p.descuento_codigo ? (
+                            <span className="ml-1 font-mono uppercase">
+                              {p.descuento_codigo}
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 pt-3 text-right font-mono font-medium">
+                          −{formatEUR(Number(p.descuento))}
+                        </td>
+                      </tr>
+                    )}
+                    {/*
                       Los gastos de envío (migración 080). Van fuera de las
                       líneas y DENTRO del total, así que sin esta fila la ficha
                       no cuadra: las líneas sumarían menos que el total y quien

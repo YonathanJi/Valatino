@@ -588,6 +588,40 @@ export interface Pedido {
    * cuadra, y eso es un bug de pantalla, no del pedido.
    */
   coste_envio?: number;
+  /**
+   * El descuento del código aplicado, **en positivo** y ya restado de `total`
+   * (migración 083).
+   *
+   * ⚠️ Opcional por lo mismo que `coste_envio`: los pedidos anteriores a la 083
+   * no lo traen y la web se despliega antes que la API. Ausencia = 0.
+   *
+   * ⚠️⚠️ **Y ES OBLIGATORIO PINTARLO DONDE SE PINTEN LAS LÍNEAS**, porque las
+   * líneas de `pedido_items` llevan el PVP: `Σ (cantidad × precio_unitario)` +
+   * `coste_envio` − `descuento` = `total`. Una pantalla o un correo que enseñe
+   * las líneas y el total sin esta cifra en medio no cuadra por su importe, y el
+   * cliente ve un agujero sin explicación. Pasó: los correos de confirmación lo
+   * hicieron desde que la 083 salió a producción hasta que se arregló.
+   */
+  descuento?: number;
+  /**
+   * El código que se tecleó, en mayúsculas, o `null` si no hubo ninguno. Es para
+   * poder decir POR QUÉ hay un descuento; el importe va en `descuento`.
+   */
+  descuento_codigo?: string | null;
+  /**
+   * En qué reembolso se devolvió el porte, o `null` si todavía no se ha devuelto
+   * (080).
+   *
+   * ⚠️ Viaja al panel desde siempre —los `select` de la ficha son `*`— y se declara
+   * aquí para que la pantalla de devoluciones pueda dejar de OFRECER lo que el
+   * servidor va a rechazar: el porte de un pedido se devuelve una sola vez.
+   *
+   * ⚠️⚠️ **Y NO ES UN GUARDIA.** Los de verdad están en `ReembolsosService` —que se
+   * niega antes de tocar Stripe— y en el `where envio_devuelto_en_refund is null`
+   * de la 084. Este campo solo pinta una casilla: creerle a la pantalla sería
+   * dejar que quien tenga dos pestañas abiertas cobre el porte dos veces.
+   */
+  envio_devuelto_en_refund?: string | null;
   metodo_pago: string;
   referencia_pago: string | null;
   direccion_envio_id: string | null;
@@ -649,7 +683,18 @@ export interface Pedido {
  * la compra continuara en otro pedido. Sin ella, esa explicación no tenía dónde
  * vivir y la línea de tiempo mostraba un «Procesando → Cancelado» sin motivo.
  */
-export type TipoEventoPedido = "estado" | "pago" | "reembolso" | "email" | "nota";
+/**
+ * `factura` es la emisión de un documento de esta venta: la simplificada del
+ * cobro, la completa que pidió el cliente o la rectificativa de una devolución.
+ * Antes no existía y la ficha del pedido no contaba que se hubiera emitido nada
+ * —ni quién lo hizo—, aunque el libro sí lo supiera.
+ *
+ * ⚠️⚠️ **AÑADIRLO AQUÍ NO BASTA: hay un CHECK en la base** (`pedido_eventos_tipo_check`,
+ * ampliado en la 084). Escribir un tipo que el CHECK no admita revienta el
+ * insert, y como el evento se apunta DESPUÉS de emitir, la factura ya existiría
+ * en un libro append-only. Por eso la migración va antes que la API.
+ */
+export type TipoEventoPedido = "estado" | "pago" | "reembolso" | "email" | "nota" | "factura";
 
 /** De dónde salió el evento. `sistema` y `checkout`/`webhook` no tienen persona. */
 export type OrigenEvento = "panel" | "checkout" | "webhook" | "sistema";
@@ -969,6 +1014,16 @@ export interface ResultadoReembolso {
   stock_repuesto: boolean;
   /** Unidades devueltas, cuando el reembolso se hizo eligiendo artículos */
   unidades_devueltas?: number;
+  /**
+   * Si esta devolución incluyó los gastos de envío (084).
+   *
+   * ⚠️ Se devuelve para poder DECIRLO en pantalla: «Devueltos 5,40 € (incluye
+   * 3,40 € de envío)». Sin esto, quien acaba de devolver dos artículos de 1,00 €
+   * ve un importe de 5,40 € y no sabe de dónde sale la diferencia — que es
+   * exactamente el descuadre que este mismo trabajo estaba arreglando en los
+   * correos.
+   */
+  envio_devuelto?: boolean;
 }
 
 // ============================================================
@@ -1081,6 +1136,20 @@ export interface PedidoItem {
    * facturas ya emitidas. Lo pone un trigger (migración 062).
    */
   iva_pct: IvaPorcentaje;
+  /**
+   * La parte del descuento del pedido que le tocó a ESTA línea, en positivo
+   * (migración 083 §4). 0 —o ausente— cuando el pedido no llevaba código.
+   *
+   * ⚠️ El reparto lo hace la BASE al vender, no la pantalla: `Σ
+   * descuento_imputado` = `pedidos.descuento` exacto, con el céntimo del
+   * redondeo ya asignado a alguna línea. Volver a repartirlo aquí daría otro
+   * reparto y las dos cifras discreparían.
+   *
+   * ⚠️⚠️ **Lo pagado por la línea es `cantidad × precio_unitario −
+   * descuento_imputado`**, y eso es lo que se devuelve si se reembolsa (083 §6).
+   * `precio_unitario` sigue siendo el PVP y no se toca: es lo que el cliente vio.
+   */
+  descuento_imputado?: number;
 }
 
 export interface JwtPayload {
