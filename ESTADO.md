@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-24 (madrugada — la sesión es del 23 y Jonathan siguió probando después de cerrarla)
+**Última actualización**: 2026-08-25 (noche — la 084 aplicada y desplegada: el descuento en los correos y en el panel, la factura en el historial y el porte devolvible aparte)
 
 ---
 
@@ -48,7 +48,170 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-23
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-25
+
+### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A LA BASE. Y ESTA VEZ HAY UN MOTIVO NUEVO ADEMÁS DEL DE SIEMPRE
+
+El de siempre: **Jonathan iba a ponerse a probar en línea justo al cerrar esto**, así que las cifras de abajo serán falsas al leerlas. Ya va la cuarta vez.
+
+El nuevo: **hay un disparador recién armado que escribe en `pedido_eventos` cada vez que nace una factura**, y al cerrar esto todavía no había nacido ninguna. O sea que `eventos_factura = 0` **no significa que no funcione**: significa que aún no se ha emitido nada desde que se aplicó. La primera factura que se emita es la primera prueba en producción del disparador. Si sale 0 después de haber emitido una, ahí sí hay algo que mirar — y el rastro estaría en `factura_eventos` con `evento = 'evento_pedido_fallido'`.
+
+**La línea base con la que comparar** (medida al cerrar, no de memoria):
+
+```
+pedidos 3 · pedido_items 9 · pedido_iva 5 · facturas_emitidas 14 · factura_eventos 15
+reembolso_lineas 9 · pedido_eventos 39 · de tipo factura 0 · productos 30
+codigos_descuento 1 · descuento total 0,78
+contadores VALS->103 VALF->103 VALR->108
+arranque_fiscal_el NULL  ← la ventana para rehacer cosas sigue abierta
+```
+
+### ⭐⭐ LO QUE SE HIZO HOY: LOS TRES PUNTOS QUE PIDIÓ EL DUEÑO, VIVOS EN PRODUCCIÓN
+
+Los tres salieron de que Jonathan probó la 083 el 24/08 y miró el resultado **como tendero, no como programador**. Está desplegado y verificado: web `52fdcb5` → migración 084 → API `810ae7a`.
+
+| Lo que dijo | Lo que era de verdad |
+|---|---|
+| «el descuento no aparece en los correos» | Había **CUATRO** compositores de correo y solo uno pasaba el porte. Los cuatro pintaban las líneas a PVP con el total ya minorado |
+| «tampoco en el dashboard, los valores salen sin descuento» | El dato **sí llegaba** (`select("*")`); nadie lo pintaba |
+| «en los reembolsos no aparece la opción de reembolsar el envío» | El porte solo se devolvía al cerrar el pedido (080). No había forma en un parcial |
+
+⚠️ **Y UNA CORRECCIÓN QUE HAY QUE LEER, porque yo mismo la dije mal primero**: diagnostiqué «el backend no manda el descuento al panel» a partir de un `grep descuento pedidos.service.ts` que salía vacío. **Era falso**: los select del panel son `select("*, pedido_items(*)")`, así que el dato viajaba desde el primer día. Grepear una palabra en un fichero cuyos select son `*` no prueba nada. El arreglo del panel era de pantalla, no de backend.
+
+#### El agujero del correo era peor que «falta un dato»
+
+En el pedido `260824015658` el cliente recibió esto:
+
+```
+2 × Jugo Hit Mora     2,40      ← PVP
+1 × Pony Malta        1,50      ← PVP
+Envío                 3,40
+                    ------
+suma de lo escrito    7,30
+Total                 6,52      ← el cobrado, con el descuento dentro
+```
+
+**0,78 € de aire en un correo transaccional.** Y peor que el caso del porte de la 080: a ese le faltaba una línea de un **cargo**, a este le falta una de un **abono**. El cliente lee que le cobran de menos sin saber por qué, y el descuento que le convenció de comprar no sale en su recibo.
+
+⚠️ El de **cambio de estado** era el peor y no por olvido: `DatosEmailEstado` **no tenía los campos**, así que no había forma de pasarlos. Y es el que más se abre («tu pedido va de camino»).
+
+⭐ La presentación es **subtotal → descuento → envío → total**, la que la 083 §7 ya eligió para la factura, y no es estética: sin la fila del subtotal el descuento resta de un número que no está escrito en ningún sitio. Lo dice por escrito `factura-pdf.service.ts:363-366`. El correo y el documento fiscal cuentan lo mismo, o quien compare los dos encuentra dos versiones de su compra.
+
+#### ⭐⭐ La factura en el historial: el cambio de enfoque, que es la lección
+
+Empecé apuntándolo desde `contabilidad.service.ts` y **estaba mal**. Una factura nace por CUATRO caminos:
+
+1. la simplificada de cada venta → un trigger, al devengar
+2. la rectificativa de cada devolución → otro trigger (077), **diferido**
+3. la completa que pide el cliente → `emitirFacturaCompleta` (la API)
+4. las de arranque, en lote → `emitir_*_pendientes`, que devuelven un **recuento** y no la lista de pedidos que anotar
+
+Desde la API se ve **uno**. Habría cubierto el 3 y dejado muda la ficha de una venta normal, que es el caso corriente. Se hace con **un disparador sobre `facturas_emitidas`**: el libro es append-only, así que su INSERT es el único punto por el que pasan los cuatro.
+
+⚠️⚠️ **Y el `exception` de ese disparador no es opcional**: corre DENTRO de la transacción que emite la factura. Sin él, un fallo al apuntar el evento **abortaría la emisión del documento fiscal**. El historial es la consecuencia del hecho, no el hecho.
+
+#### ⭐⭐ El porte devolvible, y el diseño que parecía obvio y estaba roto
+
+La rectificativa ya cuelga la línea del envío de `pedidos.envio_devuelto_en_refund`, así que **basta sellar esa columna** y el documento sale solo: **cero cambios en la cadena fiscal**.
+
+Lo natural era una RPC nueva («marcar el porte devuelto») llamada después de registrar las líneas. **No funciona, y hay que dejarlo escrito**: el trigger de la 077 es `deferrable initially deferred`, o sea que corre al FINAL de la transacción de las líneas. Una segunda llamada iría en otra transacción y llegaría **tarde**: la rectificativa ya se habría emitido sin la línea del porte, y `emitir_rectificativa` es idempotente por refund, así que no la corregiría. Y no se autocura — `devoluciones_pendientes_de_rectificativa` excluye todo `(pedido, refund)` que ya tenga una, así que ni el aviso del 303 ni el botón de «emitir las que faltan» lo verían nunca. **Porte devuelto y ningún documento que lo declare, para siempre.**
+
+Por eso el sellado va **dentro de `registrar_reembolso_lineas`, antes del insert**.
+
+⚠️⚠️ **LA TRAMPA QUE CASI SE COLA, y la destapó una refutación adversarial, no yo**: `importe_a_devolver` interpreta `p_lineas IS NULL` como **TODO LO PENDIENTE**. Como devolver solo el porte obliga a llamar a esa RPC sin líneas, pasar `null` en vez de `[]` registraría **todas** las unidades como devueltas, repondría su stock y emitiría una rectificativa del pedido entero habiendo devuelto 3,40 €. **Medido en el ensayo: sin el `coalesce` se registran 2 líneas que nadie pidió devolver.**
+
+Dos guardias contra cobrar el porte dos veces, y **hacen falta los dos**: el de TypeScript se niega **antes** de tocar Stripe (si solo estuviera el de la base, el dinero ya habría salido), y el `where envio_devuelto_en_refund is null` bajo el advisory lock es el que para dos peticiones simultáneas.
+
+#### Y un descuadre que nadie había pedido arreglar
+
+`ReembolsoModal` sumaba **a PVP** mientras el servidor devuelve el **neto**: el botón decía «Devolver 3,90 €» y Stripe cobraba 3,12 €. Ahora usa la fórmula de `importe_a_devolver`, con los **dos redondeos acumulados** —que es lo que hace que devolver 1 y luego 2 unidades sume igual que devolver 3 de golpe—. La autoridad sigue siendo la RPC y está escrito donde se copia.
+
+### 🔴🔴 EL FALLO DE HOY, Y ES DE SEGURIDAD. LEER ANTES DE TOCAR CUALQUIER FUNCIÓN SECURITY DEFINER
+
+Al confirmar la 084, la firma **nueva** de 7 argumentos de `registrar_reembolso_lineas` nació con los *default privileges* de Supabase y quedó así:
+
+```
+postgres=X | anon=X | authenticated=X | service_role=X
+```
+
+O sea: **una función SECURITY DEFINER que devuelve dinero, repone stock y emite rectificativas, invocable por PostgREST SIN SESIÓN.** Ventana de ~1 minuto hasta detectarlo y revocarlo.
+
+⚠️⚠️ **`revoke all … from public` NO LO QUITA.** PUBLIC es el pseudo-rol, no «todos los roles». Hay que revocar **por nombre**: `from public, anon, authenticated`.
+
+⚠️⚠️ **Y ES DE LA MISMA FAMILIA QUE LA TRAMPA DE LAS SOBRECARGAS**: las dos vienen de que **cambiar la firma crea un objeto nuevo**, no de que se modifique el viejo. Cada vez que en este proyecto se añada un parámetro a una función SECURITY DEFINER, pasan las dos cosas a la vez.
+
+⭐ **Lo que más hay que aprender de esto**: mis dos guardias del §4 —una sola sobrecarga, disparador vivo— **dieron el visto bueno a una migración con un agujero de seguridad**. Eso es lo que hace una comprobación incompleta: dar confianza. Ya hay un tercer guardia sobre `aclexplode(proacl)`, y está visto rojo.
+
+⚠️ Dos matices medidos que cambian cómo se ensaya esto:
+
+- **`create or replace` sobre una firma que ya existe CONSERVA su ACL.** Por eso ensayar contra la base donde ya está aplicada **no reproduce el fallo**: hay que dropear la firma para que nazca de cero.
+- El único aplicado peligroso es **el primero**.
+
+Confirmado cerrado por dos vías: el ACL ya es `postgres | service_role` como el resto, y `get_advisors` de seguridad **no lista ninguna de las dos funciones nuevas** en `anon_security_definer_function_executable` ni en su gemelo de `authenticated`. (Sí lista `identidad_publica`, que es pública a propósito, y `mi_cargo`.)
+
+### ⭐⭐ DOS HERRAMIENTAS NUEVAS QUE CAMBIAN CÓMO SE TRABAJA AQUÍ
+
+**1. El ensayo revertido YA SE PUEDE CORRER, y este fichero decía lo contrario.** `supabase/.temp/db-password` existe desde el 23/08 (lo restableció Jonathan) y `pooler-url` también. Así que:
+
+```
+node scripts/aplicar-sql.mjs --dry supabase/migrations/0XX.sql scripts/ensayo-0XX.sql
+```
+
+Es la vía buena porque **lee el fichero directamente**: cero riesgo de errata de transcripción, que es lo que obligó a salvar la 080 con `md5(prosrc)`. Y acepta varios ficheros en la misma transacción, así que la migración y su ensayo de comportamiento van juntos.
+
+⚠️ Todo ensayo de comportamiento acaba con un `raise exception` deliberado («TERMINADO EN VERDE») para que sea **imposible** dejarlo aplicado con `--go` por error: el de la 084 reabre un pedido cerrado y le borra las líneas de devolución. Ver `scripts/ensayo-084-factura-y-porte.sql`.
+
+*(Dato aparte: `execute_sql` del MCP sí respeta `begin` … `rollback` en una sola llamada. Comprobado creando una tabla y viendo que no sobrevivía.)*
+
+**2. La API ya dice qué commit está desplegado.** `/health` devuelve `{"status":"ok","commit":"810ae7a"}`. Nació de que hoy se estuvo **vigilando el reinicio de Render a ciegas** varios minutos: `/health` devolvía lo mismo antes y después. Es exactamente lo que costó media hora el 22/08 y que la web resolvió con `HuellaDiagnostico` — la API se había quedado sin ello.
+
+⭐ Recortado a 7 **como la huella de la web, a propósito**: las dos se comparan de un vistazo, y si no dicen el mismo commit hay una ventana de despliegue abierta.
+
+⚠️ Ojo al usarlo: hoy la API decía `810ae7a` y la web `7b5d230`, y **era correcto** — ese commit solo toca `apps/api`, así que Vercel no reconstruyó. Que no coincidan no siempre es un problema; hay que mirar **qué** cambió el commit que sobra.
+
+### El orden del despliegue, que estaba invertido OTRA VEZ (y van dos)
+
+La cabecera de la 084 decía «migración → web → API». **Mal.** Era de cuando el apunte de la factura lo iba a hacer la API; al pasarlo al disparador, **la migración dejó de ser inerte** — es ella la que empieza a escribir eventos `factura`. Con la web vieja, `ICONO[e.tipo]` daba `undefined`, React lanzaba «Element type is invalid» y **se rompía la ficha entera del pedido**, no la fila.
+
+El bueno es **web → migración → API**:
+
+- la **web primero** porque es la que tiene que saber pintar el tipo nuevo (y ahora **tolera** cualquier tipo desconocido: el `default` de `titulo()` y los `??` del render);
+- la **API última por dinero**: manda `p_devolver_envio`, y si llegara antes de que exista el parámetro, PostgREST no encontraría la función **con el reembolso ya cobrado en Stripe**.
+
+⚠️ Es el mismo fallo del `0bbe0f6`, y se colgó del mismo sitio: **un cambio de diseño a mitad del trabajo que invirtió qué depende de qué, sin releer la cabecera después.**
+
+### Las pruebas: 960 en verde, y las 28 nuevas vistas ROJAS
+
+556 de API + 404 de web. Cada comprobación nueva validada rompiendo a propósito lo que vigila:
+
+| Lo que se rompió | Resultado |
+|---|---|
+| Rótulo «Descuento» → «Ahorro» | 3 rojas |
+| Subtotal calculado en neto (cifra mal, fallo sutil) | **1, justo la de la aritmética** |
+| `?? []` → `?? null` | 4, incluida la de la trampa |
+| Quitar el guardia del doble cobro del porte | 1 |
+| Quitar la condición `cerro` del cierre total | 1 |
+| Recorte a 8 y `status: "sano"` en /health | 2 |
+| SQL: sin el `drop` → 2 sobrecargas | ✅ salta |
+| SQL: trigger con otro nombre | ✅ salta |
+| SQL: sin el `coalesce` → **2 líneas de más** | ✅ salta |
+| SQL: sin la emisión del porte a solas → sin rectificativa | ✅ salta |
+| SQL: sin el revoke, con la firma naciendo de cero | ✅ salta |
+
+⚠️ Y una anécdota útil: el primer intento de ver rojas las del correo **rompió la compilación** en vez de dar una aserción roja, así que no probaba nada. Neutralizar cambiando **el rótulo que la aguja busca** —sin tocar tipos— es lo que sirve.
+
+### Lo que queda pendiente
+
+1. 🔴 **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con el guion, desde el 22/08. Es la dirección pública del RGPD y está viva en `/contacto`. **Es un campo del panel.** Lleva tres cierres seguidos apuntado.
+2. 🟠 **La API duerme (Render `plan: free`) y eso tiene un coste medido**: 16,3 s de arranque en frío, y **cada despliegue nace con las tres legales vacías** porque el build las prerenderiza con la API dormida y salta el corte de 5 s. Hoy tardaron **280 s** en recuperarse por el ISR. Es el comportamiento diseñado, pero al desplegar **no hay que juzgar por el primer `curl`**.
+3. 🟡 `arranque_fiscal_el` **sigue NULL**. La ventana para rehacer cosas sigue abierta y es una decisión, no un olvido.
+4. 🟡 Un reembolso de **solo porte** manda un correo que dice «hemos devuelto 3,40 € de los 6,52 €» sin especificar que era el transporte. Cierto pero soso.
+5. 🟡 `cancelar_transferencia_reemplazada` **sigue con DOS sobrecargas vivas** (3 y 4 argumentos). A la cola desde el 23/08. La de 3 no conoce `p_reemplazado_por`.
+6. 🟡 **Cinco funciones fiscales con `search_path` mutable** — las lista `get_advisors`: `factura_huella`, `factura_numero`, `factura_correlativo_inicial`, `serie_de_tipo`, `nif_forma_valida`. La constitución exige fijarlo. Es previo a hoy.
+7. 🟡 Los **cinco secretos sin revocar** y el fichero de tokens de despliegue sin borrar. La `sb_secret_…` salta el RLS.
+8. 🟡 El **ámbito de envío contradicho**: los términos prometen península y Baleares, el checkout acepta las 52 provincias.
+
+### Cierre anterior — 2026-08-23
 
 ### ⚠️⚠️ LO PRIMERO MAÑANA: PREGUNTARLE A LA BASE, PORQUE ESTE FICHERO YA ESTÁ VIEJO
 
