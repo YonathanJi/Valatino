@@ -2,12 +2,8 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "sonner";
-import { ogDelSitio, SITIO } from "@lib/seo/metadatos";
+import { ogDelSitio, SITIO, TITULO, DESCRIPCION } from "@lib/seo/metadatos";
 import "./globals.css";
-
-const TITULO = "Valatino — Sabores de Latinoamérica en España";
-const DESCRIPCION =
-  "Productos latinoamericanos originales enviados a toda España. Chocoramos, Jugos Hit, Galletas Ducales y mucho más.";
 
 export const metadata: Metadata = {
   /**

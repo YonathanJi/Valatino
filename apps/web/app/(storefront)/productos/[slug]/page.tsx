@@ -6,6 +6,8 @@ import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
 import { hermanosDeVariante, tieneVariante, varianteVisible } from "@lib/productos/variantes";
 import { ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
+import { JsonLd } from "@components/seo/JsonLd";
+import { migasDeProducto, productoJsonLd } from "@lib/seo/datos-estructurados";
 import { formatEUR } from "@lib/utils";
 import { API_URL } from "@lib/api/url";
 
@@ -82,6 +84,14 @@ export default async function ProductoPage({ params }: Props) {
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-12">
+      {/*
+        El precio y la disponibilidad salen del MISMO `producto` que pinta la página de
+        abajo, así que no pueden discrepar — y eso importa: si el buscador enseña un
+        precio distinto del que se cobra, Google retira los resultados enriquecidos del
+        sitio entero.
+      */}
+      <JsonLd fichas={[productoJsonLd(producto), migasDeProducto(producto)]} />
+
       <Link
         href="/"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"

@@ -32,6 +32,23 @@ export const SITIO = "https://valatino.es";
 
 export const SITIO_NOMBRE = "Valatino";
 
+/**
+ * El título y la descripción de la tienda.
+ *
+ * ⚠️ Estaban como constantes locales de `app/layout.tsx` y se subieron aquí cuando los
+ * datos estructurados los necesitaron: el mismo texto en dos ficheros es la piedra con
+ * la que este proyecto ya tropezó tres veces (`API_URL` el 23/08 fue la peor). Si la
+ * ficha de schema.org y la etiqueta `<meta>` dijeran cosas distintas, el buscador se
+ * encontraría dos versiones de la misma tienda.
+ *
+ * ⚠️ El TÍTULO empieza por el nombre a propósito. Es lo que se lee en la pestaña y en
+ * el resultado de búsqueda, y ante una consulta de marca —«valatino»— lo primero pesa.
+ */
+export const TITULO = "Valatino — Sabores de Latinoamérica en España";
+
+export const DESCRIPCION =
+  "Productos latinoamericanos originales enviados a toda España. Chocoramos, Jugos Hit, Galletas Ducales y mucho más.";
+
 /** El `og:locale` que corresponde: castellano de España. */
 export const LOCALE = "es_ES";
 

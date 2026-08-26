@@ -6,6 +6,8 @@ import {
   enlaceWhatsapp,
   whatsappLegible,
 } from "@lib/tienda/identidad";
+import { JsonLd } from "@components/seo/JsonLd";
+import { comercioConIdentidad } from "@lib/seo/datos-estructurados";
 import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
 
 /**
@@ -29,7 +31,7 @@ import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
  * vistazo —su WhatsApp, su correo— fallan de forma visible en vez de en silencio.
  */
 export const metadata = {
-  title: "Contacto · Valatino",
+  title: "Contacto",
   description:
     "Escríbenos por WhatsApp o por correo. Resolvemos dudas sobre productos, pedidos y devoluciones.",
   alternates: { canonical: "https://valatino.es/contacto" },
@@ -46,6 +48,20 @@ export default async function ContactoPage() {
     <>
       {/* Ver la cabecera de `HuellaDiagnostico`. */}
       <HuellaDiagnostico fallo={identidad.fallo} />
+
+      {/*
+        El comercio con su domicilio y su NIF, para el buscador.
+
+        ⚠️ Va AQUÍ y no en el layout por la cicatriz que este proyecto ya tiene escrita:
+        un layout corre en cada página, y llamar a `/tienda/identidad` desde uno rompió
+        el build entero. Esta página YA tenía la identidad cargada, así que la ficha no
+        cuesta ninguna llamada nueva.
+
+        ⚠️ Y si la identidad vino vacía —la API dormida—, `comercioConIdentidad` deja
+        fuera los campos que faltan en vez de declarar un domicilio a medias. El mismo
+        criterio que la propia página, que en ese caso no pinta el bloque legal.
+      */}
+      <JsonLd fichas={[comercioConIdentidad(identidad)]} />
     <main className="max-w-3xl mx-auto px-4 py-16 space-y-8">
       <header className="space-y-2">
         <h1 className="text-3xl font-bold">Contacto</h1>

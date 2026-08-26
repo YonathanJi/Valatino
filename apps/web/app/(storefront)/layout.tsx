@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { PageTransition } from "@components/ui/PageTransition";
 import { StorefrontShell } from "@components/storefront/StorefrontShell";
+import { JsonLd } from "@components/seo/JsonLd";
+import { comercio, sitioWeb } from "@lib/seo/datos-estructurados";
 
 /**
  * ⚠️⚠️ AQUÍ NO SE LLAMA A LA API, Y ES UNA CICATRIZ: el primer intento pintaba en
@@ -26,6 +28,19 @@ import { StorefrontShell } from "@components/storefront/StorefrontShell";
 export default function StorefrontLayout({ children }: { children: React.ReactNode }) {
   return (
     <StorefrontShell>
+      {/*
+        Quién vende, en el formato que un buscador no puede malinterpretar.
+
+        ⚠️ Va en el layout —y no en cada página— porque la entidad es la misma en todas,
+        y ese `@id` es lo que permite que la ficha de un producto se cuelgue de ESTE
+        comercio en vez de declarar uno suelto.
+
+        ⚠️⚠️ Y ESTO NO CONTRADICE LA CICATRIZ DE ARRIBA: `comercio()` y `sitioWeb()` son
+        funciones PURAS de constantes. No hay `fetch`, así que no reviven el problema
+        que rompió el build —38 llamadas a la API al construir el sitio—. Los datos que
+        exigen preguntar (domicilio, NIF) van en `/contacto`, que ya llama a la API.
+      */}
+      <JsonLd fichas={[comercio(), sitioWeb()]} />
       <div className="flex min-h-screen flex-col">
         <PageTransition>
           <div className="flex-1">{children}</div>

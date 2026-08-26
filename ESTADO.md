@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-25 (noche — la 084 aplicada y desplegada: el descuento en los correos y en el panel, la factura en el historial y el porte devolvible aparte)
+**Última actualización**: 2026-08-26 (noche — la 084 verificada con dinero real, y dos arreglos que salieron de mirar los datos: la fecha de los códigos y el correo duplicado)
 
 ---
 
@@ -48,7 +48,98 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-25
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-26
+
+### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A LA BASE. Y HOY LA REGLA SE PAGÓ SOLA
+
+Esta sesión empezó preguntándole a la base en vez de creerse el cierre de ayer, y de ahí salió TODO lo que se hizo: los dos arreglos no vienen de leer código, vienen de mirar los datos que dejaron las pruebas de Jonathan.
+
+**La línea base al cerrar** (medida, no de memoria):
+
+```
+pedidos 5 · pedido_items 17 · pedido_iva 9 · facturas_emitidas 24 · factura_eventos 26
+reembolso_lineas 17 · pedido_eventos 80 · de tipo factura 10 · productos 30
+codigos_descuento 3 (los TRES caducados y agotados) · descuento total 15,31
+pedidos con porte devuelto 4 · apuntes de factura fallidos 0
+contadores VALS->105 VALF->105 VALR->114
+arranque_fiscal_el NULL
+```
+
+### ✅✅ LA 084 FUNCIONA CON DINERO REAL. Verificado, no supuesto
+
+Jonathan hizo dos pedidos el 25/08 después del despliegue, con dos códigos al 30 %, y los devolvió enteros. Comprobado contra el remoto:
+
+| Pedido | Bruto | Descuento | Porte | Total | |
+|---|---|---|---|---|---|
+| `260825012812` | 34,12 | −10,24 `VALATINO` | 0,00 | 23,88 | ✅ |
+| `260825018204` | 14,30 | −4,29 `VALATINO1` | 3,40 | 13,41 | ✅ |
+
+En **los cinco** pedidos de la tienda: `total = bruto − descuento + porte` exacto, `Σ descuento_imputado = descuento` exacto y `pedido_iva` = total exacto.
+
+- **El correo**: se renderizó la plantilla desplegada con los datos reales del `260825018204` → `Subtotal 14,30 · Descuento (VALATINO1) −4,29 · Envío 3,40 · Total 13,41`. **Las líneas suman el total.** Es la única forma de verificar esto sin el buzón del cliente, y merece la pena recordar la técnica: `node -e` contra `apps/api/dist/email/templates/…`.
+- **El historial**: 10 eventos de factura, **0 fallidos**. Las del panel con «Admin Valatino», las automáticas como «(sistema)». Los tres pedidos viejos siguen a 0, que es correcto: sus facturas nacieron antes del disparador.
+- **El porte, por el camino NUEVO**: el `260825018204` quedó sellado con `re_3U8RxYL1kwgv5hCu1YJGK43g` — un refund de Stripe, no `total:<uuid>`. O sea que se usó la casilla en un PARCIAL. Y su `VALR202600110` es de **−3,40, una sola línea, concepto `envio`**: la devolución de solo porte emitiendo su propia rectificativa.
+- **Libros**: cadena íntegra en los **24 enlaces**, 0 sin huella, **base neta 0,00 / cuota neta 0,00** (62,60 vendidos, −62,60 rectificados).
+
+### 🔴 ARREGLO 1 · «Válido hasta el 26» regalaba CERO días del 26
+
+El campo del panel es `<input type="date">` y se guardaba con `new Date("2026-08-26").toISOString()` = **medianoche UTC del PRINCIPIO del 26**. La base compara `now() > valido_hasta`, así que el código moría en el instante en que empezaba el día que llevaba escrito.
+
+⚠️ **No fue mal uso**: Jonathan creó tres códigos así y los tres estaban caducados a la mañana siguiente, con su fecha aún puesta. Un campo que dice «hasta el 26» y no vale el 26 no es confuso, es equivocado.
+
+Arreglado con `finDelDiaEnEspana` (`apps/web/lib/tiempo/dia-de-la-tienda.ts`): cierra el día a las 23:59:59.999 de **Europe/Madrid**, que es el calendario de `dia_fiscal`. La zona va **explícita y no la del navegador**, por lo mismo que ya decía `hoyEnEspana()` en `compras/nueva`.
+
+⚠️ El desplazamiento se mide anclando al **mediodía** del día pedido y no a las 23:59: a las 23:59:59.999 UTC ya es el día siguiente en Madrid, así que anclar ahí leería el huso del día equivocado. Hay test de los dos domingos del cambio de hora. **8 tests, los seis del huso vistos rojos moviendo el ancla.**
+
+### 🟠 ARREGLO 2 · Dos correos por la misma devolución, y era una CARRERA
+
+Medido al milisegundo sobre el `260825018204`:
+
+```
+21:59:21.913  transacción  reembolso.backoffice   (el panel)
+21:59:22.358  transacción  charge.refunded        (el webhook)
+21:59:23.338  email        Devolución de 3,40 €
+21:59:23.386  email        Devolución de 3,40 €   ← duplicado, 48 ms después
+```
+
+El corte que existía desde el 14/08 era `esNuevo = acumulado > totalReembolsado()`. Funcionaba casi siempre y por eso duró doce días, pero es **una lectura antes de actuar**: el webhook leyó 0 cuando el panel ya había apuntado.
+
+⚠️⚠️ **Y LA PARTE QUE HAY QUE RECORDAR SON LOS DOS ARREGLOS QUE SE DESCARTARON**, porque los dos parecían buenos:
+
+1. **Comparar por id de refund en vez de por importe** → no sirve. La ventana no está en QUÉ se compara, está en que se lee antes de decidir. Misma carrera exacta.
+2. **Mirar la metadata del refund** («esto lo lanzamos nosotros») → es race-free, pero habría callado al webhook **también cuando el apunte del panel falla**, que es justo el caso en que el webhook es el único que cuenta la devolución. Habría cambiado un correo repetido por un correo PERDIDO.
+
+**Lo que se hizo**: el webhook apunta la transacción con **la misma llave que el panel** (el id del refund, no el del evento de Stripe). Las dos filas chocan, el segundo se lleva un 23505, `registrarTransaccion` devuelve `false` y se calla. **Lo decide la base al escribir, así que no hay ventana.** Y si nadie cogió la llave —devolución hecha en el panel de Stripe, o apunte del backoffice caído— el webhook la coge él: la red de seguridad sigue en pie.
+
+⚠️ La reentrega del mismo evento la sigue parando `eventoYaProcesado(event.id)`, independiente de esta llave, y `payload_raw` guarda el evento entero: no se pierde traza, solo cambia la llave.
+
+⭐⭐ **Y AL VALIDAR EN ROJO APARECIÓ UN HUECO QUE NO SE BUSCABA**: la llave del webhook **no la vigilaba ningún test**. `eventoId: event.id` es lo que hay en los otros TRES sitios del mismo controlador, o sea exactamente lo que alguien «unifica» sin querer, y el spec de `ConfirmacionPedidoService` recibe el `eventoId` ya decidido, así que no puede verlo. De ahí `apps/api/src/pagos/webhooks.reembolso.spec.ts`.
+
+Los 5 tests del contrato viejo se **reescribieron para el nuevo**, no se ajustaron para que pasaran: el historial ahora se pasa SIEMPRE y quien decide es la base.
+
+### ⭐ LA HUELLA DE LA API SE PAGÓ EL PRIMER DÍA
+
+Los dos despliegues de hoy se confirmaron con `curl -s https://api.valatino.es/health` → `{"status":"ok","commit":"1918bd5"}`. Ayer eso fueron varios minutos de vigilar Render a ciegas.
+
+⚠️ Y se usó bien la advertencia que quedó escrita: al terminar, API en `1918bd5` y web en `a5719d3`. **No coincidir no era un problema** — se comprobó con `git show --name-only` que ese commit solo toca `apps/api`, así que Vercel no reconstruye. La regla es: mirar QUÉ cambió el commit que sobra, no asustarse.
+
+### Lo que NO es un fallo, comprobado antes de traerlo como tal
+
+El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % quedara en 23,88, por debajo del umbral de 30. **Es una decisión documentada**: el umbral se mide sobre el subtotal BRUTO, y así lo dice el comentario de `carrito.service.ts` citando la 083 §0.5. Igual en el carrito y en la base.
+
+### Lo que queda pendiente
+
+1. 🔴 **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con el guion, desde el 22/08. Dirección pública del RGPD, viva en `/contacto`. **Es un campo del panel.** Cuarto cierre seguido apuntado.
+2. 🟠 **La API duerme (Render `plan: free`)**: 8,3 s de arranque en frío medidos hoy, y cada despliegue **de la web** nace con las tres legales vacías unos minutos (hoy no pasó porque solo se desplegó la API). Al desplegar, no juzgar por el primer `curl`.
+3. 🟡 `arranque_fiscal_el` sigue NULL. Es una decisión, no un olvido.
+4. 🟡 Un reembolso de **solo porte** manda un correo que dice «hemos devuelto 3,40 € de los 13,41 €» sin especificar que era el transporte. Cierto pero soso.
+5. 🟡 `cancelar_transferencia_reemplazada` sigue con **DOS sobrecargas vivas** (3 y 4 argumentos).
+6. 🟡 **Cinco funciones fiscales con `search_path` mutable** — `get_advisors` las lista: `factura_huella`, `factura_numero`, `factura_correlativo_inicial`, `serie_de_tipo`, `nif_forma_valida`. La constitución exige fijarlo.
+7. 🟡 Los **cinco secretos sin revocar**. La `sb_secret_…` salta el RLS.
+8. 🟡 El **ámbito de envío contradicho**: los términos prometen península y Baleares, el checkout acepta las 52 provincias.
+9. 🆕 **Que la tienda salga en Google**: se busca «valatino» y no aparece. Es lo siguiente que pidió Jonathan.
+
+### Cierre anterior — 2026-08-25
 
 ### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A LA BASE. Y ESTA VEZ HAY UN MOTIVO NUEVO ADEMÁS DEL DE SIEMPRE
 

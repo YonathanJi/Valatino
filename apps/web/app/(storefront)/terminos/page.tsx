@@ -36,7 +36,7 @@ import Link from "next/link";
  * · Garantía legal de conformidad en productos de alimentación.
  */
 export const metadata = {
-  title: "Términos y condiciones · Valatino",
+  title: "Términos y condiciones",
   description:
     "Condiciones de compra en Valatino: precios, pagos, envíos, plazos de entrega y derecho de desistimiento.",
   alternates: { canonical: "https://valatino.es/terminos" },

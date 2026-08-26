@@ -32,7 +32,7 @@ import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
  *   aquí (menos de 250 empleados, pero el tratamiento no es ocasional).
  */
 export const metadata = {
-  title: "Política de privacidad · Valatino",
+  title: "Política de privacidad",
   description:
     "Qué datos tratamos, para qué, con quién los compartimos y cómo ejercer tus derechos.",
   alternates: { canonical: "https://valatino.es/politica-privacidad" },

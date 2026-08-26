@@ -26,7 +26,7 @@ import { HuellaDiagnostico } from "@components/storefront/HuellaDiagnostico";
  *   (RGSEAA) en la web.
  */
 export const metadata = {
-  title: "Aviso legal · Valatino",
+  title: "Aviso legal",
   description: "Identidad del titular de la tienda, condiciones de uso y propiedad intelectual.",
   alternates: { canonical: "https://valatino.es/aviso-legal" },
 };
