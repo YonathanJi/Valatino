@@ -134,4 +134,66 @@ describe("InventarioService.registrarTransaccion", () => {
 
     expect(registro.eventos).toEqual([]);
   });
+
+  /**
+   * ⭐⭐ EL VALOR DE VUELTA, que desde el 2026-08-26 es un CERROJO REPARTIDO y no un
+   * detalle: quien recibe `true` es el único que debe avisar al cliente.
+   *
+   * El panel y el webhook de Stripe apuntan la misma devolución con la MISMA llave
+   * —el id del refund—, así que la unicidad de `evento_id` decide quién gana. Antes
+   * el corte lo hacía `procesarReembolso` comparando importes contra una lectura
+   * previa, y eso era una carrera: el 25/08 el cliente recibió dos correos idénticos
+   * de «Devolución de 3,40 €».
+   *
+   * Si esto dejara de devolver `false` al perder, el duplicado volvería. Por eso se
+   * fija aquí y no en el servicio que lo consume.
+   */
+  it("devuelve false cuando la llave ya estaba cogida", async () => {
+    const { servicio } = montar({ code: "23505", message: "duplicate key" });
+
+    const gane = await servicio.registrarTransaccion(
+      "ped-1",
+      "stripe",
+      "re_1",
+      "charge.refunded",
+      "reembolsado",
+      10,
+      {},
+      { tipo: "reembolso", origen: "webhook" },
+    );
+
+    expect(gane).toBe(false);
+  });
+
+  it("y true cuando la fila se escribe de verdad", async () => {
+    const { servicio, registro } = montar();
+
+    const gane = await servicio.registrarTransaccion(
+      "ped-1",
+      "stripe",
+      "re_1",
+      "charge.refunded",
+      "reembolsado",
+      10,
+      {},
+      { tipo: "reembolso", origen: "webhook" },
+    );
+
+    expect(gane).toBe(true);
+    // Y el que gana sí deja su línea en la ficha.
+    expect(registro.eventos).toHaveLength(1);
+  });
+
+  /**
+   * ⚠️ Un fallo que NO es el duplicado sigue siendo un fallo: se lanza. Devolver
+   * `false` ahí sería decirle a quien llama «otro se encargó» cuando lo que ha pasado
+   * es que no se ha registrado nada, y entonces nadie avisaría al cliente.
+   */
+  it("un error que no es duplicado lanza, no devuelve false", async () => {
+    const { servicio } = montar({ code: "08006", message: "conexión perdida" });
+
+    await expect(
+      servicio.registrarTransaccion("ped-1", "stripe", "re_1", "charge.refunded", "reembolsado", 10, {}),
+    ).rejects.toThrow();
+  });
 });

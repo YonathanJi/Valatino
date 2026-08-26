@@ -163,6 +163,14 @@ export class InventarioService {
    * Único sitio donde se escribe en `transacciones_pago`, así que también es el
    * único donde hay que anotar el movimiento en la línea de tiempo del pedido:
    * puesto aquí no puede desincronizarse con el registro contable.
+   *
+   * ⭐⭐ DEVUELVE SI LA FILA SE ESCRIBIÓ DE VERDAD, y eso convierte la unicidad de
+   * `evento_id` en un CERROJO REPARTIDO, no solo en una defensa contra duplicados.
+   *
+   * Quien recibe `true` ganó el apunte y es el único que debe avisar al cliente;
+   * quien recibe `false` es que otro camino llegó primero, y se calla. Lo decide la
+   * base **al insertar**, así que no queda ninguna ventana entre comprobar y actuar
+   * — que es justo lo que fallaba antes. Ver `procesarReembolso`.
    */
   async registrarTransaccion(
     pedidoId: string,
@@ -193,7 +201,7 @@ export class InventarioService {
        */
       importe?: number;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { error } = await this.supabase.from("transacciones_pago").insert({
       pedido_id: pedidoId,
       proveedor,
@@ -206,10 +214,13 @@ export class InventarioService {
     });
 
     if (error) {
-      // 23505 = unique_violation en evento_id → webhook duplicado concurrente
+      // 23505 = unique_violation en evento_id → otro camino llegó antes con este
+      // mismo id. Desde que el `evento_id` de un reembolso es el id del refund y no
+      // el del evento de Stripe, esto ya no es solo «webhook duplicado»: es el panel
+      // y el webhook compitiendo por el mismo apunte, y aquí se decide quién gana.
       if (error.code === "23505") {
         this.logger.warn(`Evento ${eventoId} (${proveedor}) ya registrado; se ignora el duplicado`);
-        return;
+        return false;
       }
       this.logger.error(`Error al registrar transacción ${eventoId}: ${error.message}`);
       throw new UnprocessableEntityException("Error al registrar la transacción de pago");
@@ -225,6 +236,8 @@ export class InventarioService {
         origen: historial.origen,
       });
     }
+
+    return true;
   }
 
   /**

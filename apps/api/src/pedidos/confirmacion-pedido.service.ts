@@ -296,13 +296,21 @@ export class ConfirmacionPedidoService {
     const esTotal = acumuladoCents >= Math.round(Number(pedido.total) * 100);
 
     /*
-     * ¿Nos enteramos ahora del reembolso, o es el eco del que acabamos de lanzar
-     * desde el backoffice? Stripe notifica charge.refunded también cuando la
-     * devolución la pedimos nosotros, y ese camino ya avisó al cliente. Sin esta
-     * comprobación el cliente recibiría dos correos por la misma devolución.
+     * ⚠️⚠️ AQUÍ HABÍA UNA LECTURA QUE DECIDÍA SI AVISAR AL CLIENTE, Y SE HA QUITADO
+     * A PROPÓSITO — no se ha movido, se ha ELIMINADO.
+     *
+     * Era `esNuevo = acumulado > totalReembolsado(pedido)`: preguntarle a la base si
+     * ya sabíamos de esta devolución. Funcionaba casi siempre y por eso duró desde el
+     * 14/08, pero es una carrera — el webhook puede leer ANTES de que el panel haya
+     * confirmado su propia fila— y el 25/08 se cobró: dos correos idénticos de
+     * «Devolución de 3,40 €» al mismo cliente.
+     *
+     * Y lo importante: ninguna versión de esa lectura lo arregla. Comparar por id de
+     * refund en vez de por importe tiene exactamente la misma ventana, porque el
+     * problema no es QUÉ se compara, es que se lee antes de actuar.
+     *
+     * Ahora lo decide la unicidad de `evento_id` al insertar. Ver el `gane` de abajo.
      */
-    const yaConocidoCents = Math.round((await this.reembolsos.totalReembolsado(pedido.id)) * 100);
-    const esNuevo = acumuladoCents > yaConocidoCents;
 
     if (esTotal) {
       // Cambia el estado y repone el stock, una sola vez aunque el panel ya lo
@@ -314,7 +322,7 @@ export class ConfirmacionPedidoService {
       );
     }
 
-    await this.inventarioService.registrarTransaccion(
+    const gane = await this.inventarioService.registrarTransaccion(
       pedido.id,
       reembolso.proveedor,
       reembolso.eventoId,
@@ -326,39 +334,46 @@ export class ConfirmacionPedidoService {
        * Sin actor: esto llega por el aviso de Stripe, no lo pidió nadie desde el
        * panel.
        *
-       * ⚠️⚠️ Y SOLO SE ANOTA EN LA LÍNEA DE TIEMPO SI TRAE ALGO NUEVO. Stripe
-       * manda `charge.refunded` también cuando la devolución la lanzamos
-       * nosotros, y ahí el evento con nombre ya lo dejó `ReembolsosService` al
-       * cobrarla — el comentario que había aquí ya lo decía, pero se anotaba
-       * igualmente: cada devolución del panel escribía DOS «Devolución» seguidas.
-       * Y como el importe de `charge.refunded` es el ACUMULADO del cargo, la
-       * segunda contradecía a la primera: «Devolución de 2,40 €» y justo debajo
-       * «Devolución de 3,02 €», que se lee como 5,42 € devueltos.
+       * ⚠️⚠️ EL HISTORIAL SE PASA SIEMPRE, Y ANTES NO. Quién lo escribe de verdad lo
+       * decide `registrarTransaccion` al insertar: si el panel ya cogió la llave de
+       * este refund, el insert choca con la unicidad de `evento_id` y esa función
+       * vuelve sin anotar nada. O sea que la decisión ya no se toma aquí leyendo, se
+       * toma en la base al escribir — que es lo único que no tiene ventana.
        *
-       * La transacción SÍ se guarda siempre: es el registro de lo que dijo
-       * Stripe y de ahí sale el total devuelto. Lo que se calla es la línea
-       * duplicada de la ficha.
-       *
-       * ⭐ Y cuando la devolución se hizo desde el panel de Stripe —o el registro
-       * del backoffice falló—, esto SÍ es lo único que la cuenta, así que el
-       * evento sale, con lo devuelto de nuevo y no con el acumulado.
+       * El importe es el ACUMULADO del cargo, y eso es correcto en este camino: si
+       * este apunte llega a escribirse, es porque nadie más contó esta devolución.
+       * (Cuando el panel gana, su evento ya dice el incremento, que es lo que hay que
+       * leer en la ficha. Ver el `importe` del historial en `ReembolsosService`.)
        */
-      esNuevo
-        ? {
-            tipo: "reembolso",
-            origen: "webhook",
-            importe: (acumuladoCents - yaConocidoCents) / 100,
-          }
-        : undefined,
+      {
+        tipo: "reembolso",
+        origen: "webhook",
+        importe: reembolso.importe,
+      },
     );
 
-    if (esNuevo) {
+    /**
+     * ⭐⭐ EL CORREO DEPENDE DE HABER GANADO EL APUNTE, no de comparar importes, y
+     * este es el arreglo del duplicado del 2026-08-25.
+     *
+     * Lo que había era `acumulado > yaConocido`, y es una CARRERA: la lectura puede
+     * adelantarse al commit del panel. Medido en producción sobre el pedido
+     * 260825018204 — el panel apuntó a las 21:59:21.913 y el webhook, que ya había
+     * leído 0, avisó igual: **dos correos idénticos de «Devolución de 3,40 €»** con
+     * 48 ms de diferencia.
+     *
+     * `gane` viene de la unicidad de `evento_id`, así que no hay ventana: o insertas
+     * tú, o insertó el otro. Y la red de seguridad sigue: si la devolución se hizo
+     * desde el panel de Stripe, o si el apunte del backoffice falló, la llave está
+     * libre, este camino la coge y el cliente se entera igual.
+     */
+    if (gane) {
       // También en los parciales: a quien le devuelven 10 € de 50 € hay que
       // decírselo, y con el importe.
       await this.enviarEmailPedido(pedido.id, true, reembolso.importe);
     } else {
       this.logger.debug(
-        `Reembolso de ${reembolso.importe} € del pedido ${pedido.id} ya conocido; no se reenvía el aviso`,
+        `Reembolso ${reembolso.eventoId} del pedido ${pedido.id} ya lo apuntó el panel; no se reenvía el aviso`,
       );
     }
 

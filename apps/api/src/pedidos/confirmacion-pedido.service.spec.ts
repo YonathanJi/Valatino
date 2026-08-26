@@ -8,11 +8,18 @@ import type { ReembolsosService } from "./reembolsos.service";
  * fuese de 1 € sobre un pedido de 50 €, marcaba el pedido entero como
  * REEMBOLSADO y avisaba al cliente.
  *
- * `yaReembolsado` simula lo que la API ya sabía devuelto antes de llegar el
- * webhook. Sirve para distinguir un reembolso nuevo (hecho en el panel de
- * Stripe) del eco del que acabamos de lanzar nosotros desde el backoffice.
+ * ⚠️⚠️ Y CUBRE EL CAMBIO DEL 2026-08-26: quién avisa al cliente ya NO se decide
+ * leyendo cuánto se sabía devuelto, se decide al ESCRIBIR el apunte.
+ *
+ * `apunteYaCogido` simula que el otro camino —el panel— ya insertó la transacción
+ * de este refund, así que la unicidad de `evento_id` rechaza esta y
+ * `registrarTransaccion` devuelve `false`. Antes esto se simulaba con un
+ * `yaReembolsado` que el servicio consultaba **antes** de actuar, y esa lectura era
+ * la carrera: el 25/08 el webhook leyó 0 mientras el panel ya había apuntado, y el
+ * cliente recibió dos correos idénticos de «Devolución de 3,40 €» con 48 ms de
+ * diferencia.
  */
-function montar(totalPedido: number | null, yaReembolsado = 0) {
+function montar(totalPedido: number | null, { apunteYaCogido = false } = {}) {
   const llamadas = {
     reembolsosTotales: [] as string[],
     transacciones: [] as Array<{
@@ -40,6 +47,9 @@ function montar(totalPedido: number | null, yaReembolsado = 0) {
       historial?: { tipo: string; origen?: string; importe?: number },
     ) => {
       llamadas.transacciones.push({ estado, importe, historial });
+      // `false` = la llave de este refund ya estaba cogida (23505). Es lo que en la
+      // función de verdad hace que no se escriba nada en la línea de tiempo.
+      return !apunteYaCogido;
     },
     getPedidoConItems: async () => ({
       id: "pedido-1",
@@ -70,7 +80,9 @@ function montar(totalPedido: number | null, yaReembolsado = 0) {
   } as unknown as EmailService;
 
   const reembolsos = {
-    totalReembolsado: async () => yaReembolsado,
+    // `totalReembolsado` ya no se dobla: el servicio dejó de consultarlo cuando la
+    // decisión de avisar pasó de leerse a escribirse. Si alguien lo vuelve a llamar
+    // desde aquí, este mock ausente lo hará evidente en vez de disimularlo.
     marcarReembolsadoYReponerStock: async (pedidoId: string) => {
       llamadas.reembolsosTotales.push(pedidoId);
       return true;
@@ -123,58 +135,68 @@ describe("ConfirmacionPedidoService.procesarReembolso", () => {
   });
 
   /**
-   * Stripe notifica charge.refunded también cuando la devolución la pedimos
-   * nosotros, y ese camino ya envió el correo. Sin este corte el cliente
-   * recibiría dos avisos por la misma devolución.
+   * ⭐⭐ EL ECO DEL PANEL: el arreglo del correo duplicado del 2026-08-25.
+   *
+   * Stripe manda `charge.refunded` también cuando la devolución la pedimos nosotros,
+   * y ese camino ya avisó al cliente. Lo que decide que este se calle es que la llave
+   * del refund ya está cogida — no una comparación de importes.
    */
-  it("no reenvía el aviso si el importe ya se conocía (eco del reembolso del panel)", async () => {
-    const { servicio, llamadas } = montar(49.99, 10);
+  it("si el panel ya cogió el apunte, no se reenvía el aviso", async () => {
+    const { servicio, llamadas } = montar(49.99, { apunteYaCogido: true });
 
     await servicio.procesarReembolso(reembolsoDe(10));
 
     expect(llamadas.emails).toEqual([]);
-    // La transacción sí se registra: es la traza contable del evento de Stripe
-    expect(llamadas.transacciones).toHaveLength(1);
   });
 
   /**
-   * ⚠️⚠️ Y TAMPOCO SE ANOTA EN LA LÍNEA DE TIEMPO, por lo mismo que no se manda el
-   * correo: el evento con nombre y artículos ya lo dejó `ReembolsosService` al
-   * cobrarla. Antes se anotaba igual, así que cada devolución del panel escribía
-   * DOS «Devolución» seguidas — y como el importe de `charge.refunded` es el
-   * ACUMULADO del cargo, la segunda contradecía a la primera: «Devolución de
-   * 2,40 €» y debajo «Devolución de 3,02 €», que se lee como 5,42 € devueltos.
+   * ⚠️⚠️ Y EL HISTORIAL SE PASA IGUAL, que es el cambio de contrato y hay que fijarlo.
+   *
+   * Antes este servicio decidía si anotar (`esNuevo ? {...} : undefined`) y por eso
+   * tenía que leer la base primero. Ahora lo pasa SIEMPRE y quien decide es
+   * `registrarTransaccion` al insertar: si pierde la llave, no escribe nada en la
+   * línea de tiempo. La decisión se movió de «leer y luego actuar» a «actuar y que la
+   * base diga», que es lo único sin ventana.
+   *
+   * Que no se dupliquen las líneas de la ficha lo prueba el spec de `InventarioService`,
+   * que es donde vive ese `return false`.
    */
-  it("el eco del panel tampoco duplica la línea de tiempo", async () => {
-    const { servicio, llamadas } = montar(49.99, 10);
+  it("pasa el historial aunque pierda la llave: decidir no es cosa de este servicio", async () => {
+    const { servicio, llamadas } = montar(49.99, { apunteYaCogido: true });
 
     await servicio.procesarReembolso(reembolsoDe(10));
 
-    expect(llamadas.transacciones[0]!.historial).toBeUndefined();
+    expect(llamadas.transacciones).toHaveLength(1);
+    expect(llamadas.transacciones[0]!.historial).toMatchObject({
+      tipo: "reembolso",
+      origen: "webhook",
+    });
   });
 
-  it("sí avisa cuando el acumulado sube (segunda devolución hecha en Stripe)", async () => {
-    const { servicio, llamadas } = montar(49.99, 10);
+  /**
+   * ⭐ La devolución hecha en el panel de STRIPE: nadie cogió la llave, así que este
+   * camino es el único que la cuenta y sí avisa. Es la red de seguridad, y es lo que
+   * se habría perdido si el corte se hubiera hecho mirando la metadata del refund
+   * («esto lo lanzamos nosotros») en vez de la llave: el mismo corte habría callado
+   * al webhook cuando el apunte del backoffice falla, que es justo cuando hace falta.
+   */
+  it("una devolución hecha en Stripe sí avisa, y se anota con el acumulado", async () => {
+    const { servicio, llamadas } = montar(49.99);
 
     await servicio.procesarReembolso(reembolsoDe(20));
 
     expect(llamadas.emails).toEqual([{ tipo: "reembolso", importe: 20 }]);
-  });
-
-  /**
-   * ⭐ Cuando la devolución se hizo en el panel de STRIPE, este evento es lo único
-   * que la cuenta, así que sí se anota — y con lo devuelto de nuevo (20 − 10),
-   * no con el acumulado que trae Stripe. La transacción sigue guardando el
-   * acumulado, que es de donde sale el total devuelto del pedido.
-   */
-  it("una devolución hecha en Stripe se anota con lo devuelto de nuevo", async () => {
-    const { servicio, llamadas } = montar(49.99, 10);
-
-    await servicio.procesarReembolso(reembolsoDe(20));
-
     expect(llamadas.transacciones[0]).toMatchObject({
-      importe: 20, // el acumulado, tal como lo dice Stripe
-      historial: { tipo: "reembolso", origen: "webhook", importe: 10 }, // 20 − 10
+      importe: 20,
+      /**
+       * ⚠️ EL ACUMULADO, y antes era el incremento (20 − 10 = 10). Cambió a
+       * propósito: el incremento se calculaba restando lo que decía aquella lectura,
+       * y esa lectura ya no existe. Si este apunte llega a escribirse es porque nadie
+       * más contó esta devolución, así que el acumulado del cargo ES lo devuelto que
+       * falta por contar. Cuando gana el panel, su propio evento sí dice el
+       * incremento — ver `ReembolsosService`.
+       */
+      historial: { tipo: "reembolso", origen: "webhook", importe: 20 },
     });
   });
 

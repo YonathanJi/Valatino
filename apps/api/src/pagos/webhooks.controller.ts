@@ -417,10 +417,43 @@ export class PagosController {
           ? charge.payment_intent
           : charge.payment_intent?.id;
 
+      /**
+       * ⭐⭐ LA LLAVE DEL APUNTE ES EL ID DEL REFUND, NO EL DEL EVENTO, y ese cambio
+       * es lo que arregla el correo duplicado del 2026-08-25.
+       *
+       * El panel escribe su transacción con `evento_id = refund.id`. Si el webhook
+       * usa el id del EVENTO (`evt_…`), las dos filas son distintas, las dos entran,
+       * y el cliente recibe dos veces «Devolución de 3,40 €». Con la misma llave, la
+       * unicidad de `evento_id` decide quién gana: el segundo se lleva un 23505,
+       * `registrarTransaccion` devuelve `false` y se calla.
+       *
+       * ⚠️⚠️ Y ESTO NO ES «AFINAR EL MARGEN», ES CERRARLO. Lo que había era una
+       * carrera: el webhook comparaba importes contra una lectura que puede
+       * adelantarse al propio commit del panel —medido: el panel apuntó a las
+       * 21:59:21.913 y el webhook ya había leído 0—. Cualquier arreglo basado en leer
+       * antes de decidir tiene la misma ventana. La unicidad no la tiene.
+       *
+       * ⚠️ Y la red de seguridad SIGUE EN PIE, que es la otra mitad: si la devolución
+       * se hizo desde el panel de Stripe, o si el apunte del backoffice falló, nadie
+       * ha cogido la llave y el webhook la coge él — así que el cliente se entera
+       * igual. Por eso NO se usa la metadata del refund para detectar «esto es mío»:
+       * eso habría callado al webhook precisamente cuando es el único que queda.
+       *
+       * ⚠️ La reentrega del mismo evento la sigue parando `eventoYaProcesado(event.id)`
+       * de más arriba, que es independiente de esta llave. Y `payload_raw` guarda el
+       * evento entero, así que no se pierde nada de la traza: solo cambia la llave.
+       *
+       * `refunds.data[0]` es el refund más reciente del cargo en el instante de ESTE
+       * evento —Stripe los devuelve del más nuevo al más viejo y el `data` del evento
+       * es una foto de ese momento—, o sea el que lo disparó. Si no viniera la lista,
+       * se cae al id del evento: peor llave, pero mejor que no apuntar nada.
+       */
+      const refundQueLoDisparo = charge.refunds?.data?.[0]?.id;
+
       if (paymentIntentId) {
         await this.confirmacionPedido.procesarReembolso({
           proveedor: "stripe",
-          eventoId: event.id,
+          eventoId: refundQueLoDisparo ?? event.id,
           tipoEvento: event.type,
           referenciaPago: paymentIntentId,
           importe: (charge.amount_refunded ?? 0) / 100,
