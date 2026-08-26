@@ -39,7 +39,7 @@
 
 **Lo que falta para cerrar el paso a producción:**
 1. **Correo: ✅ resuelto y comprobado por Jonathan** — llega a la **bandeja de entrada**, con `From: Valatino <pedidos@valatino.es>` y `Reply-To: jonathanduqee@gmail.com`. Quedan dos mejoras **opcionales**, no bloqueantes (ver la sesión de abajo):
-   - **TXT `@`** = `v=spf1 include:sendgrid.net ~all` — el dominio del remitente no declara SPF; el subdominio de envío sí. El DMARC ya pasa por DKIM, pero varios filtros miran esto.
+   - ~~**TXT `@`** = `v=spf1 include:sendgrid.net ~all`~~ — **YA ESTÁ PUESTO. Medido el 2026-08-26** por DNS: el apex tiene ese TXT exacto. Alguien lo añadió y este fichero no se enteró, que es la cuarta vez que pasa. Al dar de alta Search Console conviven dos TXT en `@` —el SPF y el `google-site-verification`— y **los dos hacen falta**.
    - **MX** — `valatino.es` sigue sin poder **recibir** correo. Resolverlo (reenvío de GoDaddy, Zoho o Workspace) permite **quitar `EMAIL_REPLY_TO`** y deja de ser una señal de spam.
    - **Remitente del correo de acceso**: sigue saliendo por **Supabase Auth** con su propio remitente, que no es del dominio → por eso el cliente marca ese correo como «no comprobado». Se cambia en Supabase → Project Settings → Auth → SMTP Settings.
 2. **Quitar `https://valatino-api-steel.vercel.app` de `CORS_ORIGIN`** (y de la lista de Supabase) cuando todo esté rodado. **Comprobado el 2026-08-12 contra producción** qué hay hoy: se admiten `https://valatino.es`, `https://www.valatino.es`, `https://valatino-api-steel.vercel.app` y `http://localhost:3000`; las previews de Vercel **no** (`CORS_VERCEL_PREVIEW_PREFIX` sin poner) y un origen ajeno se deniega. El valor a dejar es `https://valatino.es,https://www.valatino.es,http://localhost:3000`. ⚠️ Es del **dashboard de Render** (`sync: false`), y **cambiarlo por API no basta**: hay que forzar un deploy o guardarlo en el panel. Y la misma lista alimenta el middleware anti-CSRF, así que quitar el origen le corta también las escrituras — que es justo lo que se quiere.
@@ -137,7 +137,18 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
 6. 🟡 **Cinco funciones fiscales con `search_path` mutable** — `get_advisors` las lista: `factura_huella`, `factura_numero`, `factura_correlativo_inicial`, `serie_de_tipo`, `nif_forma_valida`. La constitución exige fijarlo.
 7. 🟡 Los **cinco secretos sin revocar**. La `sb_secret_…` salta el RLS.
 8. 🟡 El **ámbito de envío contradicho**: los términos prometen península y Baleares, el checkout acepta las 52 provincias.
-9. 🆕 **Que la tienda salga en Google**: se busca «valatino» y no aparece. Es lo siguiente que pidió Jonathan.
+9. 🆕 **Que la tienda salga en Google.** Hecho lo que es código y lo que era de Jonathan:
+
+   - `robots.txt` y `sitemap.xml` **devolvían 404** y ya no: el mapa sale con **34 URL** (5 fijas + las 29 fichas activas) y aguanta con la API dormida (build con `ECONNREFUSED` → 40/40).
+   - Datos estructurados: `OnlineStore` + `WebSite` en todas las páginas, `Product` con precio y disponibilidad reales + `BreadcrumbList` en las fichas, y el comercio con domicilio y NIF en `/contacto` (ahí ya se llamaba a la API; **desde un layout NO se puede**, ver la cicatriz del build).
+   - ⚠️ La tienda **ya era indexable**: ni `noindex` (solo en el 404, correcto), ni bloqueo, canonical bien puestos y Googlebot recibe 200. Lo que faltaba era por dónde descubrirla.
+   - ✅ **Search Console dado de alta el 2026-08-26**, propiedad de tipo **Dominio** verificada por DNS con el camino automático de GoDaddy. Comprobado por DNS que en `@` conviven los **dos** TXT: `google-site-verification=JW0Ib5…` y el SPF de SendGrid.
+   - ⚠️⚠️ **Si algún día se mueve el DNS fuera de GoDaddy, hay que llevarse los DOS TXT.** Perder el de Google tira la verificación; perder el SPF empeora la entrega de los correos de pedidos.
+   - ⚠️ En una propiedad de tipo Dominio el **único** método de verificación es el DNS, así que el consejo de Google de «añade varios métodos» no aplica aquí. No hay segundo método que poner.
+
+   **Y la expectativa, que es la parte que no se arregla con código**: «Valatino» está a una letra de **Valentino** y hay al menos tres homónimos con presencia (un productor de música en SoundCloud, un caballo, una página de Facebook). Con un dominio de tres semanas y sin enlaces entrantes, salir por la marca a secas no es cuestión de etiquetas. Lo primero que debería aparecer es «valatino.es» y «valatino tienda latinoamericana».
+
+   **Pendiente de decidir con Jonathan**: si Instagram y TikTok son de la tienda (Search Console ofrece añadirlos), declararlos con `sameAs` en la ficha del comercio — es una de las señales de marca más fuertes y es un cambio de dos líneas. Y un perfil de Google Business, que para un comercio con domicilio es la vía más directa a existir como entidad.
 
 ### Cierre anterior — 2026-08-25
 
@@ -2764,7 +2775,7 @@ Supresiones:          limpias · Dominio autenticado: valid=True, los 3 CNAME en
 
 1. **El dominio se registró el mismo día.** La antigüedad es una de las señales de spam con más peso y **no la arregla ninguna configuración**: mejora en días o semanas con envío constante y destinatarios que abren y marcan como legítimo. Hotmail/Outlook es especialmente duro con dominios nuevos.
 2. ⚠️ **`valatino.es` no tiene MX**, así que **envía correo pero no puede recibirlo** — patrón clásico de dominio desechable, y penaliza. Es el mismo problema que obligó al `Reply-To`, visto desde el otro lado: resolverlo mata dos pájaros.
-3. **El dominio del remitente no declara SPF.** `em6156.valatino.es` (el de envío) sí tiene `v=spf1 include:sendgrid.net ~all`, pero el apex no tiene TXT ninguno. No es lo que hace pasar el DMARC —eso lo hace el DKIM, que ya alinea— pero varios filtros lo miran.
+3. ~~**El dominio del remitente no declara SPF.**~~ **RESUELTO, comprobado el 2026-08-26**: el apex tiene `v=spf1 include:sendgrid.net ~all`. Lo que sigue debajo se conserva porque explica POR QUÉ hacía falta. Cuando se escribió, el apex no tenía TXT ninguno. No es lo que hace pasar el DMARC —eso lo hace el DKIM, que ya alinea— pero varios filtros lo miran.
 
 ⚠️ **«No deja responder, solo reenviar» casi seguro NO es nuestro**: Outlook **bloquea la respuesta y los enlaces en los mensajes de junk** hasta que se marca «Es correo legítimo». Pendiente de confirmar leyendo la cabecera `Reply-To` en el origen del mensaje.
 
