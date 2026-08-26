@@ -169,9 +169,15 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
    3. Un par de menciones reales (grupos, directorios de tiendas latinas). **No** directorios de spam: hacen daño.
    4. Compartir por WhatsApp NO cuenta: no se puede rastrear.
 
-   ⚠️ El sitemap quedó en «No se ha podido obtener» al enviarlo, con **«Última lectura» vacía** — o sea que Google no lo había leído todavía, no que fallara. Descartado por medición que sea nuestro: 200, `Content-Type: application/xml`, 0,65 s, sin redirecciones, XML bien formado, 34 URL todas `https://valatino.es`, 0 con `www`, 0 duplicadas, 34 `lastmod` válidos. **No reenviarlo**: reenviar lo devuelve al final de la cola.
+   ✅ **El sitemap quedó en «Correcto» con 34 páginas descubiertas** el mismo 26/08, minutos después de enviarlo y sin tocar nada.
 
-   ⚠️ Y si mañana SIGUIERA fallando, el primer sospechoso es nuestro y está en `app/sitemap.ts`: el mapa pide los productos a la API y el corte de espera es de **20 s**, más de lo que aguanta el lector de Google. Con la API dormida eso podría dar un fallo real. Bajarlo sería lo primero.
+   ⚠️ Y la lectura del susto merece quedarse, porque volverá a pasar: al enviarlo salió **«No se ha podido obtener»** con 0 páginas y tipo «Desconocido». **La pista de que NO era un fallo nuestro era que «Última lectura» estaba VACÍA** — si Google lo hubiera leído y rechazado, ahí habría fecha y motivo. Sin fecha significa «todavía en cola». **No se reenvía**: reenviar lo devuelve al final de la cola. Se resolvió solo, y «Tipo» pasó de Desconocido a Sitemap cuando de verdad lo leyó.
+
+   ⚠️ Antes de esperar se descartó por medición que fuera nuestro. Descartado por medición que sea nuestro: 200, `Content-Type: application/xml`, 0,65 s, sin redirecciones, XML bien formado, 34 URL todas `https://valatino.es`, 0 con `www`, 0 duplicadas, 34 `lastmod` válidos. **No reenviarlo**: reenviar lo devuelve al final de la cola.
+
+   ⚠️ **Y queda un sospechoso vivo para la próxima, que NO se llegó a tocar**: el mapa pide los productos a la API y el corte de espera de `app/sitemap.ts` es de **20 s**, más de lo que aguanta el lector de Google. Esta vez no importó —la API estaba caliente y el mapa vino de caché en 0,65 s— pero con la API dormida y la caché caducada podría dar un fallo REAL de «No se ha podido obtener». Si algún día el sitemap falla **con fecha en «Última lectura»**, ese corte es lo primero que hay que bajar.
+
+   ⚠️ Ojo con leer el número: **«34 descubiertas» no es «34 indexadas»**. Google sabe que existen; rastrearlas y decidir es lo siguiente, y en *Páginas* algunas se quedarán un tiempo en «Detectada, actualmente sin indexar».
 
    **Pendiente de decidir con Jonathan**: si Instagram y TikTok son de la tienda (Search Console ofrece añadirlos), declararlos con `sameAs` en la ficha del comercio — es una de las señales de marca más fuertes y es un cambio de dos líneas. Y un perfil de Google Business, que para un comercio con domicilio es la vía más directa a existir como entidad.
 
