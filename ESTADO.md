@@ -148,6 +148,31 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
 
    **Y la expectativa, que es la parte que no se arregla con código**: «Valatino» está a una letra de **Valentino** y hay al menos tres homónimos con presencia (un productor de música en SoundCloud, un caballo, una página de Facebook). Con un dominio de tres semanas y sin enlaces entrantes, salir por la marca a secas no es cuestión de etiquetas. Lo primero que debería aparecer es «valatino.es» y «valatino tienda latinoamericana».
 
+   ### ⭐⭐ Y EL DIAGNÓSTICO DE VERDAD, dicho por Google el 2026-08-26
+
+   La Inspección de URLs de la portada contestó la pregunta que no se podía contestar desde fuera:
+
+   ```
+   La página no está indexada: Google no reconoce esta URL
+   Sitemaps          → No se ha detectado ningún sitemap de referencia
+   Página de referencia → No se ha detectado NINGUNA
+   ```
+
+   ⚠️⚠️ **NO ERA UN PROBLEMA DE POSICIONES: la tienda no estaba en el índice.** Google no sabía que `valatino.es` existía. Y la última línea es la causa: **cero enlaces entrantes.** Nadie enlazaba a la tienda, que es como Google descubre lo nuevo.
+
+   ⭐ Eso encaja con todo lo medido: no había ningún bloqueo técnico —ni `noindex`, ni robots mal, canonical correctos, Googlebot a 200— y aun así invisible. **El trabajo técnico de hoy era necesario y no era la causa.** Conviene no confundir las dos cosas la próxima vez que algo «no aparezca».
+
+   Se pidió indexación de la portada: entra en cola prioritaria y salta el problema del descubrimiento (1–3 días). Pero **sin enlaces un sitio entra flojo y puede volver a caerse**, así que lo que falta ya no es código:
+
+   1. El enlace a `valatino.es` en la biografía de Instagram y TikTok. Son `nofollow` —no pasan autoridad— pero sirven de puerta y de señal de marca.
+   2. Perfil de Google Business, con el nombre y el NIF que ya están en el aviso legal.
+   3. Un par de menciones reales (grupos, directorios de tiendas latinas). **No** directorios de spam: hacen daño.
+   4. Compartir por WhatsApp NO cuenta: no se puede rastrear.
+
+   ⚠️ El sitemap quedó en «No se ha podido obtener» al enviarlo, con **«Última lectura» vacía** — o sea que Google no lo había leído todavía, no que fallara. Descartado por medición que sea nuestro: 200, `Content-Type: application/xml`, 0,65 s, sin redirecciones, XML bien formado, 34 URL todas `https://valatino.es`, 0 con `www`, 0 duplicadas, 34 `lastmod` válidos. **No reenviarlo**: reenviar lo devuelve al final de la cola.
+
+   ⚠️ Y si mañana SIGUIERA fallando, el primer sospechoso es nuestro y está en `app/sitemap.ts`: el mapa pide los productos a la API y el corte de espera es de **20 s**, más de lo que aguanta el lector de Google. Con la API dormida eso podría dar un fallo real. Bajarlo sería lo primero.
+
    **Pendiente de decidir con Jonathan**: si Instagram y TikTok son de la tienda (Search Console ofrece añadirlos), declararlos con `sameAs` en la ficha del comercio — es una de las señales de marca más fuertes y es un cambio de dos líneas. Y un perfil de Google Business, que para un comercio con domicilio es la vía más directa a existir como entidad.
 
 ### Cierre anterior — 2026-08-25
