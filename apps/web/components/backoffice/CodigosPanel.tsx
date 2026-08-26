@@ -9,6 +9,7 @@ import { Input } from "@components/ui/input";
 import { Label } from "@components/ui/label";
 import { useNivel } from "@components/backoffice/PermisosProvider";
 import { formatEUR } from "@lib/utils";
+import { finDelDiaEnEspana } from "@lib/tiempo/dia-de-la-tienda";
 import type { CodigoDescuento, TipoCodigoDescuento } from "@valatino/types";
 
 /**
@@ -80,7 +81,20 @@ export function CodigosPanel() {
           descripcion: form.descripcion.trim() || null,
           minimo_articulos: numeroONulo(form.minimo_articulos),
           usos_maximos: numeroONulo(form.usos_maximos),
-          valido_hasta: form.valido_hasta ? new Date(form.valido_hasta).toISOString() : null,
+          /**
+           * ⚠️⚠️ ESTO ERA `new Date(form.valido_hasta).toISOString()` Y REGALABA CERO
+           * DÍAS. Un `<input type="date">` da `"2026-08-26"`, y `new Date` de eso es
+           * medianoche UTC del **principio** del 26; la base compara
+           * `now() > valido_hasta`, así que el código moría justo cuando empezaba el
+           * día que llevaba escrito.
+           *
+           * No es teoría: los tres primeros códigos de la tienda se crearon así y los
+           * tres estaban caducados a la mañana siguiente, con su fecha aún puesta.
+           *
+           * `finDelDiaEnEspana` cierra el día a las 23:59:59.999 de **Europe/Madrid**,
+           * que es el calendario en el que razona la base (`dia_fiscal`).
+           */
+          valido_hasta: finDelDiaEnEspana(form.valido_hasta),
         }),
       });
       toast.success(`Código «${form.codigo.trim()}» creado`);
@@ -349,6 +363,13 @@ export function CodigosPanel() {
                     value={form.valido_hasta}
                     onChange={(e) => setForm({ ...form, valido_hasta: e.target.value })}
                   />
+                  {/* Se dice qué va a pasar, porque «hasta el 26» admite dos lecturas
+                      y la tienda ya se comió la mala tres veces. */}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {form.valido_hasta
+                      ? "Ese día cuenta entero: el código deja de valer a medianoche."
+                      : "Sin fecha, el código no caduca."}
+                  </p>
                 </div>
               </div>
 
