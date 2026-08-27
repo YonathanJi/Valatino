@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { SITIO } from "@lib/seo/metadatos";
+import { RUTAS_CERRADAS } from "@lib/seo/mapa-del-sitio";
 
 /**
  * El `robots.txt` de la tienda, que **hasta hoy devolvía un 404**.
@@ -29,18 +30,14 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: [
-          // Privadas o inútiles para quien busca, en este orden de importancia.
-          "/checkout",
-          "/carrito",
-          "/cuenta",
-          "/backoffice",
-          "/login",
-          "/registro",
-          "/api/",
-          // El callback de acceso lleva el código de un solo uso en la URL.
-          "/auth/",
-        ],
+        /**
+         * ⚠️⚠️ LA LISTA NO SE ESCRIBE AQUÍ: viene de `@lib/seo/mapa-del-sitio`,
+         * que es el mismo sitio del que la lee el mapa para NO anunciarlas.
+         * Prohibir aquí una ruta y ofrecerla allí es contradecirse, y Search
+         * Console lo marca como aviso. Antes eran dos listas: esta, y un
+         * comentario en prosa dentro de `sitemap.ts`.
+         */
+        disallow: [...RUTAS_CERRADAS],
       },
     ],
     sitemap: `${SITIO}/sitemap.xml`,
