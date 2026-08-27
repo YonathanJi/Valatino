@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-26 (noche — la 084 verificada con dinero real, y dos arreglos que salieron de mirar los datos: la fecha de los códigos y el correo duplicado)
+**Última actualización**: 2026-08-27 (noche — el mapa del sitio servía 5 URL en vez de 34 y este fichero lo daba por bueno; arreglado, probado en rojo y desplegado)
 
 ---
 
@@ -48,7 +48,131 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-26
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-27
+
+### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A PRODUCCIÓN. Y HOY LA REGLA SE COBRÓ **ESTE FICHERO**
+
+La sesión empezó con una pregunta de Jonathan —«¿cómo vamos con lo de Google?»— y se contestó **midiendo producción en vez de leer esto**. De ahí salió todo, porque lo medido **contradecía lo que este fichero decía dos días antes**. Si se hubiera contestado leyendo el cierre del 26/08, la respuesta habría sido «va bien» y habría sido falsa.
+
+**La línea base al cerrar** (medida, no de memoria):
+
+```
+pedidos 5 · pedido_items 17 · pedido_iva 9 · facturas_emitidas 24 · factura_eventos 26
+pedido_eventos 80 (10 de tipo «factura») · productos 30 (29 activos, 29 con slug)
+```
+
+Idénticas a las del cierre del 26/08: **no ha entrado ningún pedido**. Todo lo de hoy es de la web, nada toca dinero ni lo fiscal.
+
+### 🔴 EL MAPA DEL SITIO SERVÍA **5 URL EN VEZ DE 34**, Y ESTE FICHERO LO DABA POR BUENO
+
+Medido el 27/08 a las 19:12 UTC contra `https://valatino.es/sitemap.xml`: **5 URL, los 29 productos desaparecidos.** `robots.txt` bien, la tienda bien, la API despierta y devolviendo los 29 en 1,95 s. Solo el mapa.
+
+#### La forense, porque toda la pista fue un dato
+
+⭐ **El `<lastmod>` de la portada es `new Date()` del instante de la generación**, así que el propio XML dice cuándo se coció: `2026-08-27T19:12:01.143Z`. O sea **generado durante la propia medición**, no caché rancia. Y la API contestó `/health` en 0,4 s **un minuto después**: la petición del mapa fue **lo primero que tocó la API ese día**, la encontró dormida, y de paso la despertó. El mapa amputado quedó cacheado con `revalidate = 3600`, o sea **una hora**.
+
+⚠️ Al desplegar se confirmó el mecanismo en directo: el mapa viejo aguantó tres sondeos **con el mismo sello de generación** (19:12:01) y luego saltó al del build nuevo (19:40:07). Era exactamente la entrada cacheada.
+
+#### LOS DOS FALLOS, Y SON EL MISMO
+
+Los dos son **una respuesta a medias leída como una respuesta completa** — la avería que dejó las tres páginas legales en blanco el 22–23/08, con otro disfraz.
+
+1. **`[]` significaba dos cosas.** Si el `fetch` fallaba se devolvía lista vacía, así que «no pude preguntar» y «no hay productos» eran indistinguibles. Render contesta un **502/503 rápido** mientras arranca, y eso se leía como «la tienda no tiene catálogo». Un despliegue borra la caché ISR → la primera petición regenera → API dormida → una hora de mapa vacío.
+
+2. **Se pedían 200 productos y la API devuelve 50 como máximo.** `productos.service.ts:45` hace `Math.min(50, …)` y **no avisa**: contesta 200, con `limit: 50` en el cuerpo y un `total` que dice cuántos había de verdad. Con 29 productos no se nota nada. **Latente, no roto — todavía.**
+
+#### Y POR QUÉ NINGUNO TENÍA TEST: NO FUE DESCUIDO, FUE ESTRUCTURAL
+
+⚠️⚠️ El `testMatch` de `apps/web/jest.config.js` solo mira `lib/**` y `components/**`. **Todo lo que viva en `app/` es intesteable por construcción.** El mapa y `robots.txt` vivían ahí. No es que faltara el test: es que no había forma de escribirlo.
+
+⭐ **LA REGLA QUE SALE DE ESTO: si una lógica importa, vive en `lib/`.** `app/` es para envoltorios de cuatro líneas y configuración de ruta.
+
+#### Lo que se hizo — commit `386beb1`, desplegado y verificado
+
+- Lógica movida a **`apps/web/lib/seo/mapa-del-sitio.ts`**. `app/sitemap.ts` se queda en cuatro líneas.
+- **`null` ≠ `[]`.** Un `!res.ok` cuenta como «no se pudo», no como «no hay nada».
+- **Se reintenta** (2 intentos, 5 s entre ellos). El primer intento es justo el que DESPIERTA la API, o sea el único que estaba condenado a fallar; rendirse ahí era rendirse en el peor sitio.
+- **Se pagina de verdad** contra el `total` que declara la API, de 50 en 50. Comprobado que la API **respeta `page`** (`page=1` y `page=2` devuelven fichas distintas, offset correcto).
+- **`revalidate` 3600 → 300.** El precio de equivocarse es asimétrico: un mapa correcto que se repinta antes no cuesta nada; uno amputado y cacheado es una hora de daño.
+- **Dos `console.error`.** Lo que hizo que pasara desapercibido no fue la lista vacía: fue que **no dejaba rastro en ningún sitio**.
+- **Las rutas cerradas pasan a ser UNA lista** (`RUTAS_CERRADAS`), compartida con `app/robots.ts`. Antes eran dos: la de robots y **un comentario en prosa** dentro de `sitemap.ts` que decía «NO van /carrito, /checkout…». El mismo dato en dos sitios, uno en forma de buena intención.
+- **El `revalidate` de la ruta va como literal porque Next lo exige** (configuración de segmento analizable estáticamente). Duplicación forzada → **se vigila con un test** que falla si el literal y `REVALIDAR_S` dejan de coincidir.
+
+⚠️ **NO se puso `maxDuration`, y es una decisión, no un olvido.** Los dos intentos suman hasta 35 s, más de lo que dura una función de Vercel por defecto — pero esa clave en un fichero de metadatos está sin probar, y si Next no la acepta **el que se cae es el build, o sea la tienda entera**. No hace falta: en el build no hay límite de función (y ahí es donde se cuece el mapa que se despliega), y si una regeneración en caliente se pasa de tiempo **Next sigue sirviendo la versión anterior**, que es el mapa bueno. Tocarlo solo si algún día se mide que el mapa se queda atrás de verdad.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests nuevos | **19**, y **VISTOS EN ROJO** reintroduciendo los dos fallos: 5 se pusieron rojos y mapean uno a uno |
+| Suite web | **445** pasan (eran 426) |
+| `type-check` | limpio |
+| `next build` | **verde** — era lo único que podía tumbar la tienda |
+| Mapa cocido en el build | **34 URL** en `.next/server/app/sitemap.xml.body` (5 fijas + 29 fichas) |
+| `robots.txt` cocido | idéntico al que servía producción |
+| Mapa vivo tras desplegar | **34 URL**, generado 19:40:07Z |
+| Las tres legales tras desplegar | **con el NIF desde el primer segundo** |
+
+⭐ Las legales no nacieron vacías esta vez, y **no fue suerte**: se comprobó que la API estuviera caliente **antes** de empujar, así que el build encontró el catálogo. La cicatriz de «cada despliegue de web deja las legales en blanco 5 min» tiene esa contramedida: mirar `/health` primero.
+
+### ⭐⭐ LAS TRES LECCIONES. NINGUNA ES DE CÓDIGO
+
+**1. «Aguanta con la API dormida» era FALSO, y el test que lo bendijo medía otra cosa.** El cierre del 26/08 decía eso citando como prueba un build con `ECONNREFUSED` que dio 40/40 páginas. Y es verdad que aguantó… **en el sentido de no reventar**. No aguantó en el sentido de decir la verdad: producía un mapa sin catálogo. **Un test que comprueba «no revienta» no comprueba «dice la verdad».** Es primo de la regla de validar que la comprobación sale roja: hay que preguntarse *qué* está fijando exactamente.
+
+**2. Lo que no se puede testear, no se testea.** Nadie decidió dejar el mapa sin pruebas: el runner no podía verlo. Cuando algo importante no tiene tests, la primera pregunta no es «¿por qué no lo escribieron?» sino **«¿se podía escribir?»**.
+
+**3. Search Console dice «Correcto» de un mapa amputado.** El XML era válido, así que el semáforo estaba verde. **Leer ese verde como «el mapa está bien» es leer el indicador equivocado**; el que dice la verdad es el número de páginas descubiertas. 34 y 5 dan los dos «Correcto».
+
+### ✅ Y LO QUE SE SALVÓ POR LOS PELOS
+
+La captura de Search Console del 27/08 mostraba **«Última lectura: 26 ago»**: Google leyó el mapa el 26, cuando tenía las 34 buenas, y **no había vuelto a leerlo**. O sea que **el mapa amputado no lo vio nadie**. El 34 que enseñaba el panel era su recuerdo, no lo que se servía. La bala no se disparó.
+
+⚠️ Y ahí hay una trampa de lectura para la próxima: **el número de Search Console es de la última lectura, no de ahora.** Para saber qué se sirve hoy hay que pedir el XML.
+
+### 🆕 LO QUE SALIÓ DE PASO, Y ES LO MÁS URGENTE QUE QUEDA
+
+⚠️⚠️ **LA TIENDA ESTÁ A 21 PRODUCTOS DE ROMPERSE EN SILENCIO EN CINCO SITIOS.** El recorte de `Math.min(50, …)` de `/productos` no era solo del mapa. Medido: pedir `limit=200` devuelve `limit: 50` en el cuerpo. Y estos piden más de lo que van a recibir:
+
+| Quién | Pide | Qué pasa al pasar de 50 productos activos |
+|---|---|---|
+| `components/storefront/ProductoGrid.tsx:11` | `limit=50` | **la portada deja de enseñar el resto del catálogo** |
+| `app/backoffice/catalogo/page.tsx:40` | `limit=100` → 50 | el panel de catálogo se queda corto |
+| `app/backoffice/inventario/page.tsx:26` | `limit=100` → 50 | el inventario se queda corto |
+| `app/backoffice/compras/nueva/page.tsx:88` | `limit=100` → 50 | **no se puede elegir un producto pasado el 50** al crear una compra |
+| `app/(storefront)/productos/[slug]/page.tsx:32` | `limit=100` → 50 | hermanos de variante; riesgo bajo, las familias son pequeñas |
+
+⭐ **Ninguno da error.** Todos reciben un 200 y se creen que les dieron todo. Hoy hay **29 activos**, así que es invisible; a 51 se rompe la portada de la tienda.
+
+⚠️ Y `ProductoGrid` tiene además **el mismo fallo de `[]` que se acaba de arreglar en el mapa**: `catch { return [] }` pinta «No hay productos disponibles en este momento» cuando la API no contesta. Ahí duele menos —el mensaje se ve, y `revalidate` es de 60 s, no de una hora— pero es la misma familia y está en la página más importante de la tienda.
+
+**Dos formas de arreglarlo, y la primera es mejor:** subir el tope de `productos.service.ts:45` no resuelve nada de fondo (el siguiente número también será un tope silencioso). Lo que resuelve es que **quien pide compare lo recibido contra el `total` que la API ya devuelve** — exactamente lo que hace ahora `mapa-del-sitio.ts`, y se puede copiar de ahí. Otros topes medidos: `/admin/compras` recorta a 100 (`compras.controller.ts:126`); `/admin/pedidos` **no recorta**.
+
+### Estado de Google al cerrar el 27/08
+
+| | |
+|---|---|
+| Propiedad | `valatino.es`, tipo **Dominio**, verificada por DNS |
+| TXT en `@` | **2**: `google-site-verification` y el SPF de SendGrid — los dos hacen falta |
+| `robots.txt` | 200, con el mapa anunciado y las 8 rutas cerradas |
+| `sitemap.xml` | **34 URL** en vivo (5 + 29) |
+| Search Console → Sitemaps | **Correcto · 34 descubiertas · última lectura 26 ago** |
+| Datos estructurados | `OnlineStore` + `WebSite` en todas, `Product` + `BreadcrumbList` en fichas, comercio con NIF en `/contacto` |
+| Indexado | **nada todavía**, y es lo esperable: 2 días y cero enlaces entrantes |
+
+### Lo que falta para Google, y NO es código
+
+El diagnóstico del 26/08 sigue en pie y es el que manda: **«Página de referencia: NINGUNA»** — cero enlaces entrantes. Lo técnico está hecho; **no era la causa**.
+
+1. **`valatino.es` en la biografía de Instagram y TikTok.** Cinco minutos, y es la puerta que no existe. Son `nofollow` —no pasan autoridad— pero sirven de puerta y de señal de marca.
+2. **Perfil de Google Business**, con el nombre y el NIF que ya están en el aviso legal.
+3. Un par de menciones reales (grupos, directorios de tiendas latinas). **No** directorios de spam: hacen daño.
+4. Compartir por WhatsApp **no cuenta**: no se puede rastrear.
+
+**Pendiente de decidir con Jonathan** (preguntado dos veces, sin respuesta todavía): si Instagram y TikTok **son de la tienda**, declararlos con `sameAs` en `comercio()` de `lib/seo/datos-estructurados.ts` — dos líneas y un test. Y si quiere perfil de Google Business.
+
+⚠️ **En 2–3 días mirar Search Console → Páginas**, no Sitemaps: ahí se ve cuántas de las 34 entraron de verdad. Y **«34 descubiertas» no es «34 indexadas»**; algunas se quedarán un tiempo en «Detectada, actualmente sin indexar».
+
+⚠️ Y un dato de contexto que salió al sondear el buscador: **«Valatino» tiene homónimos con presencia** —un caballo de carreras en HorseTelex, un perfil de Facebook, un artista en SoundCloud— además de estar a una letra de Valentino. Razón de más para las señales propias de marca. Lo primero que debería aparecer es «valatino.es» y «valatino tienda latinoamericana», no la marca a secas.
+
+### Cierre anterior — 2026-08-26
 
 ### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A LA BASE. Y HOY LA REGLA SE PAGÓ SOLA
 
@@ -139,7 +263,8 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
 8. 🟡 El **ámbito de envío contradicho**: los términos prometen península y Baleares, el checkout acepta las 52 provincias.
 9. 🆕 **Que la tienda salga en Google.** Hecho lo que es código y lo que era de Jonathan:
 
-   - `robots.txt` y `sitemap.xml` **devolvían 404** y ya no: el mapa sale con **34 URL** (5 fijas + las 29 fichas activas) y aguanta con la API dormida (build con `ECONNREFUSED` → 40/40).
+   - `robots.txt` y `sitemap.xml` **devolvían 404** y ya no: el mapa sale con **34 URL** (5 fijas + las 29 fichas activas).
+   - 🔴 **CORREGIDO EL 27/08 — lo que seguía aquí era FALSO.** Esta línea decía que el mapa «aguanta con la API dormida», y citaba como prueba un build con `ECONNREFUSED` que dio 40/40 páginas. **Aguantaba en el sentido de no reventar, no en el de decir la verdad**: con la API dormida producía un mapa SIN CATÁLOGO, y el 27/08 se midió sirviendo **5 URL en vez de 34**. Ver el cierre del 27/08, arriba. Un test que comprueba «no revienta» no comprueba «dice la verdad».
    - Datos estructurados: `OnlineStore` + `WebSite` en todas las páginas, `Product` con precio y disponibilidad reales + `BreadcrumbList` en las fichas, y el comercio con domicilio y NIF en `/contacto` (ahí ya se llamaba a la API; **desde un layout NO se puede**, ver la cicatriz del build).
    - ⚠️ La tienda **ya era indexable**: ni `noindex` (solo en el 404, correcto), ni bloqueo, canonical bien puestos y Googlebot recibe 200. Lo que faltaba era por dónde descubrirla.
    - ✅ **Search Console dado de alta el 2026-08-26**, propiedad de tipo **Dominio** verificada por DNS con el camino automático de GoDaddy. Comprobado por DNS que en `@` conviven los **dos** TXT: `google-site-verification=JW0Ib5…` y el SPF de SendGrid.
@@ -175,7 +300,7 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
 
    ⚠️ Antes de esperar se descartó por medición que fuera nuestro. Descartado por medición que sea nuestro: 200, `Content-Type: application/xml`, 0,65 s, sin redirecciones, XML bien formado, 34 URL todas `https://valatino.es`, 0 con `www`, 0 duplicadas, 34 `lastmod` válidos. **No reenviarlo**: reenviar lo devuelve al final de la cola.
 
-   ⚠️ **Y queda un sospechoso vivo para la próxima, que NO se llegó a tocar**: el mapa pide los productos a la API y el corte de espera de `app/sitemap.ts` es de **20 s**, más de lo que aguanta el lector de Google. Esta vez no importó —la API estaba caliente y el mapa vino de caché en 0,65 s— pero con la API dormida y la caché caducada podría dar un fallo REAL de «No se ha podido obtener». Si algún día el sitemap falla **con fecha en «Última lectura»**, ese corte es lo primero que hay que bajar.
+   ⚠️ **RESUELTO Y SUPERADO EL 27/08 — pero no era lo que aquí se decía.** Este párrafo dejaba como sospechoso vivo el corte de espera de 20 s de `app/sitemap.ts`, y avisaba de que podría dar «No se ha podido obtener». Dos cosas salieron mal en ese diagnóstico: **(a)** el mapa no fallaba, salía **bien y sin productos**, que es peor porque Search Console lo bendice; y **(b)** ese corte de 20 s **no se podía ni alcanzar**, porque el límite de duración de una función de Vercel es menor y la función moría antes de que venciera. Un tiempo de espera que nunca vence no es una protección, es un comentario. La causa real era `[]` significando dos cosas. Ver el cierre del 27/08.
 
    ⚠️ Ojo con leer el número: **«34 descubiertas» no es «34 indexadas»**. Google sabe que existen; rastrearlas y decidir es lo siguiente, y en *Páginas* algunas se quedarán un tiempo en «Detectada, actualmente sin indexar».
 
