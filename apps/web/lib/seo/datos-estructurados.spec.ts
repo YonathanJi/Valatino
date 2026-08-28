@@ -93,6 +93,41 @@ describe("el comercio", () => {
   it("el sitio NO promete un buscador que no existe", () => {
     expect(sitioWeb()).not.toHaveProperty("potentialAction");
   });
+
+  /**
+   * ⭐ `sameAs` es lo que le dice al buscador que esa cuenta es ESTA tienda. Importa
+   * aquí más de lo normal: «Valatino» está a una letra de Valentino y tiene homónimos
+   * con presencia real, así que sin esto Google puede repartir la identidad.
+   *
+   * ⚠️ Y no confundir lo que arregla: esto declara identidad, **no enlaza**. Lo que da
+   * a Google un camino es el enlace de la biografía del perfil.
+   */
+  it("declara el perfil de Instagram de la tienda", () => {
+    expect(comercio().sameAs).toContain("https://www.instagram.com/valatino.es/");
+  });
+
+  /**
+   * ⚠️⚠️ EL QUE DE VERDAD GUARDA ALGO: `/contacto` no pinta `comercio()` sino
+   * `comercioConIdentidad()`, que parte de él. Si alguien dejara de heredar la base,
+   * los perfiles desaparecerían de la única página que lleva el NIF y el domicilio
+   * —justo la que más peso tiene para identificar la entidad— y no se notaría.
+   */
+  it("y la ficha con domicilio y NIF los hereda", () => {
+    const heredados = comercioConIdentidad(IDENTIDAD).sameAs as string[];
+
+    // ⚠️ El `toEqual` por sí solo sería una tautología: si `sameAs` desapareciera de
+    // los dos lados, `undefined === undefined` pasaría en verde sin probar nada.
+    expect(heredados).toContain("https://www.instagram.com/valatino.es/");
+    expect(heredados).toEqual(comercio().sameAs);
+  });
+
+  /** Un perfil relativo o en http no sirve: quien lo lee no está en nuestro dominio. */
+  it("todos los perfiles son URLs absolutas y https", () => {
+    const perfiles = comercio().sameAs as string[];
+
+    expect(perfiles.length).toBeGreaterThan(0);
+    expect(perfiles.every((u) => u.startsWith("https://"))).toBe(true);
+  });
 });
 
 describe("la ficha de un producto", () => {

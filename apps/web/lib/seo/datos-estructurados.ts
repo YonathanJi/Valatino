@@ -47,6 +47,28 @@ export type JsonLd = Record<string, unknown>;
  * `OnlineStore` y no `Organization` a secas: es un subtipo de schema.org y dice algo
  * más concreto —que aquí se vende— sin perder nada de lo que entiende un buscador.
  */
+/**
+ * Los perfiles públicos de la tienda, confirmados por Jonathan.
+ *
+ * ⭐ Para qué sirve `sameAs`: le dice al buscador que esas cuentas son ESTA entidad.
+ * Aquí importa más de lo normal, porque «Valatino» está a una letra de Valentino y
+ * tiene homónimos con presencia real —un caballo de carreras, un perfil de Facebook,
+ * un artista en SoundCloud—. Sin esto, Google puede repartir la identidad de la marca
+ * entre varios; con esto, sabe cuál es la tienda.
+ *
+ * ⚠️⚠️ Y LO QUE `sameAs` **NO** HACE, porque es la confusión fácil: **no crea ningún
+ * enlace hacia la tienda.** Solo declara identidad. Lo que le da a Google un camino
+ * para llegar es el **enlace en la biografía del perfil**, y eso se pone en Instagram,
+ * no aquí. El diagnóstico del 26/08 fue «Página de referencia: NINGUNA» —cero enlaces
+ * entrantes— y eso lo arregla la bio, no esta línea. Las dos cosas hacen falta y no
+ * son sustitutas.
+ *
+ * ⚠️ Solo perfiles CONFIRMADOS como de la tienda. Declarar como propia una cuenta que
+ * no lo es le apunta la identidad de la marca a otro sitio, que es peor que no decir
+ * nada. TikTok todavía no está confirmado, así que no está.
+ */
+const PERFILES = ["https://www.instagram.com/valatino.es/"];
+
 export function comercio(): JsonLd {
   return {
     "@context": "https://schema.org",
@@ -59,6 +81,9 @@ export function comercio(): JsonLd {
     description: DESCRIPCION,
     image: urlAbsoluta("/portada.png"),
     logo: urlAbsoluta("/portada.png"),
+    // Quién es la tienda en las redes. Ver la nota de `PERFILES`: esto declara
+    // identidad, no enlaza. `comercioConIdentidad` lo hereda porque parte de aquí.
+    sameAs: PERFILES,
     // Se vende a toda España, que es lo que prometen los términos.
     areaServed: { "@type": "Country", name: "España" },
     currenciesAccepted: "EUR",
