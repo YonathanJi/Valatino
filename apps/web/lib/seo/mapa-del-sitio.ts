@@ -37,36 +37,58 @@ import { SITIO, rutaDeProducto } from "@lib/seo/metadatos";
  * listar el resto **sin un solo error**. Pedir 200 no era ambicioso, era creerse que
  * te habían dado 200.
  *
- * ⭐ LO QUE SE HACE AHORA, y el orden importa:
+ * ⭐ LO QUE SE HACE, y el orden importa:
  *
  *   1. `null` ≠ `[]`. Es el arreglo de fondo, y es una línea.
  *   2. Se PAGINA de verdad, comparando contra el `total` que da la propia API, y si
  *      aun así falta algo se GRITA por el log.
- *   3. Se REINTENTA. El primer intento es justo el que DESPIERTA la API, así que es
- *      el que más probabilidades tiene de fallar; rendirse ahí es rendirse en el
- *      único intento que estaba condenado. Medido: el arranque en frío tarda 8–16 s.
+ *   3. Se REINTENTA dentro de un PLAZO. El primer intento es justo el que DESPIERTA
+ *      la API, así que es el que más probabilidades tiene de fallar; rendirse ahí es
+ *      rendirse en el único intento que estaba condenado.
  *   4. Si no se pudo preguntar, el mapa sale con las rutas fijas —**nunca se lanza**,
  *      porque este fichero se prerenderiza en el build y un `throw` aquí tumbaría el
  *      despliegue entero, que ya pasó una vez con un layout— pero se grita por el
- *      log, y `revalidate` baja a 5 minutos, así que el mapa corto vive doce veces
- *      menos de lo que vivía.
+ *      log, y `revalidate` es de 5 minutos y no de una hora.
  */
 
 /**
- * Cuánto se espera a la API en CADA intento.
+ * ⚠️⚠️ EL PRESUPUESTO **TOTAL** PARA CONSEGUIR EL CATÁLOGO, REINTENTOS INCLUIDOS. Y
+ * es un plazo y no «N intentos de M segundos» por una medición que rompió el diseño
+ * anterior:
  *
- * ⚠️ Antes eran 20 s de una sola vez, y ese número **no se podía alcanzar**: el
- * límite de duración de una función de Vercel es menor, así que la función moría
- * antes de que el corte llegase a saltar. Un tiempo de espera que nunca vence no es
- * una protección, es un comentario.
+ * El 28/08 se midió un arranque en frío de la API de **42,5 s** (`/health`, que no
+ * toca la base; caliente responde en 0,3–0,7 s). Lo que estaba escrito en ESTADO.md
+ * eran **8–16 s**, y con ese número se dimensionó la primera versión: 2 intentos de
+ * 15 s + 5 s = 35 s de techo. **Un arranque de 42 s no cabía**, así que el mapa habría
+ * vuelto a salir corto.
+ *
+ * ⭐ Contar el tiempo en un PLAZO en vez de en intentos hace que el techo sea un
+ * número que se puede razonar contra un límite real, en vez de una multiplicación que
+ * hay que recalcular cada vez que se toca un intento. Los 50 s se eligen para caber
+ * en el **límite de 60 s de generación estática de Next**, que es el que manda en el
+ * build — y el build es donde se cuece el mapa que se despliega.
  */
-export const CORTE_MS = 15_000;
+export const PLAZO_MS = 50_000;
 
-/** Cuántas veces se pide el catálogo antes de rendirse. Ver el punto 3 de arriba. */
-export const INTENTOS = 2;
+/**
+ * Lo máximo que se espera en UN intento suelto.
+ *
+ * ⚠️ Tiene que dejar hueco para un segundo intento dentro del plazo, y hay un test
+ * que lo comprueba. El motivo son los DOS modos de fallo de Render, que piden cosas
+ * distintas:
+ *
+ *   · **Render RETIENE la petición** mientras arranca → hace falta esperar mucho, y un
+ *     intento largo lo resuelve solo.
+ *   · **Render contesta un 502/503 rápido** mientras arranca → esperar no sirve de
+ *     nada, hace falta REINTENTAR.
+ *
+ * Un intento largo con reintentos cubre los dos: si contesta rápido y mal, el intento
+ * termina enseguida y queda plazo de sobra para volver a probar.
+ */
+export const CORTE_MAX_MS = 30_000;
 
 /** Cuánto se deja pasar entre intentos, para que la API acabe de arrancar. */
-export const ESPERA_MS = 5_000;
+export const ESPERA_MS = 3_000;
 
 /**
  * Cuántos productos por página.
@@ -143,6 +165,19 @@ const FIJAS: ReadonlyArray<{
 const dormir = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
 
 /**
+ * Lo que se puede ajustar al pedir el mapa.
+ *
+ * ⚠️ Existe **solo para los tests**: en producción nadie pasa nada y valen `ESPERA_MS`
+ * y `PLAZO_MS`. Sin esto, el test de «se rinde cuando se agota el plazo» tardaría
+ * cincuenta segundos de reloj. Lo que se prueba es que reintenta y que el plazo lo
+ * acota, no cuántos milisegundos duerme.
+ */
+export interface Opciones {
+  esperaMs?: number;
+  plazoMs?: number;
+}
+
+/**
  * El catálogo tal y como lo cuenta la API: lo que llegó, y cuántos dice que hay.
  *
  * ⭐ `total` es lo que permite saber si la respuesta venía completa. Sin él, cincuenta
@@ -163,11 +198,11 @@ export interface Catalogo {
  * arranca, y leerlo como «el catálogo está vacío» es creerse una respuesta que nadie
  * ha dado.
  */
-async function unaPagina(pagina: number): Promise<Catalogo | null> {
+async function unaPagina(pagina: number, corteMs: number): Promise<Catalogo | null> {
   try {
     const res = await fetch(`${API_URL}/productos?limit=${POR_PAGINA}&page=${pagina}`, {
       next: { revalidate: REVALIDAR_S },
-      signal: AbortSignal.timeout(CORTE_MS),
+      signal: AbortSignal.timeout(corteMs),
     });
     if (!res.ok) return null;
 
@@ -189,8 +224,8 @@ async function unaPagina(pagina: number): Promise<Catalogo | null> {
 }
 
 /** Todas las páginas, hasta juntar el `total` que la propia API declaró. */
-async function todoElCatalogo(): Promise<Catalogo | null> {
-  const primera = await unaPagina(1);
+async function todoElCatalogo(corteMs: number): Promise<Catalogo | null> {
+  const primera = await unaPagina(1, corteMs);
   if (primera === null) return null;
 
   const productos = [...primera.productos];
@@ -200,7 +235,7 @@ async function todoElCatalogo(): Promise<Catalogo | null> {
   if (total === null) return { productos, total };
 
   for (let pagina = 2; productos.length < total && pagina <= PAGINAS_MAX; pagina++) {
-    const siguiente = await unaPagina(pagina);
+    const siguiente = await unaPagina(pagina, corteMs);
     /**
      * ⚠️ Si una página intermedia falla NO se tira lo ya traído —cincuenta fichas
      * valen más que ninguna— pero tampoco se disimula: se corta aquí y quien avisa
@@ -214,21 +249,42 @@ async function todoElCatalogo(): Promise<Catalogo | null> {
 }
 
 /**
- * El catálogo, reintentando. `null` si no se pudo tras todos los intentos.
+ * El catálogo, reintentando **hasta agotar el plazo**. `null` si no se consiguió.
  *
- * `esperaMs` existe solo para que los tests no tarden diez segundos de reloj; en
- * producción nadie le pasa nada. Lo que se prueba es que REINTENTA, no cuánto duerme.
+ * ⭐ El plazo manda, no un número de intentos: si Render contesta rápido y mal, se
+ * reintenta muchas veces; si retiene la petición, un intento largo se la lleva. Ver
+ * la nota de `CORTE_MAX_MS` para los dos modos de fallo.
  */
-export async function pedirCatalogo(esperaMs: number = ESPERA_MS): Promise<Catalogo | null> {
-  for (let intento = 1; intento <= INTENTOS; intento++) {
-    const catalogo = await todoElCatalogo();
+export async function pedirCatalogo(opciones: Opciones = {}): Promise<Catalogo | null> {
+  const espera = opciones.esperaMs ?? ESPERA_MS;
+  const limite = Date.now() + (opciones.plazoMs ?? PLAZO_MS);
+  let intentos = 0;
+
+  while (Date.now() < limite) {
+    intentos++;
+    const catalogo = await todoElCatalogo(Math.min(CORTE_MAX_MS, limite - Date.now()));
     if (catalogo !== null) return catalogo;
-    if (intento < INTENTOS) await dormir(esperaMs);
+
+    // Si no queda plazo para la espera Y otro intento, no se insiste en balde.
+    if (limite - Date.now() <= espera) break;
+    await dormir(espera);
   }
+
+  /**
+   * ⚠️⚠️ ESTE GRITO ES LA MITAD DEL ARREGLO, y dice **cuántos intentos** a propósito:
+   * «1 intento» significa que la API retuvo la petición hasta el corte, y «14» que
+   * contestaba rápido y mal. Son dos averías distintas y el número las separa sin
+   * tener que ir a mirar nada.
+   */
+  console.error(
+    `[sitemap] La API de ${API_URL} no dio el catálogo en ${Math.round(
+      (opciones.plazoMs ?? PLAZO_MS) / 1000,
+    )} s (${intentos} intento(s)).`,
+  );
   return null;
 }
 
-export async function mapaDelSitio(esperaMs?: number): Promise<MetadataRoute.Sitemap> {
+export async function mapaDelSitio(opciones: Opciones = {}): Promise<MetadataRoute.Sitemap> {
   const ahora = new Date();
 
   const fijas: MetadataRoute.Sitemap = FIJAS.map((f) => ({
@@ -238,18 +294,16 @@ export async function mapaDelSitio(esperaMs?: number): Promise<MetadataRoute.Sit
     priority: f.prioridad,
   }));
 
-  const catalogo = await pedirCatalogo(esperaMs);
+  const catalogo = await pedirCatalogo(opciones);
 
   /**
-   * ⚠️⚠️ ESTOS DOS `console.error` SON LA MITAD DEL ARREGLO. Lo que hizo que el fallo
-   * pasara desapercibido no fue la lista vacía: fue que no dejaba rastro en ningún
-   * sitio. Salen en los logs de Vercel, y son la única forma de enterarse de que un
-   * mapa se sirvió corto sin ir a mirar el XML a mano.
+   * ⚠️⚠️ Y ESTE DICE LA CONSECUENCIA, que es lo que faltaba para enterarse. Lo que
+   * hizo que el fallo pasara desapercibido no fue la lista vacía: fue que no dejaba
+   * rastro en ningún sitio. Los dos salen en los logs de Vercel.
    */
   if (catalogo === null) {
     console.error(
-      `[sitemap] No se pudo leer el catálogo de ${API_URL} tras ${INTENTOS} intentos. ` +
-        `El mapa sale con ${fijas.length} rutas fijas y SIN productos.`,
+      `[sitemap] El mapa sale con ${fijas.length} rutas fijas y SIN productos.`,
     );
     return fijas;
   }

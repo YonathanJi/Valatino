@@ -3,7 +3,9 @@ import robots from "../../app/robots";
 import { revalidate as REVALIDATE_DE_LA_RUTA } from "../../app/sitemap";
 import { SITIO } from "./metadatos";
 import {
-  INTENTOS,
+  CORTE_MAX_MS,
+  ESPERA_MS,
+  PLAZO_MS,
   POR_PAGINA,
   REVALIDAR_S,
   RUTAS_CERRADAS,
@@ -23,7 +25,7 @@ import {
  *
  *   1. Que «no pude preguntar» y «no hay productos» NO sean el mismo valor. Es el
  *      fallo del 27/08 y es la misma avería que dejó las legales en blanco en agosto.
- *   2. Que se REINTENTE, porque el primer intento es el que despierta la API.
+ *   2. Que se REINTENTE dentro de un plazo que cubra el arranque en frío MEDIDO.
  *   3. Que el catálogo se pagine contra el `total` de la API — que recorta a 50 sin
  *      avisar— y que si falta algo se GRITE.
  *   4. Que el mapa y `robots.txt` no se contradigan.
@@ -77,8 +79,13 @@ const pagina = (productos: Producto[], total: number | null) =>
   ({ ok: true, cuerpo: total === null ? productos : { data: productos, total } }) as Respuesta;
 
 const FIJAS = 5;
-/** Sin espera entre intentos: lo que se prueba es que reintenta, no que duerme. */
-const YA = 0;
+
+/**
+ * Sin esperas y con un plazo de milisegundos: lo que se prueba es que REINTENTA y que
+ * el plazo lo acota, no cuántos segundos duerme. Con los valores de producción este
+ * fichero tardaría cincuenta segundos de reloj.
+ */
+const RAPIDO = { esperaMs: 0, plazoMs: 150 };
 
 let gritos: jest.SpyInstance;
 
@@ -91,6 +98,7 @@ afterEach(() => {
 });
 
 const urls = (m: Awaited<ReturnType<typeof mapaDelSitio>>) => m.map((e) => String(e.url));
+const dichos = () => gritos.mock.calls.map((c) => String(c[0])).join(" | ");
 
 // ── Lo normal ────────────────────────────────────────────────────────────────
 
@@ -98,7 +106,7 @@ describe("el mapa con la API respondiendo", () => {
   it("lleva las rutas fijas y una entrada por producto activo", async () => {
     servir(pagina([producto(1), producto(2)], 2));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 2);
     expect(urls(mapa)).toContain("https://valatino.es");
@@ -109,7 +117,7 @@ describe("el mapa con la API respondiendo", () => {
   it("las URLs son absolutas y van por slug", async () => {
     servir(pagina([producto(1, { slug: "nucita" })], 1));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(urls(mapa).every((u) => u.startsWith("https://valatino.es"))).toBe(true);
     expect(urls(mapa)).toContain("https://valatino.es/productos/nucita");
@@ -119,7 +127,7 @@ describe("el mapa con la API respondiendo", () => {
   it("los desactivados se quedan fuera", async () => {
     servir(pagina([producto(1), producto(2, { activo: false })], 2));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 1);
     expect(urls(mapa)).not.toContain("https://valatino.es/productos/producto-2");
@@ -132,7 +140,7 @@ describe("el mapa con la API respondiendo", () => {
   it("pide 50 por página, que es lo que la API concede de verdad", async () => {
     const falso = servir(pagina([producto(1)], 1));
 
-    await mapaDelSitio(YA);
+    await mapaDelSitio(RAPIDO);
 
     expect(String(falso.mock.calls[0][0])).toContain(`limit=${POR_PAGINA}`);
     expect(POR_PAGINA).toBeLessThanOrEqual(50);
@@ -150,7 +158,7 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
   it("un 503 en el primer intento NO significa «no hay productos»: reintenta y los trae", async () => {
     const falso = servir({ ok: false }, pagina([producto(1), producto(2)], 2));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 2);
     expect(urls(mapa)).toContain("https://valatino.es/productos/producto-1");
@@ -171,17 +179,27 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
       } as unknown as Response;
     }) as unknown as typeof fetch;
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 1);
   });
 
-  it("no insiste para siempre: se rinde tras los intentos previstos", async () => {
+  /**
+   * ⚠️ El plazo es lo que impide que esto se quede girando para siempre — antes era un
+   * contador de intentos, y el contador es justo lo que no sabía cubrir un arranque
+   * en frío de 42 s.
+   */
+  it("no insiste para siempre: se rinde cuando se agota el plazo", async () => {
     const falso = servir({ ok: false });
+    const desde = Date.now();
 
-    await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(falso).toHaveBeenCalledTimes(INTENTOS);
+    expect(mapa).toHaveLength(FIJAS);
+    // Reintentó de verdad, no se rindió en el primero…
+    expect(falso.mock.calls.length).toBeGreaterThan(1);
+    // …y el plazo lo acotó, no se colgó.
+    expect(Date.now() - desde).toBeLessThan(3_000);
   });
 
   /**
@@ -192,20 +210,27 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
   it("si no se pudo preguntar, sale con las fijas y NO lanza", async () => {
     servir({ ok: false });
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS);
     expect(urls(mapa)).toContain("https://valatino.es");
   });
 
-  it("pero lo GRITA por el log, que es lo que faltaba para enterarse", async () => {
+  /**
+   * ⭐ Dos gritos y no uno, a propósito: uno dice que la API no contestó **y cuántos
+   * intentos hicieron falta** —«1 intento» es que retuvo la petición, «14» que
+   * contestaba rápido y mal, y son averías distintas—, y el otro la consecuencia
+   * para el mapa.
+   */
+  it("pero lo GRITA por el log: la causa y la consecuencia", async () => {
     servir({ ok: false });
 
-    await mapaDelSitio(YA);
+    await mapaDelSitio(RAPIDO);
 
-    expect(gritos).toHaveBeenCalledTimes(1);
-    expect(String(gritos.mock.calls[0][0])).toMatch(/sitemap/i);
-    expect(String(gritos.mock.calls[0][0])).toMatch(/SIN productos/);
+    expect(gritos).toHaveBeenCalledTimes(2);
+    expect(dichos()).toMatch(/no dio el catálogo/);
+    expect(dichos()).toMatch(/intento/);
+    expect(dichos()).toMatch(/SIN productos/);
   });
 
   /**
@@ -215,7 +240,7 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
   it("un catálogo vacío DE VERDAD no se confunde con un fallo", async () => {
     const falso = servir(pagina([], 0));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS);
     expect(falso).toHaveBeenCalledTimes(1);
@@ -226,11 +251,49 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
   it("un 200 con un cuerpo raro se trata como «no se pudo»", async () => {
     const falso = servir({ ok: true, cuerpo: { mensaje: "vaya" } });
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS);
-    expect(falso).toHaveBeenCalledTimes(INTENTOS);
+    expect(falso.mock.calls.length).toBeGreaterThan(1);
     expect(gritos).toHaveBeenCalled();
+  });
+});
+
+// ── El arranque en frío medido, que es lo que dimensiona el plazo ─────────────
+
+/**
+ * ⭐⭐ ESTE BLOQUE FIJA UNA MEDICIÓN, NO UN GUSTO. El 28/08 se midió un arranque en
+ * frío de la API de **42,5 s**. La primera versión de este fichero se dimensionó con
+ * el número que había escrito en ESTADO.md —8–16 s— y le salió un techo de 35 s, o
+ * sea **insuficiente para lo que de verdad pasa**.
+ *
+ * Si alguien vuelve a bajar el plazo por debajo de lo medido, o alarga tanto un
+ * intento que no quede sitio para reintentar, estos tres se ponen rojos.
+ */
+describe("⭐ el presupuesto cubre el arranque en frío que se midió", () => {
+  /** Medido el 28/08 con `/health`, que no toca la base. */
+  const ARRANQUE_EN_FRIO_MEDIDO_MS = 42_500;
+
+  it("el plazo total cubre los 42,5 s medidos", () => {
+    expect(PLAZO_MS).toBeGreaterThan(ARRANQUE_EN_FRIO_MEDIDO_MS);
+  });
+
+  /**
+   * ⚠️ Y cabe en el límite de 60 s de generación estática de Next, que es el que
+   * manda en el build — y el build es donde se cuece el mapa que se despliega.
+   * Pasarse de ahí no daría un mapa corto: tumbaría el despliegue.
+   */
+  it("y cabe en el límite de generación estática de Next", () => {
+    expect(PLAZO_MS).toBeLessThan(60_000);
+  });
+
+  /**
+   * ⚠️⚠️ EL QUE DE VERDAD GUARDA ALGO. Render falla de dos formas: retiene la petición
+   * (hace falta esperar) o contesta un 502/503 rápido (hace falta reintentar). Si un
+   * intento pudiera consumir el plazo entero, el segundo modo se quedaría sin cubrir.
+   */
+  it("y siempre queda sitio para un segundo intento", () => {
+    expect(CORTE_MAX_MS + ESPERA_MS).toBeLessThan(PLAZO_MS);
   });
 });
 
@@ -243,7 +306,7 @@ describe("⭐ el catálogo que no cabe en una página", () => {
       pagina([producto(3)], 3),
     );
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 3);
     expect(String(falso.mock.calls[0][0])).toContain("page=1");
@@ -258,17 +321,17 @@ describe("⭐ el catálogo que no cabe en una página", () => {
   it("si una página intermedia falla, conserva lo traído y AVISA de que va corto", async () => {
     servir(pagina([producto(1), producto(2)], 3), { ok: false });
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 2);
-    expect(String(gritos.mock.calls[0][0])).toMatch(/INCOMPLETO/);
-    expect(String(gritos.mock.calls[0][0])).toMatch(/2 de 3/);
+    expect(dichos()).toMatch(/INCOMPLETO/);
+    expect(dichos()).toMatch(/2 de 3/);
   });
 
   it("sin `total` en la respuesta se queda con lo que vino, sin inventar páginas", async () => {
     const falso = servir(pagina([producto(1), producto(2)], null));
 
-    const mapa = await mapaDelSitio(YA);
+    const mapa = await mapaDelSitio(RAPIDO);
 
     expect(mapa).toHaveLength(FIJAS + 2);
     expect(falso).toHaveBeenCalledTimes(1);
@@ -286,7 +349,7 @@ describe("el mapa y robots.txt no se contradicen", () => {
   it("el mapa no anuncia NINGUNA de las rutas cerradas", async () => {
     servir(pagina([producto(1)], 1));
 
-    const rutas = urls(await mapaDelSitio(YA)).map((u) => u.replace(SITIO, ""));
+    const rutas = urls(await mapaDelSitio(RAPIDO)).map((u) => u.replace(SITIO, ""));
 
     for (const cerrada of RUTAS_CERRADAS) {
       expect(rutas.some((r) => r.startsWith(cerrada))).toBe(false);
