@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-27 (noche — el mapa del sitio servía 5 URL en vez de 34 y este fichero lo daba por bueno; arreglado, probado en rojo y desplegado)
+**Última actualización**: 2026-08-28 (el arranque en frío real son 42,5 s y no 8–16, así que el presupuesto de ayer no llegaba; y el correo de contacto por fin resuelto, lo destapó una pantalla de Instagram)
 
 ---
 
@@ -48,7 +48,76 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-27
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-28
+
+Sesión corta y de una pieza: **un número medido rompió el diseño de ayer**, y de una pantalla de Instagram salió el arreglo de un 🔴 que llevaba cuatro cierres abierto.
+
+### ✅✅ EL CORREO DE CONTACTO, RESUELTO — Y NO LO ENCONTRÓ EL CÓDIGO
+
+**`ajustes_tienda.contacto_email` era `valatino-@hotmail.com`** —con el guion— desde el 22/08, vivo en `/contacto` y `/aviso-legal`, y es la dirección pública del RGPD. Cuatro cierres apuntado sin resolver.
+
+⭐ **Lo resolvió una captura de Instagram.** Jonathan pasó el perfil a cuenta profesional y en «Información pública de la empresa» apareció el correo de verdad: **`valatino.tienda@gmail.com`**. Lo cambió él en **TI → Ajustes** (para eso se hizo la 081) y se confirmó en la base: `updated_at` 2026-08-28 15:53 UTC.
+
+⚠️ **La lección, que no es del correo**: el dato que faltaba llevaba seis días delante y no estaba en el repo ni en la base — estaba en una pantalla de un sistema de terceros. Mirar dónde más vive la misma información suele ser más rápido que razonar sobre el código.
+
+⚠️ **Y un matiz que hay que conservar**: un guion al final de la parte local **es sintácticamente legal**, así que `IsEmail` lo aceptaba y ninguna validación podía cazarlo. El propio DTO lo tenía escrito: «Que EXISTA no lo puede saber ninguna validación».
+
+### 🔴 EL ARRANQUE EN FRÍO SON 42,5 s, NO 8–16 s — Y ESO INVALIDÓ EL DISEÑO DE AYER
+
+Medido el 28/08 antes de un `git push`: **`/health` tardó 42,5 s**. Confirmado que era arranque en frío y no red, porque caliente responde en **0,3–0,7 s** y `/productos` en 2,2 s.
+
+⚠️⚠️ **Los reintentos del mapa del sitio se dimensionaron ayer con los 8–16 s que ponía en este fichero**: 2 intentos × 15 s + 5 s = **35 s de techo**. Un arranque de 42 s **no cabía**, así que el mapa habría vuelto a salir corto — el mismo fallo, con el arreglo puesto.
+
+⭐ **Lo que salvaba la situación mientras tanto**, y por eso valió la pena hacer las tres cosas de ayer y no solo una: el fallo **grita en el log** y `revalidate` es de 5 min, así que habría sido un mapa corto cinco minutos y avisando, no una hora en silencio.
+
+**El arreglo — commit `54ed709`:** se cambian los «N intentos de M segundos» por un **PLAZO TOTAL** (`PLAZO_MS = 50_000`), con un tope por intento (`CORTE_MAX_MS = 30_000`) que **siempre deja hueco para reintentar**.
+
+⭐ **Por qué un plazo y no un contador**: un plazo se puede razonar contra un límite real —los **60 s de generación estática de Next**, que es el que manda en el build— en vez de ser una multiplicación que hay que recalcular cada vez que se toca un intento. Y cubre los **dos** modos de fallo de Render, que piden cosas opuestas:
+
+| Modo de fallo de Render | Qué hace falta |
+|---|---|
+| **Retiene** la petición mientras arranca | esperar mucho → lo resuelve un intento largo |
+| Contesta un **502/503 rápido** mientras arranca | esperar no sirve → hace falta REINTENTAR |
+
+⚠️ **Y hay tres tests que fijan la MEDICIÓN, no un gusto**: que el plazo cubra los 42,5 s, que quepa en los 60 s de Next, y que un intento no pueda comerse el plazo entero. Si alguien vuelve a bajar el número, salen rojos.
+
+**Comprobado con TRES perturbaciones, cada una mapeada:**
+
+| Perturbación | Rojos |
+|---|---|
+| Volver al presupuesto viejo (35 s) + dejar que un intento se lo coma todo | **2**, y son los dos de las constantes |
+| Romper el reintento (`break` incondicional) | **4**, los cuatro de comportamiento |
+
+Suite web **451** (eran 448). `type-check` limpio. `next build` verde con **34 URL cocidas**.
+
+### ✅ Instagram, y una recalibración mía
+
+- **`sameAs` desplegado** (`0dae321`): `https://www.instagram.com/valatino.es/` declarado en la ficha del comercio, heredado por `/contacto`. Importa porque «Valatino» tiene homónimos con presencia (un caballo de carreras, un perfil de Facebook, un artista en SoundCloud) y está a una letra de Valentino.
+- **El enlace `valatino.es` está en la bio** del perfil. Hecho por Jonathan.
+- **La categoría pasó de «Creador(a) de IA» a «Compras y ventas al por menor»**, con la etiqueta visible.
+- ⭐ **Y durante ese despliegue el mapa se mantuvo en 34 en los tres sondeos** — que es exactamente la condición que lo rompió el 27/08 (un despliegue borra la caché ISR). El arreglo de ayer quedó validado en la avería real, no solo en tests.
+
+⚠️⚠️ **RECALIBRACIÓN, porque el 27/08 escribí de más**: dije que el enlace de la bio era «la mitad que de verdad mueve la aguja». **Me pasé.** El perfil tiene **1 publicación y 2 seguidores**, y el enlace de la bio es `nofollow`. Eso NO arregla el «cero enlaces entrantes». Es higiene necesaria —quien encuentre el perfil llega a la tienda— y junto al `sameAs` forma un par recíproco que **sí** ayuda a la identidad de la entidad. Para que Google INDEXE, pesa poco.
+
+⭐ **El que de verdad pesa sigue sin hacer: el Perfil de Google Business.** Para un comercio español es lo que crea una entidad indexada con el sitio verificado, y la vía más directa a que «valatino» resuelva a la tienda y no al caballo.
+
+**TikTok sigue sin confirmar**, así que no se declara: decir que una cuenta ajena es tuya le apunta la identidad de la marca a otro sitio, que es peor que no decir nada.
+
+### 📬 Y llegó el primer correo de Search Console — que era una buena noticia
+
+Avisó de **2 problemas «no críticos»** en los Fragmentos de productos: falta `aggregateRating` y falta `review`. En **1 URL**: `/productos/pony-malta`, **último rastreo 27 ago 2026**.
+
+⭐⭐ **Lo importante de ese correo no era el aviso: era que Google RASTREÓ una ficha de producto.** Dos días antes la Inspección de URLs decía «Google no reconoce esta URL». El mapa hizo su trabajo.
+
+⚠️ **Y prepararse: saldrán más.** Sale 1 URL porque solo ha rastreado una; a medida que rastree las otras 28 el número subirá hacia 29. **Eso será el rastreo funcionando, no el problema extendiéndose.**
+
+⚠️⚠️ **NO se rellenan esos dos campos, y no por pereza.** Se comprobó si había con qué: la única tabla de valoraciones es **`pedido_calificaciones`**, por **`pedido_id`**, que mide `esfuerzo` y `satisfaccion` de la **experiencia del pedido** — no del artículo. Son **5 registros**, media 5,00, **0 con comentario**, y hay 5 pedidos en la base: o sea **las pruebas de Jonathan**. Usarlo como valoración de producto mentiría de tres formas —no habla del producto, pondría la misma nota en los 29 artículos (patrón que Google marca), y sobre datos de prueba— y las reseñas inventadas no son un aviso leve: son motivo de **acción manual**. Se cambiaría «sin estrellas», que es cosmético, por una penalización real. **Se dejan vacíos hasta que haya reseñas de producto de verdad.**
+
+⚠️ Se descartó también añadir **`sku`**: es una línea, pero en `productos` solo hay `id` (UUID) y `slug`, y un UUID nuestro no lo usa nadie más, así que Google no puede cruzarlo con nada. Sería rellenar el campo para que el aviso calle. El identificador que sirve es el **EAN (`gtin13`)**, y eso es leer 29 códigos de barras y una columna nueva: trabajo de datos, no de código.
+
+⭐ **Lo que sí queda propuesto y sin hacer**: `itemCondition: NewCondition` (una línea, siempre cierto) y **`hasMerchantReturnPolicy`** con los 14 días que ya están escritos en los términos — este es el que Google usa de verdad. Y **`shippingDetails` NO todavía**: declararlo publicaría a Google la contradicción viva de que los términos prometen península y Baleares mientras el checkout acepta las 52 provincias. Primero el ámbito, después la etiqueta.
+
+### Cierre anterior — 2026-08-27
 
 ### ⚠️⚠️ LO PRIMERO: PREGUNTARLE A PRODUCCIÓN. Y HOY LA REGLA SE COBRÓ **ESTE FICHERO**
 
@@ -253,8 +322,8 @@ El `260825012812` tuvo **envío gratis con 34,12 brutos** aunque tras el 30 % qu
 
 ### Lo que queda pendiente
 
-1. 🔴 **El correo de contacto sigue siendo `valatino-@hotmail.com`**, con el guion, desde el 22/08. Dirección pública del RGPD, viva en `/contacto`. **Es un campo del panel.** Cuarto cierre seguido apuntado.
-2. 🟠 **La API duerme (Render `plan: free`)**: 8,3 s de arranque en frío medidos hoy, y cada despliegue **de la web** nace con las tres legales vacías unos minutos (hoy no pasó porque solo se desplegó la API). Al desplegar, no juzgar por el primer `curl`.
+1. ✅ **RESUELTO EL 28/08 — el correo de contacto ya es `valatino.tienda@gmail.com`.** Estuvo cuatro cierres como 🔴 siendo `valatino-@hotmail.com`, con el guion, desde el 22/08. Lo cambió Jonathan en TI → Ajustes y está confirmado en la base. ⭐ **Y lo destapó una captura de Instagram**, no el código: el correo de verdad estaba en la pantalla de cuenta profesional. Ver el cierre del 28/08.
+2. 🟠 **La API duerme (Render `plan: free`)**: 8,3 s de arranque en frío aquel día —⚠️ **pero el 28/08 se midieron 42,5 s**, así que el rango real es mucho más ancho de lo que este fichero dio a entender, y con el número corto se dimensionó mal un presupuesto de reintentos; ver el cierre del 28/08—, y cada despliegue **de la web** nace con las tres legales vacías unos minutos (hoy no pasó porque solo se desplegó la API). Al desplegar, no juzgar por el primer `curl`.
 3. 🟡 `arranque_fiscal_el` sigue NULL. Es una decisión, no un olvido.
 4. 🟡 Un reembolso de **solo porte** manda un correo que dice «hemos devuelto 3,40 € de los 13,41 €» sin especificar que era el transporte. Cierto pero soso.
 5. 🟡 `cancelar_transferencia_reemplazada` sigue con **DOS sobrecargas vivas** (3 y 4 argumentos).
