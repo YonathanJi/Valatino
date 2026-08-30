@@ -92,6 +92,16 @@ export function BotonCarrito({ productoId, nombre }: BotonCarritoProps) {
        */}
       <ShoppingCart
         className="h-4 w-4 sm:h-5 sm:w-5 [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
+        /**
+         * ⚠️ Línea fina, igual que el corazón de al lado (`BotonFavorito`). Lo pidió
+         * Jonathan el 30/08: «un poquito menos repintado». Son los dos únicos iconos
+         * que flotan sobre la misma foto, así que si uno se toca hay que mirar el
+         * otro — con grosores distintos parecen de dos sitios.
+         *
+         * ⚠️ Y por eso el halo blanco importa MÁS ahora, no menos: cuanto más fina la
+         * línea, antes desaparece sobre la foto de un producto oscuro.
+         */
+        strokeWidth={1.5}
         aria-hidden="true"
       />
     </button>
