@@ -8,6 +8,7 @@ import {
   partirEtiquetaFormato,
   tieneVariante,
   varianteVisible,
+  representanteDe,
   vistaDeFamilia,
 } from "./variantes";
 
@@ -259,6 +260,56 @@ describe("hermanosDeVariante", () => {
  * probarlo: la web no tiene tests de componentes, así que lo que se quede en el
  * JSX se queda sin red.
  */
+/**
+ * ⚠️⚠️ ESTA REGLA DECIDE QUÉ SE AÑADE AL CARRITO. Desde el 30/08 la tarjeta de
+ * familia **preselecciona** esta presentación al montarse, para que el carrito exista
+ * desde el primer momento igual que en las tarjetas sueltas. Antes había que elegir
+ * primero y parecía que faltaba el botón.
+ *
+ * O sea que si esto eligiera mal, el cliente se llevaría a casa la presentación
+ * equivocada sin haber tocado nada.
+ */
+describe("representanteDe", () => {
+  it("es la primera CON STOCK, no la primera a secas", () => {
+    const agotada = conVariante("Sparkies Caja 24", "Sparkies", "Caja 24 unidades", "formato", {
+      stock_disponible: 0,
+      precio: 12.2,
+    });
+    const suelta = conVariante("Sparkies", "Sparkies", "Unidad", "formato", {
+      stock_disponible: 30,
+      precio: 0.5,
+    });
+    const g = agruparPorVariante([agotada, suelta])[0]!;
+    if (g.clase !== "grupo") throw new Error("debería agrupar");
+
+    // Enseñar de entrada una agotada teniendo hermanas disponibles es mandar a la
+    // gente a una puerta cerrada — y ahora, además, preseleccionar lo que no se puede
+    // comprar.
+    expect(representanteDe(g.grupo).id).toBe(suelta.id);
+  });
+
+  it("si están TODAS agotadas, la primera: la tarjeta tiene que enseñar algo", () => {
+    const a = conVariante("Nucita", "Nucita", "C/U", "formato", { stock_disponible: 0 });
+    const b = conVariante("Nucita Caja 12", "Nucita", "Caja 12 unidades", "formato", {
+      stock_disponible: 0,
+    });
+    const g = agruparPorVariante([a, b])[0]!;
+    if (g.clase !== "grupo") throw new Error("debería agrupar");
+
+    expect(representanteDe(g.grupo).id).toBe(a.id);
+  });
+
+  /** ⭐ Y es la MISMA que enseña la vista sin elegir: si no, se contradirían. */
+  it("es la misma que la vista enseña por defecto", () => {
+    const a = conVariante("Jugo Hit Lulo", "Jugo Hit", "Lulo", "sabor", { stock_disponible: 0 });
+    const b = conVariante("Jugo Hit Mora", "Jugo Hit", "Mora", "sabor", { stock_disponible: 5 });
+    const g = agruparPorVariante([a, b])[0]!;
+    if (g.clase !== "grupo") throw new Error("debería agrupar");
+
+    expect(vistaDeFamilia(g.grupo, null).visibleId).toBe(representanteDe(g.grupo).id);
+  });
+});
+
 describe("vistaDeFamilia", () => {
   /** Una familia de sabores con foto propia cada una, y foto de familia. */
   function galletas() {

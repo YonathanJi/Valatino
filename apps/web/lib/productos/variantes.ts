@@ -246,13 +246,34 @@ export interface VistaDeFamilia {
   visibleId: string;
 }
 
+/**
+ * La presentación que representa a la familia: **la primera CON STOCK**.
+ *
+ * Enseñar de entrada una agotada teniendo hermanas disponibles es mandar a la gente
+ * a una puerta cerrada.
+ *
+ * ⚠️⚠️ ESTÁ AQUÍ, EXPORTADA, PORQUE LA TARJETA LA NECESITA TAMBIÉN: desde el 30/08
+ * la tarjeta de familia **preselecciona** esta presentación al montarse, para que el
+ * carrito exista desde el primer momento igual que en las demás. Si la regla
+ * estuviera escrita en los dos sitios, el día que una cambiara la tarjeta
+ * preseleccionaría una y la vista enseñaría otra — el mismo dato en dos sitios, que
+ * es la piedra con la que este proyecto lleva tropezando.
+ */
+export function representanteDe(grupo: GrupoVariantes): ProductoConVariante {
+  const { productos } = grupo;
+  return productos.find((p) => p.stock_disponible > 0) ?? productos[0]!;
+}
+
+/**
+ * ⚠️ `elegidaId` sigue admitiendo `null`, pero **ya no es un estado de la interfaz**:
+ * desde el 30/08 la tarjeta preselecciona siempre. Queda como la caída defensiva para
+ * un id que no pertenece a la familia, que es el caso que fija el último test.
+ */
 export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null): VistaDeFamilia {
   const { familia, productos } = grupo;
 
   const elegida = productos.find((p) => p.id === elegidaId) ?? null;
-  // La representante es la primera CON STOCK: enseñar de entrada una agotada
-  // teniendo hermanas disponibles es mandar a la gente a una puerta cerrada.
-  const representante = productos.find((p) => p.stock_disponible > 0) ?? productos[0]!;
+  const representante = representanteDe(grupo);
   const visible = elegida ?? representante;
 
   // La foto de familia es `imagenes[1]` de cualquier hermana (convención previa

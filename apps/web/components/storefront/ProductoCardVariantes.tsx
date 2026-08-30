@@ -8,6 +8,7 @@ import { BotonCarrito } from "./BotonCarrito";
 import { BotonFavorito } from "./BotonFavorito";
 import {
   miniaturaDe,
+  representanteDe,
   vistaDeFamilia,
   type GrupoVariantes,
   varianteVisible,
@@ -38,19 +39,38 @@ interface ProductoCardVariantesProps {
  */
 export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
   const { familia: base, tipo, productos } = grupo;
-  const [elegidaId, setElegidaId] = useState<string | null>(null);
+  /**
+   * ⚠️⚠️ SE PRESELECCIONA LA REPRESENTANTE, y antes esto empezaba en `null`.
+   *
+   * Lo levantó Jonathan el 30/08: en las siete tarjetas de familia el carrito no
+   * aparecía hasta elegir una presentación, y al lado de las demás se veía como si
+   * faltara algo.
+   *
+   * ⭐ Se arregla preseleccionando y NO enseñando el carrito sobre una familia sin
+   * elegir, que era la otra salida y es la mala: sin elegir, la tarjeta decía «Desde
+   * 0,62 €» y enumeraba los cuatro sabores —o sea, **a propósito no se comprometía**—
+   * y un carrito ahí se habría comprometido por el cliente. En Pony Malta eso es
+   * meterle la unidad de 1,50 € a quien venía por la caja de 36 €.
+   *
+   * Preseleccionando, la tarjeta SÍ se compromete: foto, precio y nombre son los de
+   * una presentación concreta, y el carrito añade exactamente lo que se está viendo.
+   *
+   * ⚠️ Lo que cuesta: se pierde el «Desde …» y la lista de sabores del subtítulo. En
+   * este catálogo el «Desde» solo aplicaba a las familias de FORMATO —en las de sabor
+   * todas valen igual— y la lista de presentaciones sigue estando en las miniaturas.
+   */
+  const [elegidaId, setElegidaId] = useState<string>(() => representanteDe(grupo).id);
   const vista = vistaDeFamilia(grupo, elegidaId);
   /**
-   * ⚠️⚠️ EL CARRITO SOLO EXISTE CUANDO YA HAY UNA ELEGIDA, y ese es el motivo de
-   * que esta tarjeta no lo tuviera al principio: **antes de elegir no se sabe qué
-   * sabor añadir**, y un botón que decide por su cuenta es peor que no tenerlo.
+   * Siempre hay una: la preseleccionada o la que se haya tocado. La caída al
+   * representante es defensiva —un id que no pertenece a la familia— y es lo que
+   * permite que de aquí abajo no haya que tratar el caso «ninguna».
    *
-   * En cuanto se elige, la ambigüedad desaparece —hay un producto concreto, con
-   * su precio y su stock— y entonces añadir desde el catálogo es exactamente lo
-   * mismo que en una tarjeta suelta. Lo levantó Jonathan probándolo: elegía un
-   * sabor y se quedaba sin poder añadirlo como en las demás.
+   * ⚠️ Esta tarjeta llegó a NO tener carrito, y luego a tenerlo solo tras elegir. Las
+   * dos veces el problema era el mismo: quién decide qué se añade. Ahora lo decide la
+   * tarjeta a la vista, y por eso el botón puede estar desde el principio.
    */
-  const elegida = productos.find((p) => p.id === elegidaId) ?? null;
+  const elegida = productos.find((p) => p.id === elegidaId) ?? representanteDe(grupo);
 
   return (
     <motion.article
@@ -89,7 +109,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
         {/* Con una elegida y con stock, se añade desde aquí igual que en
             cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,
             no el de la familia. */}
-        {elegida && !vista.agotado && (
+        {!vista.agotado && (
           <BotonCarrito productoId={elegida.id} nombre={`${base} ${varianteVisible(elegida.variante)}`} />
         )}
       </div>
