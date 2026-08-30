@@ -11,6 +11,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { SUPABASE_CLIENT } from "../supabase/supabase.module";
 import { esMensajeParaElUsuario } from "../common/errores/rpc";
+import { TOPE_FAVORITOS } from "@valatino/types";
 import type { Producto, PaginatedResponse, ResultadoDesempaquetado } from "@valatino/types";
 import type { DesempaquetarDto } from "./dto/producto.dto";
 
@@ -29,6 +30,17 @@ export interface QueryProductosDto {
   categoria?: string;
   q?: string;
   soloActivos?: boolean;
+  /**
+   * Pedir productos CONCRETOS por su id. Lo usa la página de favoritos para
+   * resolver la lista que tiene guardada.
+   *
+   * ⚠️ Va en el catálogo público y no en `/favoritos` a propósito: un INVITADO
+   * tiene sus favoritos en `localStorage` y no puede llamar a una ruta con sesión,
+   * pero necesita pintar lo mismo. Con esto, invitado y cliente con sesión usan el
+   * MISMO camino para pasar de ids a productos, y no hay dos formas de pintar la
+   * misma página.
+   */
+  ids?: string[];
 }
 
 /** Prefijo de las URLs públicas de nuestro bucket; lo demás no es nuestro. */
@@ -41,8 +53,34 @@ export class ProductosService {
   constructor(@Inject(SUPABASE_CLIENT) private readonly supabase: SupabaseClient) {}
 
   async findAll(query: QueryProductosDto): Promise<PaginatedResponse<Producto>> {
-    const page = Math.max(1, query.page ?? 1);
-    const limit = Math.min(50, Math.max(1, query.limit ?? 20));
+    /**
+     * ⚠️⚠️ `undefined` Y `[]` NO SON LO MISMO, y confundirlos aquí sería grave: «no
+     * filtres por ids» y «filtra por esta lista, que ha quedado vacía» darían el
+     * MISMO resultado, o sea que pedir productos concretos y que ninguno sea válido
+     * devolvería **el catálogo entero**. Pedir tres cosas y recibir treinta no es un
+     * error visible: es una página de favoritos que enseña la tienda entera.
+     */
+    const porIds = query.ids !== undefined;
+
+    // Lista presente pero vacía: no hay nada que devolver, y se dice sin consultar.
+    if (porIds && query.ids?.length === 0) {
+      return { data: [], total: 0, page: 1, limit: 0 };
+    }
+
+    const page = porIds ? 1 : Math.max(1, query.page ?? 1);
+
+    /**
+     * ⚠️ Preguntando POR IDS el tope sube, y no es un capricho: quien pregunta ya
+     * sabe cuáles quiere —son sus favoritos, una lista que ya tiene entera— así que
+     * paginar aquí le obligaría a trocearla y a juntar los trozos. El techo es el
+     * mismo que el de favoritos, así que una llamada siempre basta.
+     *
+     * Sin ids se queda en 50, que es el tope de siempre del catálogo.
+     */
+    const limit = porIds
+      ? Math.min(TOPE_FAVORITOS, query.ids?.length ?? 0)
+      : Math.min(50, Math.max(1, query.limit ?? 20));
+
     const offset = (page - 1) * limit;
 
     let qb = this.supabase
@@ -59,6 +97,10 @@ export class ProductosService {
 
     if (query.q) {
       qb = qb.ilike("nombre", `%${query.q}%`);
+    }
+
+    if (porIds) {
+      qb = qb.in("id", query.ids as string[]);
     }
 
     const { data, error, count } = await qb

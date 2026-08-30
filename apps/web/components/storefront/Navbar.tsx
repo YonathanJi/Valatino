@@ -3,11 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShoppingCart, User, LogOut, Package, Settings, LayoutDashboard } from "lucide-react";
+import { Heart, ShoppingCart, User, LogOut, Package, Settings, LayoutDashboard } from "lucide-react";
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { obtenerRol, esRolStaff } from "@lib/auth/rol";
 import { useBarraOculta } from "@lib/hooks/useBarraOculta";
 import { useCarrito } from "@lib/hooks/useCarrito";
+import { useFavoritos } from "@lib/hooks/useFavoritos";
 import { debeRevelar } from "@lib/ui/barra-al-scroll";
 import { Button } from "@components/ui/button";
 import { toast } from "sonner";
@@ -16,6 +17,7 @@ export function Navbar() {
   const supabase = createSupabaseBrowserClient();
   const router = useRouter();
   const { carrito } = useCarrito();
+  const { ids: favoritos } = useFavoritos();
   const [userData, setUserData] = useState<{ email?: string; nombre?: string; role?: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const { oculta, revelar } = useBarraOculta();
@@ -197,6 +199,29 @@ export function Navbar() {
               <Link href="/login">
                 <User className="h-4 w-4 mr-1" />
                 Iniciar sesión
+              </Link>
+            </Button>
+          )}
+
+          {/*
+            ⚠️ La insignia es la MISMA que la del carrito, a propósito: dos iconos
+            vecinos que se comportan igual no hay que aprenderlos dos veces. Si se
+            cambia una, hay que cambiar la otra.
+
+            ⚠️⚠️ Y no hace falta mirar `listo` para la hidratación: la lista empieza
+            vacía en el primer render —tanto en el servidor como en el navegador—,
+            así que la insignia no existe hasta que el almacén se ha leído. Ver la
+            cabecera de `useFavoritos`.
+          */}
+          {!esStaff && (
+            <Button variant="ghost" size="icon" asChild className="relative">
+              <Link href="/favoritos" aria-label="Mis favoritos">
+                <Heart className="h-5 w-5" />
+                {favoritos.length > 0 && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                    {favoritos.length > 9 ? "9+" : favoritos.length}
+                  </span>
+                )}
               </Link>
             </Button>
           )}

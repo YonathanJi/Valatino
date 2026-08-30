@@ -6,6 +6,7 @@ import { SupabaseModule } from "./supabase/supabase.module";
 import { AuthModule } from "./auth/auth.module";
 import { ProductosModule } from "./productos/productos.module";
 import { CarritoModule } from "./carrito/carrito.module";
+import { FavoritosModule } from "./favoritos/favoritos.module";
 import { PagosModule } from "./pagos/pagos.module";
 import { PedidosModule } from "./pedidos/pedidos.module";
 import { DireccionesModule } from "./direcciones/direcciones.module";
@@ -44,6 +45,7 @@ const WEBHOOKS = [
     AuthModule,
     ProductosModule,
     CarritoModule,
+    FavoritosModule,
     PagosModule,
     PedidosModule,
     DireccionesModule,

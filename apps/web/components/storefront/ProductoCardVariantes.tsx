@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { BotonCarrito } from "./BotonCarrito";
+import { BotonFavorito } from "./BotonFavorito";
 import {
   miniaturaDe,
   vistaDeFamilia,
@@ -77,6 +78,16 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
             )}
           </div>
         </Link>
+
+        {/* ⚠️ Se guarda LA PRESENTACIÓN ELEGIDA, no la familia: los favoritos son
+            ids de producto, y «Nucita» sin decir cuál no es nada que se pueda
+            guardar. Por eso pide `elegida`, igual que el carrito. */}
+        {elegida && (
+          <BotonFavorito
+            productoId={elegida.id}
+            nombre={`${base} ${varianteVisible(elegida.variante)}`}
+          />
+        )}
 
         {/* Con una elegida y con stock, se añade desde aquí igual que en
             cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,

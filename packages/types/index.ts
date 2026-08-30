@@ -1286,6 +1286,35 @@ export interface CarritoConItems {
   total: number;
 }
 
+// ============================================================
+// Favoritos (085)
+// ============================================================
+
+/**
+ * Cuántos productos puede guardar una persona.
+ *
+ * ⚠️⚠️ ESTE NÚMERO VIVE AQUÍ Y EN NINGÚN OTRO SITIO, y lo usan TRES: el navegador
+ * al guardar, el DTO de `POST /favoritos/fusionar` al recibir la lista del invitado,
+ * y el filtro `?ids=` del catálogo. Si estuviera escrito tres veces, el día que uno
+ * subiera y los otros no, la fusión perdería favoritos en silencio — que es
+ * exactamente el patrón que este proyecto lleva un mes arreglando (`API_URL`, el
+ * título de la tienda, el `revalidate` del mapa).
+ */
+export const TOPE_FAVORITOS = 100;
+
+/**
+ * Lo que devuelve `GET /favoritos`: **solo los ids**, no los productos.
+ *
+ * ⭐ Es a propósito, y simplifica una cosa que si no se duplica: un INVITADO tiene
+ * sus ids en `localStorage` y no puede llamar aquí, así que igualmente necesita
+ * resolver ids → productos por el catálogo público (`GET /productos?ids=…`). Si esta
+ * ruta devolviera los productos ya montados habría **dos formas** de pintar la misma
+ * página según si hay sesión o no. Devolviendo ids, el camino es uno solo.
+ */
+export interface FavoritosIds {
+  productoIds: string[];
+}
+
 export interface CarritoItemDetalle {
   id: string;
   productoId: string;

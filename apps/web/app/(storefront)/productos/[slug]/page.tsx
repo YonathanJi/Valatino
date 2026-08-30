@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
+import { BotonFavorito } from "@components/storefront/BotonFavorito";
 import { hermanosDeVariante, tieneVariante, varianteVisible } from "@lib/productos/variantes";
 import { descripcionPropia, ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
 import { JsonLd } from "@components/seo/JsonLd";
@@ -166,7 +167,15 @@ export default async function ProductoPage({ params }: Props) {
             </div>
           )}
 
-          <p className="text-4xl font-bold text-primary">{formatEUR(Number(producto.precio))}</p>
+          {/*
+            El corazón al lado del precio, que es donde se decide de verdad: aquí se
+            llega después de leer la descripción. Variante `linea` porque esto no es
+            una foto sobre la que flotar, es una fila.
+          */}
+          <div className="flex items-center gap-3">
+            <p className="text-4xl font-bold text-primary">{formatEUR(Number(producto.precio))}</p>
+            <BotonFavorito productoId={producto.id} nombre={producto.nombre} variante="linea" />
+          </div>
 
           <p className="text-sm text-muted-foreground">
             {agotado ? (

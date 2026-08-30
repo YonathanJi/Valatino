@@ -36,7 +36,7 @@ import {
   AjustarStockDto,
   DesempaquetarDto,
 } from "./dto/producto.dto";
-import { nivelAlcanza } from "@valatino/types";
+import { nivelAlcanza, TOPE_FAVORITOS } from "@valatino/types";
 import type { JwtPayload } from "@valatino/types";
 
 const MAX_IMAGEN_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -91,6 +91,36 @@ function esImagenValida(buffer: Buffer, mimetype: string): boolean {
   }
 }
 
+/** Un UUID, en cualquiera de sus versiones. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Los ids de `?ids=a,b,c`, quedándose solo con los que son UUID.
+ *
+ * Lo pide la página de favoritos para resolver su lista guardada.
+ *
+ * ⚠️⚠️ SE FILTRA, NO SE RECHAZA LA PETICIÓN ENTERA. Esa lista sale del
+ * `localStorage` del navegador de alguien, así que puede traer basura de una versión
+ * vieja o de un producto que ya no está; tumbar la página entera con un 400 por un id
+ * roto sería castigar al cliente por algo que no puede arreglar. Se pinta lo que sí
+ * existe.
+ *
+ * ⚠️ Y el filtro NO es cosmético: un texto cualquiera contra una columna `uuid` es un
+ * error de Postgres (22P02), o sea un 500 en vez de una lista.
+ *
+ * ⚠️⚠️ Devuelve `undefined` cuando no vino el parámetro y `[]` cuando vino y no
+ * quedó nada válido. **No son lo mismo**: el primero es «no filtres» y el segundo es
+ * «no hay nada que enseñar». Ver la cabecera de `findAll`.
+ */
+function idsPedidos(crudo?: string): string[] | undefined {
+  if (crudo === undefined) return undefined;
+  return crudo
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => UUID.test(x))
+    .slice(0, TOPE_FAVORITOS);
+}
+
 @Controller("productos")
 export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
@@ -108,6 +138,7 @@ export class ProductosController {
     @Query("categoria") categoria?: string,
     @Query("q") q?: string,
     @Query("soloActivos") soloActivos?: string,
+    @Query("ids") ids?: string,
   ) {
     const incluirInactivos = soloActivos === "false";
     if (incluirInactivos) {
@@ -127,6 +158,7 @@ export class ProductosController {
       categoria,
       q,
       soloActivos: !incluirInactivos,
+      ids: idsPedidos(ids),
     });
   }
 

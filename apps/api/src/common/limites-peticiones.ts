@@ -29,6 +29,20 @@ export const LIMITE_CREAR_PAGO = { default: { ttl: 60_000, limit: 15 } };
 export const LIMITE_CARRITO = { default: { ttl: 60_000, limit: 40 } };
 
 /**
+ * Guardar y quitar favoritos (085).
+ *
+ * ⚠️ NO hereda `LIMITE_CARRITO` aunque se le parezca, porque el motivo de aquel no
+ * aplica: `reservar_carrito` bloquea filas de productos y por eso se le pone un techo
+ * bajo. Un favorito es un `upsert` de dos columnas que no bloquea nada.
+ *
+ * Sube a 80 porque el gesto invita a repetirlo —se recorre la rejilla dando
+ * corazones— y porque exige sesión, así que el abuso está acotado a una cuenta y no
+ * a internet entero. Sigue habiendo techo para que una cuenta comprometida no pueda
+ * usar esto de martillo.
+ */
+export const LIMITE_FAVORITOS = { default: { ttl: 60_000, limit: 80 } };
+
+/**
  * Subidas. Son de personal autenticado y con módulo, así que el riesgo es la
  * cuenta comprometida, no internet. Pero cada una son megabytes que se parsean
  * y se suben a Storage.

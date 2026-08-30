@@ -140,6 +140,8 @@ export const REVALIDAR_S = 300;
 export const RUTAS_CERRADAS = [
   "/checkout",
   "/carrito",
+  // Distinta para cada visitante y sin nada que indexar, igual que el carrito.
+  "/favoritos",
   "/cuenta",
   "/backoffice",
   "/login",

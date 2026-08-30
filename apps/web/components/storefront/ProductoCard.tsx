@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import type { Producto } from "@valatino/types";
 import { BotonCarrito } from "./BotonCarrito";
+import { BotonFavorito } from "./BotonFavorito";
 import { formatEUR } from "@lib/utils";
 
 interface ProductoCardProps {
@@ -47,6 +48,10 @@ export function ProductoCard({ producto }: ProductoCardProps) {
             )}
           </div>
         </Link>
+
+        {/* El corazón sale SIEMPRE, agotado incluido: guardar algo que ahora no
+            está es justo para lo que sirve una lista de deseos. */}
+        <BotonFavorito productoId={producto.id} nombre={producto.nombre} />
 
         {/* Agotado: no hay carrito. El cartel ya lo dice a pantalla completa, y
             un botón apagado encima solo añade ruido a algo que no se puede
