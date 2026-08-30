@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-28 (el arranque en frío real son 42,5 s y no 8–16, así que el presupuesto de ayer no llegaba; y el correo de contacto por fin resuelto, lo destapó una pantalla de Instagram)
+**Última actualización**: 2026-08-30 (los favoritos vivos en producción —el corazón sin cuenta y la lista en el área del cliente—, y la meta description que salía vacía porque la misma regla estaba escrita en tres sitios. ⚠️ La FUSIÓN al iniciar sesión está escrita y con tests, pero **falta verla en una pantalla**)
 
 ---
 
@@ -48,7 +48,126 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-28
+### 🔜 Al volver, empezar por aquí — cierre del 2026-08-30
+
+Sesión larga y de una sola cosa: **los favoritos**, de la migración a la esquina de la foto. Ocho commits, 34 ficheros, +2.123/−57. Y de paso cayeron dos arreglos que no eran del plan: una meta description que salía **vacía** y el menú del panel.
+
+**La línea base al cerrar** (medida hoy contra producción, no de memoria):
+
+```
+pedidos 5 · pedido_items 17 · pedido_iva 9 · facturas_emitidas 24 · factura_eventos 26
+pedido_eventos 80 · productos 30 (29 activos, 29 con descripción)
+favoritos 2 (2 usuarios distintos)   ← tabla nueva
+```
+
+Idénticas a las del 27 y el 28: **sigue sin entrar ningún pedido desde el 26/08**. Nada de hoy toca dinero ni lo fiscal.
+
+`api.valatino.es/health` responde **`{"status":"ok","commit":"241c3ec"}`** — o sea, la API sirve exactamente el HEAD de `main`.
+
+### ⭐⭐ FAVORITOS, VIVO EN PRODUCCIÓN — y la decisión de arquitectura es lo que hay que recordar
+
+Lo que pidió Jonathan: un corazón sobre cada foto, el mismo corazón arriba con lo guardado, **funcionando sin iniciar sesión**, y que al iniciarla lo guardado pase a la cuenta.
+
+⭐⭐ **INVITADO → `localStorage`. CON SESIÓN → SERVIDOR. AL ENTRAR, SE FUSIONAN.**
+
+Lo natural era copiar el carrito, que ya resuelve «invitado + fusión al entrar» con cookie de sesión y tablas propias. **No se copió, y los tres motivos son medidos, no de gusto:**
+
+1. El carrito **necesita** servidor (reserva de stock, precio congelado, checkout). Esto es una lista de ids.
+2. ⚠️⚠️ **La API duerme: 42,5 s de arranque en frío**, medidos el 28/08. El carrito lo tolera porque añadir es deliberado y tiene su spinner; **un corazón es un microgesto y 42 segundos es estar roto**. Y como el catálogo se sirve de caché ISR, alguien puede llegar al corazón **sin haber despertado la API**.
+3. La cookie de invitado **tampoco cruza dispositivos**. Hacerlo en servidor no compraba ninguna durabilidad extra y costaba toda la latencia.
+
+Consecuencia: lo local **es la verdad** y el servidor es un respaldo que se sincroniza cuando puede. Todas las llamadas van sin esperar y con el fallo tragado a propósito.
+
+#### La migración 085, y su estado comprobado hoy
+
+```
+rls_activa true · politicas 4 · politicas_abiertas 0 · permisos_anon 0 · unique (user_id, producto_id) 1
+```
+
+- Sin `session_id`: **un invitado no toca la base nunca**, que es todo el punto del diseño.
+- El `unique (user_id, producto_id)` es lo que hace que **guardar dos veces sea idempotente sin leer antes** — la misma clase de carrera que duplicó el correo de reembolso el 26/08, cerrada por construcción en vez de por comprobación.
+- Cuatro guardas autoverificantes al final del fichero, como la 084.
+
+⚠️ **La 085 NO está en `supabase_migrations.schema_migrations`** — pero es que **la 083 y la 084 tampoco**: esa tabla se quedó en la 082. Se aplican con `scripts/aplicar-sql.mjs` porque `supabase db push` es inusable aquí. **No es nada nuevo de esta migración**, queda dicho para que nadie lo confunda con un fallo de hoy.
+
+#### Los tres fallos que se cazaron antes de desplegar, y los tres son el MISMO
+
+⚠️⚠️ **Confundir «no sé» con «no hay».** Es la avería que dejó las tres legales en blanco y la que servía un sitemap sin catálogo, y hoy volvió a asomar **tres veces**:
+
+| Dónde | Qué habría pasado |
+|---|---|
+| `GET /productos?ids=` con **todos los ids inválidos** | Devolvía **el catálogo entero**. `undefined` (no se pidió filtrar) y `[]` (se pidió y no quedó nada) eran lo mismo. Lo introduje yo y lo cacé yo |
+| `POST /favoritos/fusionar` con **un id de producto muerto** | ⚠️⚠️ Un `upsert` de lote **es UNA sentencia**: una sola violación de clave ajena tiraba el lote entero y el cliente perdía **TODOS** sus favoritos justo al iniciar sesión. Se arregló preguntando antes cuáles existen |
+| El panel de `/favoritos` | Si «falló la API» y «no tienes nada» se pintaran igual, alguien con veinte guardados vería «no tienes favoritos» porque Render estaba dormido — y se pondría a guardarlos otra vez. **Tres estados y no dos** |
+
+⚠️⚠️ Y el cuarto, el más sutil de todos: **la hidratación.** `localStorage` no existe en el servidor, así que el estado **empieza vacío a propósito** y se llena al montar. Pintar los corazones rellenos en el primer render habría hecho que el HTML del servidor no coincidiera con el del navegador. Está escrito en la cabecera de `useFavoritos`.
+
+#### Por qué la lógica vive en `lib/` y no en el componente
+
+⚠️ Porque el runner de la web corre en **`node` sin `jsdom`** y solo mira `lib/` y `components/`: **un `.tsx` no se puede montar**. Lo que puede estar mal —normalizar basura, unir listas, respetar el tope— está en `lib/favoritos/almacen.ts` con tests; el componente queda de puro pintado. Es la misma regla que trajo `lib/seo/mapa-del-sitio.ts` el 27/08 y `lib/backoffice/navegacion.ts` hoy.
+
+#### Los seis retoques que pidió Jonathan, y el que me demostró que mi razonamiento estaba mal
+
+1. El corazón **siempre visible**, no solo al pasar por encima (`7dc938b`).
+2. **Relleno negro, no rojo.** `text-foreground` y no `text-primary`: aunque en la tienda dan el mismo negro, la paleta de `:root` tiene el primary **naranja**, así que fuera del storefront saldría un corazón naranja.
+3. Más pequeño y de línea más fina — **pero el cuadro de 40 px no se encoge**: es lo que se toca con el dedo.
+4. El texto de la página de favoritos, «el de la foto **pero cierto**»: la referencia de Tommy dice que «debes iniciar sesión para verla en otro momento» y **aquí eso sería mentira** (los favoritos de invitado sobreviven a recargar y a volver mañana). Se conserva lo que el mensaje hacía bien y se cambia solo lo que no es verdad.
+5. **El carrito en las tarjetas de familia desde el principio** (`ae70ddb`): antes había que elegir sabor para que apareciera. Se preselecciona la primera variante **con stock**, y esa elección la hace ahora una función con nombre, `representanteDe`, en vez de estar escrita dos veces.
+6. ⚠️ **El corazón de la ficha, junto al precio → a la esquina de la foto** (`241c3ec`). Yo lo había puesto junto al precio razonando que «es donde se decide, después de leer la descripción». Jonathan tenía razón y mi razonamiento estaba mal ponderado: **al producto se llega tocando su tarjeta**, donde el corazón está arriba a la derecha — así que al entrar, el mismo gesto se movía de sitio. Que esté siempre donde estaba pesa más que dónde se decide.
+
+⚠️ Al moverlo, la variante `linea` del botón se quedó **sin un solo usuario**, y se borró en vez de dejarla «por si acaso». Un camino muerto que nadie recorre es de lo que este proyecto ya se ha encontrado en verde probando nada (ver la 077).
+
+#### Y lo último: los favoritos en el área del cliente (`b96502b`)
+
+Lo pidió Jonathan y es lo correcto: **con la sesión abierta, el corazón desaparece de la barra** y los favoritos pasan a estar donde están «Mis pedidos» y «Seguir comprando» — enlace en la barra, entrada en el desplegable y tarjeta en los accesos rápidos del perfil.
+
+⭐ De paso cayó ahí un **tercer correo de contacto en duro** (`valatino@hotmail.com` en la tarjeta de Contacto del perfil): ahora enlaza a `/contacto`, que lee el de la base. Es el mismo dato en dos sitios, otra vez.
+
+#### Lo que está verificado, y lo que NO
+
+✅ **Comprobado hoy contra producción:**
+- Portada: 17 corazones y 15 carritos; ficha de producto: **un** corazón, arriba a la derecha (`nucita`, `pony-malta`, `chocolate-corona`).
+- `/favoritos` responde 200.
+- `robots.txt` lista `Disallow: /favoritos` y el `sitemap.xml` **no lo contiene** — 34 URL, las mismas de siempre. ⭐ Salió gratis: `RUTAS_CERRADAS` la comparten robots y mapa, así que **una línea lo cerró en los dos** y el test que ya existía lo cubrió sin escribir nada nuevo.
+- **La escritura con sesión funciona de verdad**: hay 2 filas en `favoritos`, de **dos cuentas distintas de Jonathan**, las dos sobre `milo-400g`, a las 18:11 y 18:26 UTC. Y el `unique` se comportó: mismo producto, dos usuarios, dos filas.
+
+🔜 **Lo que NO he verificado y conviene probar a mano** (son los pasos 5, 6 y 8 del plan):
+- **La fusión de verdad**: guardar 3 favoritos **sin sesión**, entonces iniciarla, y que sigan ahí. Las 2 filas de arriba pudieron crearse ya con la sesión abierta, así que **no prueban la fusión**.
+- **Cross-device**: entrar con la misma cuenta desde otro navegador.
+- **Modo privado**, con `localStorage` bloqueado: está cubierto por tests, no por una pantalla.
+
+### ✅ LA META DESCRIPTION SALÍA **VACÍA**, Y LA REGLA ESTABA ESCRITA TRES VECES (`5909476`)
+
+Antes de los favoritos. Un `<meta name="description" content="">` en fichas sin descripción: Google lo trata peor que no poner nada. **La misma regla estaba escrita en tres sitios** y una de las tres copias emitía el vacío.
+
+Se dejó **una sola función con nombre**, `descripcionPropia`, y —esto es lo importante— **deliberadamente distinta** de `descripcionDeProducto`: la tarjeta social sí quiere el texto genérico de reserva, la meta description no. Hay un test que **fija que sigan siendo distintas**, para que nadie las «unifique» dentro de seis meses.
+
+⭐ Y **se escribieron 9 descripciones de producto** directamente en la base. Hoy 28 de los 29 activos tienen texto propio.
+
+### ✅ El menú del panel se despliega con una flecha (`ecd7401`)
+
+Lo pidió Jonathan: antes había que entrar al módulo grande para ver sus submódulos. La lógica —`dentroDelModulo` y `desplegado`— vive en `lib/backoffice/navegacion.ts` con tests, por lo mismo de siempre: el `.tsx` no se puede montar. ⚠️ `desplegado(forzado, dentro)` devuelve `forzado ?? dentro`: **`undefined` es «no lo he tocado» y `false` es «lo he cerrado yo»**, y confundirlos hacía que el menú se reabriera solo.
+
+### Las pruebas
+
+**Web 495 · API 575 · 1.070 en verde.** La web venía de 468: **+27**, de `almacen.spec.ts`, `navegacion.spec.ts`, `variantes.spec.ts` y `metadatos.spec.ts`. `type-check`, `lint` y `next build` limpios.
+
+### 🔴 LO QUE QUEDA PENDIENTE Y ES DE JONATHAN — dos preguntas sin responder
+
+1. 🔴 **`jugo-hit-sabor-lulo-6`**: se llama «Jugo Hit Sabor Lulo», su slug dice `lulo` y su **variante dice «Mango»**. Es **el único producto activo sin descripción**, y lo dejé vacío a propósito: escribirle un texto de mango dejaría la página **contradiciéndose consigo misma**, que es peor que estar vacía. ⚠️ Si el bueno es Mango hay que corregirle nombre y slug — y ojo, **esa URL ya está en el sitemap que Google leyó**.
+2. ⚠️ **Chocolate Corona**: la descripción que se escribió da por hecho que es **chocolate de mesa (pastillas)**, no tableta. Falta que lo confirme.
+
+### Lo demás que sigue abierto (sin cambios desde el 28/08)
+
+- 🔴 **El `Math.min(50)` que trunca sin avisar** sigue en `ProductoGrid.tsx:11` (portada), `backoffice/catalogo`, `backoffice/inventario` y `backoffice/compras/nueva`. Con 29 activos no se nota; **a 51 productos, la portada empieza a esconder catálogo en silencio**.
+- 🟡 **Los cinco secretos sin revocar** y `C:\YJIMENEZ\tokens-despliegue.env.txt`. La `sb_secret_…` es la que corre prisa: **salta el RLS**.
+- 🟡 `arranque_fiscal_el` en NULL · 5 funciones fiscales con `search_path` mutable · `cancelar_transferencia_reemplazada` con dos sobrecargas vivas.
+- 🟠 **El ámbito de envío sigue contradicho**: los términos prometen península y Baleares, el checkout acepta las 52 provincias. Hasta que se decida, **no se puede declarar `shippingDetails`** a Google sin publicarle la contradicción.
+- 🟠 No es código: Stripe en `live`, plan de pago en Render, registros **MX** (para poder quitar `EMAIL_REPLY_TO`), Google Business Profile.
+- 🟠 Ofrecido y no cogido: igualar el tamaño del corazón y el carrito en la tarjeta (15/17 px contra 16/20), y recuperar la foto de familia de la Galleta Festival.
+
+
+### Cierre anterior — 2026-08-28
 
 Sesión corta y de una pieza: **un número medido rompió el diseño de ayer**, y de una pantalla de Instagram salió el arreglo de un 🔴 que llevaba cuatro cierres abierto.
 
