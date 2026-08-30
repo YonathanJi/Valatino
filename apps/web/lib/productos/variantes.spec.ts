@@ -289,6 +289,23 @@ describe("vistaDeFamilia", () => {
       expect(v.alt).toBe("Galleta Festival");
     });
 
+    /**
+     * ⭐⭐ LO QUE HACE QUE EL CORAZÓN PUEDA SALIR SIN HABER ELEGIDO NADA. Antes esto
+     * no se devolvía y la tarjeta sabía a DÓNDE llevaba pero no QUÉ estaba
+     * enseñando, así que el corazón tenía que esperar a que alguien pinchara una
+     * miniatura. Lo levantó Jonathan el 30/08: «el corazón debe aparecer siempre».
+     *
+     * ⚠️ Y tiene que ser EL MISMO al que lleva `href`: si divergieran, guardarías
+     * una presentación y al tocar la foto se abriría otra.
+     */
+    it("dice QUÉ producto está enseñando, y es el mismo al que lleva el enlace", () => {
+      const { grupo, choco } = galletas();
+      const v = vistaDeFamilia(grupo, null);
+
+      expect(v.visibleId).toBe(choco.id);
+      expect(v.href).toContain(choco.slug as string);
+    });
+
     it("el subtítulo enumera las presentaciones", () => {
       const { grupo } = galletas();
       expect(vistaDeFamilia(grupo, null).subtitulo).toBe("Chocolate · Fresa");
@@ -327,6 +344,14 @@ describe("vistaDeFamilia", () => {
   });
 
   describe("con una elegida", () => {
+    it("con una elegida, lo que se enseña es la elegida", () => {
+      const { grupo, fresa } = galletas();
+      const v = vistaDeFamilia(grupo, fresa.id);
+
+      expect(v.visibleId).toBe(fresa.id);
+      expect(v.href).toContain(fresa.slug as string);
+    });
+
     it("manda SU foto, SU precio y SU nombre", () => {
       const { grupo, fresa } = galletas();
       const v = vistaDeFamilia(grupo, fresa.id);

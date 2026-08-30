@@ -79,15 +79,12 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
           </div>
         </Link>
 
-        {/* ⚠️ Se guarda LA PRESENTACIÓN ELEGIDA, no la familia: los favoritos son
-            ids de producto, y «Nucita» sin decir cuál no es nada que se pueda
-            guardar. Por eso pide `elegida`, igual que el carrito. */}
-        {elegida && (
-          <BotonFavorito
-            productoId={elegida.id}
-            nombre={`${base} ${varianteVisible(elegida.variante)}`}
-          />
-        )}
+        {/* ⚠️⚠️ EL CORAZÓN SALE SIEMPRE, se haya elegido presentación o no, y ahí se
+            aparta del carrito a propósito. El carrito espera porque añadir el sabor
+            equivocado sí es un problema; guardar **lo que tienes delante** no tiene
+            ninguna ambigüedad: es el mismo producto al que lleva la foto. Antes
+            había que elegir primero y el corazón parecía que no estaba. */}
+        <BotonFavorito productoId={vista.visibleId} nombre={vista.alt} />
 
         {/* Con una elegida y con stock, se añade desde aquí igual que en
             cualquier otra tarjeta. `vista.agotado` ya es el stock de LA ELEGIDA,

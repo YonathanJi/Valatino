@@ -83,14 +83,30 @@ export function FavoritosPanel() {
         ya la tiene, aunque sea medio segundo, es decirle algo falso.
       */}
       {haySesion === false && listo && (
-        <div className="rounded-xl border bg-muted/40 p-4 text-sm">
+        <div className="space-y-4">
+          {/**
+           * ⚠️⚠️ EL TEXTO NO ES EL DE LA REFERENCIA, Y ES DELIBERADO. La captura que
+           * pasó Jonathan (de Tommy Hilfiger) dice «para guardar tu lista y verla en
+           * otro momento DEBES iniciar sesión». En esta tienda **eso sería falso**:
+           * los favoritos de invitado viven en `localStorage` y siguen ahí al
+           * recargar y al volver mañana. Un cliente guardaría algo, vería el mensaje,
+           * recargaría, y comprobaría en pantalla que la tienda le había mentido.
+           *
+           * ⭐ Se conserva lo que el mensaje hacía bien —decir qué se gana con una
+           * cuenta, y el botón para hacerlo— y se cambia solo la parte que no es
+           * cierta. Lo que de verdad se pierde sin cuenta es el otro dispositivo y
+           * borrar los datos del navegador, y eso sí se dice.
+           */}
           <p className="text-muted-foreground">
-            Tus favoritos se guardan <strong className="text-foreground">en este navegador</strong>.{" "}
-            <Link href="/login" className="text-primary hover:underline">
-              Inicia sesión
-            </Link>{" "}
-            para conservarlos y verlos desde cualquier dispositivo.
+            Tus favoritos se guardan <strong className="text-foreground">en este navegador</strong>.
+            Inicia sesión o regístrate para conservarlos y verlos desde cualquier dispositivo.
           </p>
+          <Link
+            href="/login"
+            className="inline-flex min-w-[220px] items-center justify-center rounded-none bg-foreground px-8 py-3 text-center text-sm font-semibold leading-tight text-background transition-opacity hover:opacity-90"
+          >
+            Iniciar Sesión/Registrarse
+          </Link>
         </div>
       )}
 

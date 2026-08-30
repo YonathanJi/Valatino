@@ -61,12 +61,26 @@ export function BotonFavorito({ productoId, nombre, variante = "tarjeta" }: Boto
         guardado ? `Quitar ${nombre} de favoritos` : `Guardar ${nombre} en favoritos`
       }
       title={guardado ? "Quitar de favoritos" : "Guardar en favoritos"}
-      className={`inline-flex h-10 w-10 shrink-0 rounded-full transition-transform hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${posicion} ${
-        guardado ? "text-red-500" : "text-foreground"
-      }`}
+      /**
+       * ⚠️ `text-foreground` SIEMPRE, guardado o no. Lo pidió Jonathan: relleno
+       * NEGRO, no rojo. Y `text-foreground` y no `text-primary` aunque en la tienda
+       * den el mismo negro: la paleta de `:root` tiene el primary NARANJA, así que
+       * esto pintado fuera del área de cliente sacaría un corazón naranja. Misma
+       * trampa que documenta `BotonCarrito`.
+       */
+      className={`inline-flex h-10 w-10 shrink-0 rounded-full text-foreground transition-transform hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${posicion}`}
     >
+      {/**
+       * ⚠️ El DIBUJO se encoge y adelgaza —lo pidió Jonathan— pero el cuadro de
+       * 40 px de arriba NO. Es lo que se toca con el dedo, y encogerlo para ganar
+       * unos píxeles sería pagar el ajuste justo donde el botón se usa peor.
+       *
+       * ⚠️ El halo blanco se queda: un icono de línea fina sobre la foto de un
+       * producto oscuro desaparece, y cuanto más fino, más.
+       */}
       <Heart
-        className="h-4 w-4 sm:h-5 sm:w-5 [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
+        className="h-[15px] w-[15px] sm:h-[17px] sm:w-[17px] [filter:drop-shadow(0_0_2px_rgb(255_255_255/0.9))]"
+        strokeWidth={1.5}
         // Relleno cuando está guardado: es lo que se ve de un vistazo en una rejilla.
         fill={guardado ? "currentColor" : "none"}
         aria-hidden="true"

@@ -228,6 +228,22 @@ export interface VistaDeFamilia {
   subtitulo: string;
   /** Si lo que se está enseñando ahora mismo no se puede comprar. */
   agotado: boolean;
+  /**
+   * El id del producto que la tarjeta está enseñando: el elegido, o el
+   * representante mientras no haya elegido ninguno.
+   *
+   * ⚠️⚠️ EXISTE PORQUE EL CORAZÓN LO NECESITA. Antes solo salía de aquí el `href`,
+   * así que la tarjeta sabía a dónde llevaba pero no QUÉ estaba enseñando, y el
+   * corazón tenía que esperar a que alguien eligiera una presentación para
+   * aparecer. Lo levantó Jonathan: «el corazón debe aparecer siempre, no solo
+   * cuando se dé clic en un producto».
+   *
+   * ⭐ Es el MISMO producto al que lleva `href`, y eso es lo que hace que guardar
+   * sea coherente: se guarda lo que se está viendo y lo que se abriría al tocar.
+   * El carrito sigue exigiendo elegida a propósito —añadir el sabor equivocado sí
+   * es un problema—, pero guardar lo que tienes delante no tiene ambigüedad.
+   */
+  visibleId: string;
 }
 
 export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null): VistaDeFamilia {
@@ -251,6 +267,7 @@ export function vistaDeFamilia(grupo: GrupoVariantes, elegidaId: string | null):
 
   return {
     imagen,
+    visibleId: visible.id,
     alt: elegida ? `${familia} · ${varianteVisible(elegida.variante)}` : familia,
     href: `/productos/${visible.slug ?? visible.id}`,
     precio: elegida ? Number(elegida.precio) : precioMin,
