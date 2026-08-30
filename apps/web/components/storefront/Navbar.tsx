@@ -135,9 +135,23 @@ export function Navbar() {
                   Panel de control
                 </Link>
               ) : (
-                <Link href="/cuenta/pedidos" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                  Mis pedidos
-                </Link>
+                <>
+                  <Link href="/cuenta/pedidos" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Mis pedidos
+                  </Link>
+                  {/*
+                    ⚠️ `hidden sm:inline` y no siempre: en un móvil estrecho, «Mis
+                    pedidos» + «Favoritos» + el avatar + el carrito no caben en la
+                    misma fila de 16 px de alto. Ahí se llega por el menú del perfil,
+                    que sí cabe en cualquier pantalla.
+                  */}
+                  <Link
+                    href="/favoritos"
+                    className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+                  >
+                    Favoritos
+                  </Link>
+                </>
               )}
 
               <div className="relative" ref={menuRef}>
@@ -183,6 +197,25 @@ export function Navbar() {
                         Mis pedidos
                       </Link>
                     )}
+                    {!esStaff && (
+                      <Link
+                        href="/favoritos"
+                        onClick={() => setMenuOpen(false)}
+                        className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                      >
+                        <Heart className="h-4 w-4" />
+                        Favoritos
+                        {/*
+                          El número se conserva AQUÍ porque es lo que se pierde al
+                          quitar el corazón de la barra: saber cuántos hay sin entrar.
+                        */}
+                        {favoritos.length > 0 && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {favoritos.length}
+                          </span>
+                        )}
+                      </Link>
+                    )}
                     <button
                       onClick={handleLogout}
                       className="flex items-center gap-2 w-full px-3 py-2 text-sm hover:bg-muted transition-colors text-destructive"
@@ -213,7 +246,14 @@ export function Navbar() {
             así que la insignia no existe hasta que el almacén se ha leído. Ver la
             cabecera de `useFavoritos`.
           */}
-          {!esStaff && (
+          {/*
+            ⚠️⚠️ EL CORAZÓN DE LA BARRA ES SOLO PARA QUIEN NO HA ENTRADO, y lo pidió
+            Jonathan el 30/08. El motivo tiene sentido: sin cuenta, este icono es el
+            ÚNICO camino a los favoritos; con cuenta, ya viven donde vive todo lo
+            demás de la persona —al lado de «Mis pedidos» y en el menú del perfil— y
+            un cuarto icono en la fila solo compite con el carrito.
+          */}
+          {!esStaff && !userData && (
             <Button variant="ghost" size="icon" asChild className="relative">
               <Link href="/favoritos" aria-label="Mis favoritos">
                 <Heart className="h-5 w-5" />

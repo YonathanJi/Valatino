@@ -270,7 +270,7 @@ export default function PerfilPage() {
       )}
 
       {/* Accesos rápidos */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link
           href="/"
           className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
@@ -283,12 +283,33 @@ export default function PerfilPage() {
         >
           📦 Mis pedidos
         </Link>
-        <a
-          href="mailto:valatino@hotmail.com"
+        {/*
+          Los favoritos viven aquí, al lado de lo demás de la persona. Es lo que
+          sustituye al corazón de la barra, que desde el 30/08 solo sale a quien NO
+          ha iniciado sesión.
+        */}
+        <Link
+          href="/favoritos"
+          className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          ❤️ Favoritos
+        </Link>
+        {/*
+          ⚠️⚠️ ESTO ERA UN `mailto:` CON LA DIRECCIÓN ESCRITA A MANO, y era la
+          TERCERA copia del correo de contacto: ni la del panel ni la que estaba mal,
+          una distinta —`valatino@hotmail.com`— que nadie sabía que existía. El 30/08
+          se corrigió el correo en TI → Ajustes y esta página siguió mandando a la
+          suya, porque no lee de ningún sitio.
+          ⭐ Se arregla quitando la copia, no actualizándola: se enlaza a `/contacto`,
+          que lee la dirección y el WhatsApp del panel. Un dato que no está escrito
+          aquí no se puede quedar viejo.
+        */}
+        <Link
+          href="/contacto"
           className="rounded-xl border bg-card p-4 text-sm font-medium hover:bg-muted transition-colors"
         >
           ✉️ Contacto
-        </a>
+        </Link>
       </section>
 
       <section>
