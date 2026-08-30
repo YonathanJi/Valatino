@@ -170,6 +170,34 @@ export function descripcionDeProducto(p: Pick<Producto, "descripcion" | "precio"
   return recortar(`${formatEUR(Number(p.precio))} · ${texto}`);
 }
 
+/**
+ * El texto propio del producto, o **NADA**.
+ *
+ * ⚠️⚠️ EXISTE PORQUE LA MISMA REGLA ESTABA ESCRITA TRES VECES Y LAS TRES DECÍAN COSAS
+ * DISTINTAS (medido el 30/08): la etiqueta `<meta name="description">` de la ficha
+ * usaba `producto.descripcion` EN CRUDO, así que un producto sin texto emitía
+ * `content=""`; el JSON-LD hacía `?.trim() || undefined` y lo omitía bien; y la
+ * tarjeta social usaba `descripcionDeProducto`, con genérica de reserva. Tres copias
+ * de la misma idea, una de ellas rota — el patrón que este proyecto lleva arreglando
+ * todo el mes (`API_URL`, el título de la tienda, el `revalidate` del mapa).
+ *
+ * ⭐ Y OJO, QUE NO ES LA MISMA REGLA QUE LA DE LA TARJETA, A PROPÓSITO:
+ *
+ *   · **Buscador** (aquí): sin texto, **no se pone la etiqueta**. Una descripción
+ *     genérica repetida en varias fichas Google la descarta y compone el fragmento
+ *     con el contenido de la página, que además queda mejor. Una etiqueta vacía es lo
+ *     peor de todo: gasta la señal y no dice nada.
+ *   · **Tarjeta social** (`descripcionDeProducto`): sin texto, **sí** se pone la
+ *     genérica, porque ahí lo lee una persona al instante y una tarjeta en blanco
+ *     parece rota.
+ *
+ * Dos consumidores con necesidades distintas y dos reglas distintas. Por eso cada una
+ * es una función CON NOMBRE, y no una expresión suelta que parezca un descuido.
+ */
+export function descripcionPropia(p: Pick<Producto, "descripcion">): string | undefined {
+  return p.descripcion?.trim() || undefined;
+}
+
 type OpenGraph = NonNullable<Metadata["openGraph"]>;
 
 /**

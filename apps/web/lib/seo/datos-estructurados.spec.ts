@@ -157,6 +157,19 @@ describe("la ficha de un producto", () => {
     expect(oferta.availability).toBe("https://schema.org/OutOfStock");
   });
 
+  /**
+   * ⚠️ Se comprueba sobre el JSON **serializado**, que es lo que de verdad sale en el
+   * `<script>`: en el objeto la clave existe con valor `undefined`, y solo al
+   * serializar desaparece. Afirmarlo sobre el objeto pasaría en verde sin probar lo
+   * que importa.
+   */
+  it("un producto sin descripción no publica una `description` vacía", () => {
+    const sinTexto = { ...PRODUCTO, descripcion: "" } as Producto;
+    const publicado = JSON.parse(JSON.stringify(productoJsonLd(sinTexto)));
+
+    expect(publicado).not.toHaveProperty("description");
+  });
+
   it("apunta a su ficha con URL absoluta y por slug", () => {
     const f = productoJsonLd(PRODUCTO);
     expect(f.url).toBe("https://valatino.es/productos/nucita");

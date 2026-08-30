@@ -4,6 +4,7 @@ import {
   SITIO,
   SITIO_NOMBRE,
   DESCRIPCION,
+  descripcionPropia,
   urlAbsoluta,
   ogImagenDeFoto,
 } from "./metadatos";
@@ -160,7 +161,7 @@ export function productoJsonLd(p: Producto): JsonLd {
     "@context": "https://schema.org",
     "@type": "Product",
     name: p.nombre,
-    description: p.descripcion?.trim() || undefined,
+    description: descripcionPropia(p),
     image: ogImagenDeFoto(miniaturaDe(p)),
     url: `${SITIO}/productos/${p.slug ?? p.id}`,
     ...(p.categoria ? { category: p.categoria } : {}),

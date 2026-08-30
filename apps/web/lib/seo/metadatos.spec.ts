@@ -3,6 +3,7 @@ import { formatEUR } from "@lib/utils";
 import {
   DESCRIPCION_GENERICA,
   descripcionDeProducto,
+  descripcionPropia,
   LIMITE_DESCRIPCION,
   ogDelSitio,
   ogDeProducto,
@@ -195,6 +196,53 @@ describe("descripcionDeProducto", () => {
       precio: "4.92" as unknown as number,
     });
     expect(texto).toContain("4,92");
+  });
+});
+
+/**
+ * ⚠️⚠️ La regla del BUSCADOR, que hasta el 30/08 estaba escrita en crudo en la ficha
+ * (`description: producto.descripcion`) y emitía `<meta name="description" content="">`
+ * en los 9 productos que no tenían texto. Una etiqueta vacía es peor que no ponerla:
+ * gasta la señal y no dice nada, mientras que sin etiqueta el buscador compone el
+ * fragmento con el contenido de la página.
+ */
+describe("descripcionPropia", () => {
+  it("devuelve el texto del producto cuando lo hay", () => {
+    expect(descripcionPropia({ descripcion: "Café instantáneo" })).toBe("Café instantáneo");
+  });
+
+  /** ⭐ El fallo: una descripción vacía NO es una descripción. */
+  it("una cadena vacía no es una descripción: devuelve undefined", () => {
+    expect(descripcionPropia({ descripcion: "" })).toBeUndefined();
+  });
+
+  it("ni una de solo espacios", () => {
+    expect(descripcionPropia({ descripcion: "   " })).toBeUndefined();
+  });
+
+  it("ni un null", () => {
+    expect(descripcionPropia({ descripcion: null })).toBeUndefined();
+  });
+
+  it("recorta los espacios de los lados", () => {
+    expect(descripcionPropia({ descripcion: "  con bordes  " })).toBe("con bordes");
+  });
+
+  /**
+   * ⚠️⚠️ EL QUE DE VERDAD GUARDA ALGO: que estas dos reglas SEAN DISTINTAS es
+   * deliberado, no un descuido pendiente de unificar. Sin este test, el día que
+   * alguien vea las dos funciones parecidas se las llevará a una sola y romperá una
+   * de las dos cosas.
+   *
+   *   · Buscador: sin texto, NO se pone etiqueta.
+   *   · Tarjeta social: sin texto, SÍ se pone la genérica — ahí lo lee una persona
+   *     al instante y una tarjeta en blanco parece rota.
+   */
+  it("NO es la misma regla que la de la tarjeta social, y eso es a propósito", () => {
+    const sinTexto = { descripcion: "", precio: 1 };
+
+    expect(descripcionPropia(sinTexto)).toBeUndefined();
+    expect(descripcionDeProducto(sinTexto)).toContain(DESCRIPCION_GENERICA);
   });
 });
 

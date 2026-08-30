@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import type { Producto } from "@valatino/types";
 import { AddToCartButton } from "@components/storefront/AddToCartButton";
 import { hermanosDeVariante, tieneVariante, varianteVisible } from "@lib/productos/variantes";
-import { ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
+import { descripcionPropia, ogDeProducto, rutaDeProducto } from "@lib/seo/metadatos";
 import { JsonLd } from "@components/seo/JsonLd";
 import { migasDeProducto, productoJsonLd } from "@lib/seo/datos-estructurados";
 import { formatEUR } from "@lib/utils";
@@ -58,7 +58,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!producto) return { title: "Producto no encontrado" };
   return {
     title: producto.nombre,
-    description: producto.descripcion,
+    /**
+     * ⚠️ `descripcionPropia` y NO `producto.descripcion` en crudo: un producto sin
+     * texto emitía `<meta name="description" content="">`, y una etiqueta vacía es
+     * peor que no ponerla —gasta la señal y no dice nada—. Sin etiqueta, el buscador
+     * compone el fragmento con el contenido de la página. Ver la cabecera de esa
+     * función: la misma regla estaba escrita tres veces y las tres diferían.
+     */
+    description: descripcionPropia(producto),
     alternates: { canonical: rutaDeProducto(producto) },
     /**
      * La tarjeta que sale al compartir la ficha por WhatsApp: la foto del
