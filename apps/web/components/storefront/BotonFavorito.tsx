@@ -11,8 +11,6 @@ interface BotonFavoritoProps {
    * idénticos sin decir de qué producto habla. Mismo motivo que en `BotonCarrito`.
    */
   nombre: string;
-  /** `tarjeta` se posiciona solo sobre la foto; `linea` se coloca donde lo pongan. */
-  variante?: "tarjeta" | "linea";
 }
 
 /**
@@ -41,15 +39,19 @@ interface BotonFavoritoProps {
  * distinto de lo que dice el navegador — y eso es un aviso de desajuste de
  * hidratación. Ver la cabecera de `useFavoritos`.
  */
-export function BotonFavorito({ productoId, nombre, variante = "tarjeta" }: BotonFavoritoProps) {
+export function BotonFavorito({ productoId, nombre }: BotonFavoritoProps) {
   const { esFavorito, alternarFavorito, listo } = useFavoritos();
 
   const guardado = listo && esFavorito(productoId);
 
+  /**
+   * ⚠️ HUBO UNA VARIANTE `linea` para colocarlo al lado del precio en la ficha, y se
+   * quitó el 30/08 al mover el corazón también allí a la esquina de la foto: se quedó
+   * sin nadie que la usara. Un camino muerto que nadie recorre es de las cosas que
+   * este proyecto ya se ha encontrado en verde probando nada (ver la 077).
+   */
   const posicion =
-    variante === "tarjeta"
-      ? "absolute top-0 right-0 sm:top-2 sm:right-2 items-start justify-end p-1 sm:items-center sm:justify-center sm:p-0"
-      : "items-center justify-center";
+    "absolute top-0 right-0 sm:top-2 sm:right-2 items-start justify-end p-1 sm:items-center sm:justify-center sm:p-0";
 
   return (
     <button

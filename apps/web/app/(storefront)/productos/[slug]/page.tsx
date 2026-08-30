@@ -108,15 +108,32 @@ export default async function ProductoPage({ params }: Props) {
       </Link>
       <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
         {/* Imagen */}
-        <div className="relative aspect-square rounded-2xl overflow-hidden bg-muted">
-          <Image
-            src={producto.imagenes[0] ?? "/placeholder.png"}
-            alt={producto.nombre}
-            unoptimized={(producto.imagenes[0] ?? "").endsWith(".svg")}
-            fill
-            className="object-cover"
-            priority
-          />
+        {/*
+          ⚠️⚠️ EL `relative` VA AQUÍ FUERA Y NO EN EL CONTENEDOR DE LA FOTO, que es la
+          misma cicatriz que ya tiene escrita `ProductoCard`: el de dentro RECORTA
+          (`overflow-hidden` + `rounded-2xl`) y se comería la esquina del botón, más
+          todavía al crecer con el `hover:scale-110`.
+        */}
+        <div className="relative">
+          <div className="relative aspect-square rounded-2xl overflow-hidden bg-muted">
+            <Image
+              src={producto.imagenes[0] ?? "/placeholder.png"}
+              alt={producto.nombre}
+              unoptimized={(producto.imagenes[0] ?? "").endsWith(".svg")}
+              fill
+              className="object-cover"
+              priority
+            />
+          </div>
+
+          {/*
+            Arriba a la derecha sobre la foto, igual que en el catálogo. Lo pidió
+            Jonathan el 30/08: estaba al lado del precio y al entrar en un producto
+            desde la portada el corazón «se movía de sitio». Que el mismo gesto esté
+            siempre donde estaba es más importante que el argumento de ponerlo junto
+            al precio, que era donde se decide.
+          */}
+          <BotonFavorito productoId={producto.id} nombre={producto.nombre} />
         </div>
 
         {/* Información */}
@@ -167,15 +184,7 @@ export default async function ProductoPage({ params }: Props) {
             </div>
           )}
 
-          {/*
-            El corazón al lado del precio, que es donde se decide de verdad: aquí se
-            llega después de leer la descripción. Variante `linea` porque esto no es
-            una foto sobre la que flotar, es una fila.
-          */}
-          <div className="flex items-center gap-3">
-            <p className="text-4xl font-bold text-primary">{formatEUR(Number(producto.precio))}</p>
-            <BotonFavorito productoId={producto.id} nombre={producto.nombre} variante="linea" />
-          </div>
+          <p className="text-4xl font-bold text-primary">{formatEUR(Number(producto.precio))}</p>
 
           <p className="text-sm text-muted-foreground">
             {agotado ? (
