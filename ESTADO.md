@@ -50,7 +50,7 @@
 
 ### 🔜 Al volver, empezar por aquí — cierre del 2026-09-11
 
-Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan (`AUDITORIA_SEO_WEB_2026-09-09.txt`, en la raíz). Cuatro commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
+Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan (`AUDITORIA_SEO_WEB_2026-09-09.txt`, en la raíz). Siete commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
 
 **La línea base al cerrar** (medida contra la BD con un ensayo revertido, no de memoria):
 
@@ -61,7 +61,7 @@ pedido_eventos 80 · productos 30 (29 activos) · favoritos 2 (2 usuarios)
 
 ⚠️ **Idénticas a las del 30/08, y `pedidos desde el 26/08 = 0`.** Son **16 días sin una venta**. No es una avería: es que la tienda está sana y no hay quien la encuentre, que es justo de lo que va la auditoría. `api.valatino.es/health` responde `commit f635988`.
 
-✅ **TODO ESTO ESTÁ VIVO Y COMPROBADO EN PRODUCCIÓN** (cinco commits, `9edcbec`). La verificación al final de esta sección, con sus números.
+✅ **TODO ESTO ESTÁ VIVO Y COMPROBADO EN PRODUCCIÓN** (siete commits, de `11bf4b0` a `24c20b6`). La verificación al final de esta sección, con sus números.
 
 ### La auditoría, contrastada hallazgo por hallazgo
 
@@ -192,6 +192,8 @@ Se hizo en el orden obligatorio: `push` → esperar el despliegue **sondeando** 
 
 ### ⚠️⚠️ DOS FALLOS MÍOS QUE SALIERON AL REVISAR, DESPUÉS DE DESPLEGAR (`a2e7627`)
 
+✅ **Los dos arreglados y ya vivos**, comprobado en producción: el manifest sirve `display: minimal-ui` con los tres iconos —dos `any` y el `maskable` aparte— y `/icono-maskable-512.png` responde 200.
+
 Ninguno lo trajo la auditoría, y **el patrón de los dos es el mismo**: un comentario que explicaba con seguridad una decisión que nadie había medido.
 
 1. **El icono `maskable` era falso.** El de 192 se declaraba `purpose: "maskable"` razonando que «la marca se genera con margen». Al medirlo, **los cinco vértices exteriores caían fuera de la zona segura** —el círculo centrado del 80 %, o sea radio 40 sobre 100— y el más lejano estaba a **58,1**. Se le estaba pidiendo a Android que recortara las puntas de la V, **que es justo lo que ese comentario decía querer evitar**. Ahora el maskable es un fichero aparte con la marca al 65 %; los cinco anteriores salen byte a byte idénticos.
@@ -199,9 +201,8 @@ Ninguno lo trajo la auditoría, y **el patrón de los dos es el mismo**: un come
 
 ### 🔜 LO SIGUIENTE, Y TIENE UN ORDEN
 
-1. 🔴 **`git push` del sexto commit** (`a2e7627`, el arreglo del maskable). Los cinco primeros ya están vivos; **este no**, así que el manifest de producción todavía declara un `maskable` que no lo es y un `display: browser` que impide instalar la tienda. No es urgente —nadie puede instalarla precisamente por eso— pero es lo único de hoy que queda a medias.
-2. 🔜 **El paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⭐ Ya se puede: el `noindex` está vivo y comprobado, que era la condición. **`/checkout` no sale nunca** (ver la discrepancia, arriba).
-3. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
+1. 🔜 **El paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⭐ Ya se puede: el `noindex` está vivo y comprobado, que era la condición. **`/checkout` no sale nunca** (ver la discrepancia, arriba).
+2. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
 
 ### 🔜 Lo que queda de la auditoría, por orden de retorno
 
