@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-08-30 (los favoritos vivos en producción —el corazón sin cuenta y la lista en el área del cliente—, y la meta description que salía vacía porque la misma regla estaba escrita en tres sitios. ⚠️ La FUSIÓN al iniciar sesión está escrita y con tests, pero **falta verla en una pantalla**)
+**Última actualización**: 2026-09-11 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ⚠️⚠️ **Los cuatro commits están SIN `push`: nada de esto está vivo**, y el paso siguiente tiene un orden obligatorio)
 
 ---
 
@@ -48,7 +48,153 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-08-30
+### 🔜 Al volver, empezar por aquí — cierre del 2026-09-11
+
+Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan (`AUDITORIA_SEO_WEB_2026-09-09.txt`, en la raíz). Cuatro commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
+
+**La línea base al cerrar** (medida contra la BD con un ensayo revertido, no de memoria):
+
+```
+pedidos 5 · pedido_items 17 · pedido_iva 9 · facturas_emitidas 24 · factura_eventos 26
+pedido_eventos 80 · productos 30 (29 activos) · favoritos 2 (2 usuarios)
+```
+
+⚠️ **Idénticas a las del 30/08, y `pedidos desde el 26/08 = 0`.** Son **16 días sin una venta**. No es una avería: es que la tienda está sana y no hay quien la encuentre, que es justo de lo que va la auditoría. `api.valatino.es/health` responde `commit f635988`.
+
+⚠️⚠️ **LOS CUATRO COMMITS ESTÁN EN LOCAL Y SIN `push`** — o sea que **nada de esto está vivo todavía**. Ver «lo que falta para cerrarlo» al final de esta sección, que tiene un orden obligatorio.
+
+### La auditoría, contrastada hallazgo por hallazgo
+
+⭐ Lo primero que se hizo **no fue código, fue medir el informe**: los ocho hallazgos se comprobaron contra el código y contra producción antes de tocar nada. **Los ocho son reales** — es un informe bueno y preciso. Lo que se midió:
+
+| Hallazgo | Cómo se comprobó |
+|---|---|
+| P1 · Sin `noindex` en pantallas de utilidad | `grep` de `noindex`/`robots:` en `app/`, `lib/` y `components/`: **cero resultados** |
+| P1 · `lastmod` falso en las 5 fijas | `lastModified: new Date()` en `mapa-del-sitio.ts` |
+| P1 · Falta marca/SKU/GTIN/condición | El tipo `Producto` no tiene esos campos, y la API tampoco los devuelve |
+| P2 · Sin páginas de categoría | 11 rutas en el storefront, ninguna de categoría |
+| P2 · H1 de variante muestra la familia | `page.tsx:144`, y en producción: title `Jugo Hit Sabor Lulo`, H1 `Jugo Hit` |
+| P2 · `placeholder.png` en Bon Bon Bum | `bon-bon-bum-939`, variante C/U |
+| P3 · Sin favicon ni manifest | `/favicon.ico` **404**, `/manifest.webmanifest` **404**, `<head>` sin un solo `<link rel="icon">` |
+| P3 · Logo estructurado genérico | `logo: urlAbsoluta("/portada.png")` — una foto de producto declarada como logo |
+
+### ⭐⭐ Y DOS COSAS QUE AL AUDITOR SE LE ESCAPARON
+
+**1. `/admin` era indexable.** La puerta del panel respondía **200 sin `Disallow` y sin `noindex`**. Se escapó porque la lista de rutas cerradas hablaba de `/login` —los clientes— y **el staff entra por otra puerta**: el middleware manda a `/admin` a quien va a `/backoffice`. El informe revisó `/login`, `/registro` y `/backoffice`, y aun así su propio criterio de aceptación pedía que «ninguna URL de acceso ni administración aparezca indexada».
+
+⚠️ No es un agujero de seguridad —el panel sigue pidiendo sesión y rol, y un `robots.txt` no protege nada— pero era exactamente lo que se quería evitar.
+
+**2. Bon Bon Bum tiene dos URLs con el MISMO título.** Esto sigue abierto (ver pendientes):
+
+```
+bon-bon-bum       → nombre "Bon Bon Bum"  · variante Paquete 24 unidades
+bon-bon-bum-939   → nombre "Bon Bon Bum"  · variante C/U   ← y es la del placeholder
+```
+
+Las dos sirven `<title>Bon Bon Bum | Valatino</title>` y el mismo H1, verificado en producción. Las otras seis familias no lo tienen (`Nucita` vs `Nucita Caja 12`…): **es el único caso**, porque a la presentación grande se le quedó el nombre pelado.
+
+### ⚠️ Donde se DISCREPA del informe: `/checkout` no sale del `Disallow`
+
+El informe agrupa las cinco pantallas públicas y propone retirarlas del `Disallow` para que Google pueda leer el `noindex`. Para `/carrito`, `/favoritos`, `/login` y `/registro` es correcto. **`/checkout` no**: el `noindex` no evita el rastreo, solo la indexación, y **cada entrada en `/checkout` crea una sesión y una reserva de stock**. Abrirlo al rastreo para que un robot pueda leer una etiqueta se paga en reservas de stock de productos que nadie va a comprar. Se queda cerrado, y lleva el `noindex` igual por si algún día se abre.
+
+### ✅ P1 · El `noindex`, y la lista que ahora vive en un solo sitio (`11bf4b0`)
+
+`X-Robots-Tag: noindex, follow` desde el **middleware**, con la lista sacada a `lib/seo/rutas-cerradas.ts`.
+
+⚠️⚠️ **Por cabecera y no con `metadata.robots` en cada página**, y los dos motivos importan:
+
+1. `/login` y `/checkout` son `"use client"`, y **una página de cliente no puede exportar `metadata`** en el App Router. Habría que inventarles un `layout.tsx` a cada una solo para esto.
+2. Y lo de fondo: **una etiqueta en el HTML desaparece en silencio** el día que alguien convierta una página en `"use client"` o la mueva de carpeta. El síntoma aparecería semanas después y en Search Console.
+
+⚠️ La lista se **mudó de fichero** porque ahora la necesitan tres (robots.txt, el mapa y el middleware) y el middleware **corre en el Edge en cada petición**: importar `mapa-del-sitio` le habría metido el `fetch` del catálogo por arrastre. Los 33,1 kB del middleware no se movieron.
+
+⭐ **El test que importa no comprueba una lista**: recorre las rutas de `app/` con `fs` y exige que **cada una** esté declarada indexable o cerrada. Una pantalla nueva rompe eso el día que se crea, no semanas después y en Search Console — que es cómo se enteró la tienda de `/admin`. Visto en rojo: al quitar `/admin` de la lista, el test lo nombra.
+
+`follow` y no `nofollow`, a propósito: el carrito enlaza a fichas de producto y esas sí interesa que se rastreen.
+
+### ✅ P1 · El `lastmod` decía la hora de hacer el XML (`8b7b20b`)
+
+Las cinco fijas salían con `new Date()` y el mapa se regenera cada 5 minutos: a Google se le contaba que **el aviso legal se reescribe varias veces por hora**.
+
+⭐ Y el precio no lo pagaba solo el aviso legal: Google aprende a no creerse el `lastmod` de este sitio, y entonces tampoco se cree **el de las fichas de producto**, que sí es verdad y es el que interesa que mire.
+
+Lo que se hizo:
+
+- Cada fija lleva **la fecha real de su última edición**, sacada de `git log` del fichero. ⚠️ No se lee de git en build a propósito: **Vercel clona con `--depth=1`** y ahí el historial de un fichero no existe, o sea que eso fallaría justo donde importa.
+- ⭐ **La portada es distinta y no lleva fecha fija: LISTA EL CATÁLOGO**, así que cambia cuando cambia un producto. Declara la más reciente entre su código y el último `updated_at` del catálogo — y **cuando la API no contesta no cae en `ahora`**, sale la fecha del código.
+- Una ficha sin `updated_at` ahora **omite** el campo. `lastmod` es opcional: callarse es una respuesta válida, inventarse que cambió hace un segundo no.
+
+✅ **Verificado contra el catálogo real**: 34 URLs, las cuatro legales con su fecha fija, y la portada declarando `2026-08-30T18:37:00.015Z`, que es **exactamente** el `updated_at` de `jugo-hit-sabor-mora`, el producto más nuevo.
+
+⚠️ **Y un susto que conviene recordar**: la primera medición dio `18:21:16.951Z` en vez de `18:37`, y parecía un bug de la función. No lo era: `.next/cache/fetch-cache` **tenía una foto del catálogo del 27/08** y la caché de fetch de Next **sobrevive entre builds**. Borrándola, el dato salió exacto. Antes de acusar al código, mirar la fecha de esa carpeta.
+
+### ⭐⭐ La lección de los tests, que es la más reutilizable de la sesión
+
+Los 22 tests que ya había del mapa **pasaban todos con el `lastmod` mintiendo**. Comprobaban **qué** URLs salen y **cuántas** —lo que falló el 27/08— y ninguno miraba **lo que cada entrada dice de sí misma**. Un mapa con las 34 URLs correctas y las fechas falsas pasaba los 22 en verde.
+
+⚠️⚠️ Y peor: de los 8 tests nuevos, **dos nacieron sin morder**. El primero era literalmente el criterio de aceptación del informe —«dos descargas seguidas devuelven el mismo `lastmod`»— y **pasaba en verde con el fallo puesto**: `String(new Date())` se queda en los segundos, así que dos mapas generados en el mismo segundo dan el mismo texto. El otro comprobaba «el año es 2026 y no contiene 09-10», que la hora de generación también cumple.
+
+⭐ **Lo único que muerde es afirmar el valor EXACTO contra el dato declarado.** Se comprobó quitando el arreglo y volviendo a correr: 6 de los 8 fallan, y los otros dos son guardas de otra cosa. Es la cuarta o quinta vez que en este proyecto un test en verde no probaba nada.
+
+### ✅ P3 · La V del logo, hecha marca (`780c004`)
+
+Jonathan pasó el logo —la V con el trazo diagonal separado— y está reproducido como **geometría vectorial** en `scripts/generar-marca.mjs`, fuente única de los seis ficheros: `app/icon.svg`, `app/favicon.ico`, `app/apple-icon.png`, `public/icono-192.png`, `public/icono-512.png` y el `manifest`.
+
+Un generador y no seis imágenes sueltas por el motivo de siempre aquí: **el mismo dato en seis sitios se desincroniza**, y el día que cambie el logo el icono de Android se quedaría con el viejo hasta que alguien instalara la tienda en un móvil.
+
+⚠️ Sin `sharp` ni ninguna librería: rasteriza con supersampling 4×4 y escribe el PNG con `zlib`, que viene en node. Añadir un binario nativo al lockfile para cuatro ficheros que se generan una vez cada varios meses no valía el cambio.
+
+⚠️⚠️ **EL TAMAÑO QUE MANDÓ EN EL DISEÑO ES EL MÁS PEQUEÑO, no el de 512.** Con el hueco de 3,9 unidades que salía de medir el logo original, a 32 px el hueco entre la V y el trazo mide **1,25 px**: el antialiasing lo vuelve un gris y la marca se lee como una V gruesa a secas, perdiendo lo único que la distingue. Se ensanchó a 6 unidades y **se miró en pantalla**, no se supuso. En la pestaña del navegador esto se ve a 16 px.
+
+⚠️ El manifest va con **`display: "browser"` y NO `standalone`**, y no es estética: en `standalone` la tienda abriría **sin barra de direcciones**, y aquí se cobra con tarjeta. Quien paga tiene que poder ver el candado y el dominio antes de teclearla.
+
+✅ **El logo de los datos estructurados deja de ser `/portada.png`**: se le estaba declarando a Google una foto de producto como logo de la marca. Ahora sale del mismo generador que el favicon, así que **el logo que ve Google y el que ve el cliente en la pestaña no pueden discrepar**. `image` se queda con la portada a propósito —son dos campos que responden a dos preguntas— y hay un test que fija que sigan siendo distintos.
+
+### ✅ El 🔴 del Jugo Hit, resuelto con datos y no con una opinión (`540aaee`)
+
+`jugo-hit-sabor-lulo-6` se creó el 17/08 duplicando la ficha del lulo —de ahí el sufijo `-6`, que Postgres necesitó para no repetir el slug— pero **es otro producto**:
+
+```
+variante  Mango                  ← lo que es
+foto      Hit Mango, 237 ml      ← lo que es (ABRIENDO LA IMAGEN, no deduciéndolo)
+nombre    Jugo Hit Sabor Lulo    ← heredado del duplicado
+slug      jugo-hit-sabor-lulo-6  ← heredado del duplicado
+```
+
+⭐ Y no era ambiguo: **`jugo-hit-sabor-lulo` existe**, con variante Lulo y su propia foto de lulo. El lulo ya estaba cubierto y a la familia le faltaba justo el mango. Confirmado por Jonathan.
+
+El SQL (`scripts/datos-jugo-hit-mango.sql`) lleva **tres guardas, y las tres se han visto saltar** en ensayo revertido: que el producto siga existiendo, que su variante siga siendo Mango, y que el lulo de verdad siga en su sitio —que es el dato en el que se apoya toda la decisión—.
+
+⚠️⚠️ **REGLA DE ORDEN**: el 301 de `next.config.mjs` tiene que estar **desplegado antes** de que el slug cambie en la base, porque esa URL ya está en el sitemap que Google leyó. En ese orden, como mucho el 301 apunta unos minutos a una ficha que todavía no responde; al revés, la URL vieja da un **404 pelado** hasta el despliegue siguiente. Verificado en local: el 308 sale bien y el destino da 404 hasta que entre el dato.
+
+### Las pruebas
+
+**Web 511 · API 575 · 1.086 en verde.** La web venía de 495: **+16**, de `rutas-cerradas.spec.ts` (7) y del bloque del `lastmod` en `mapa-del-sitio.spec.ts` (8, +1 reescrito). `type-check`, `lint` y `next build` limpios — el build emite `/icon.svg` y `/manifest.webmanifest`.
+
+### 🔴 LO QUE FALTA PARA CERRAR ESTO, Y TIENE UN ORDEN OBLIGATORIO
+
+1. 🔴 **`git push`** — los cuatro commits están en local. Vercel despliega al empujar a `main`.
+2. 🔴 **Después del despliegue**, `node scripts/aplicar-sql.mjs --go scripts/datos-jugo-hit-mango.sql`. En este orden y no al revés (ver la regla de arriba).
+3. 🔜 **Comprobar en producción**: `X-Robots-Tag` en las cinco públicas y en `/admin`, `/favicon.ico` y `/manifest.webmanifest` a 200, el `lastmod` de las fijas, y que `/productos/jugo-hit-sabor-lulo-6` redirige a una ficha que **ya responde**.
+4. 🔜 **Y SOLO ENTONCES, el paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⚠️ Nunca antes de que el `noindex` esté vivo y comprobado. **`/checkout` no sale nunca.**
+5. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
+
+### 🔜 Lo que queda de la auditoría, por orden de retorno
+
+- **P2 · Categorías indexables** — el trabajo más grande y el de más retorno. Las cuatro ya existen en la BD con contenido de sobra: **Dulces 9 · Bebidas 8 · Galletas 8 · Despensa 4**. Hacen falta rutas `/categorias/*`, enlaces visibles desde la portada, entrada en el sitemap y migas de tres niveles (`migasDeProducto` hoy hace dos **a propósito**, porque no había categoría que enlazar).
+- **P2 · El H1 de las variantes** — hoy muestra `producto.familia` ([page.tsx:144](apps/web/app/(storefront)/productos/[slug]/page.tsx#L144)); debe mostrar el nombre completo de la presentación. Afecta a las 8 familias, 20 de los 29 activos.
+- **P2 · Bon Bon Bum** — el título duplicado de las dos presentaciones (arriba) **y** la foto `/placeholder.png` de la unidad. Las dos cosas son de catálogo, no de código.
+- **P1 · Merchant Listings** — marca, SKU, GTIN/EAN y condición. Necesita migración de BD, pantalla en el panel y JSON-LD. ⚠️ Los GTIN **no se inventan nunca** ni se reutilizan entre presentaciones: hacen falta los EAN de los envases.
+- **Medición** — PageSpeed en móvil y escritorio, y Merchant Center cuando los datos comerciales estén completos.
+
+### ⭐ Decisión de negocio tomada hoy y que desbloquea un trozo del P1
+
+**El ámbito de envío es PENÍNSULA Y BALEARES** (lo que ya prometen los términos), no las 52 provincias que acepta hoy el checkout. Decidido por Jonathan el 11/09.
+
+⚠️ **No está implementado todavía**, y no es de una línea: hay que **cerrar el checkout a Canarias, Ceuta y Melilla**, que además tienen **IGIC e IPSI** en vez de IVA — así que tocarlo sin mirar lo fiscal es lo que no se debe hacer. Lo que sí desbloquea es poder declarar `shippingDetails` a Google sin publicarle una contradicción, que era el motivo por el que estaba parado.
+
+
+### Cierre anterior — 2026-08-30
 
 Sesión larga y de una sola cosa: **los favoritos**, de la migración a la esquina de la foto. Ocho commits, 34 ficheros, +2.123/−57. Y de paso cayeron dos arreglos que no eran del plan: una meta description que salía **vacía** y el menú del panel.
 
