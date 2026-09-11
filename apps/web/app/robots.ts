@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { SITIO } from "@lib/seo/metadatos";
-import { RUTAS_CERRADAS } from "@lib/seo/mapa-del-sitio";
+import { RUTAS_CERRADAS } from "@lib/seo/rutas-cerradas";
 
 /**
  * El `robots.txt` de la tienda, que **hasta hoy devolvía un 404**.
