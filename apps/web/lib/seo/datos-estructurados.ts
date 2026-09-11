@@ -81,7 +81,24 @@ export function comercio(): JsonLd {
     url: SITIO,
     description: DESCRIPCION,
     image: urlAbsoluta("/portada.png"),
-    logo: urlAbsoluta("/portada.png"),
+    /**
+     * ⚠️⚠️ EL LOGO ES LA MARCA, NO LA FOTO DE LA PORTADA. Hasta el 11/09 los dos
+     * campos apuntaban a `/portada.png`, o sea que se le declaraba a Google como
+     * «logo de Valatino» una fotografía de producto. La auditoría del 09/09 lo
+     * señaló y tenía razón: un logo es el activo que identifica a la marca de forma
+     * **estable**, y es lo que Google puede enseñar junto al nombre del comercio.
+     * Una foto de portada cambia cuando cambia la campaña.
+     *
+     * `icono-512.png` sale de `scripts/generar-marca.mjs`, el mismo sitio que el
+     * favicon y los iconos del manifest — así el logo que ve Google y el que ve el
+     * cliente en la pestaña **no pueden discrepar**. Y cumple el mínimo de 112 px
+     * que pide Google de sobra.
+     *
+     * ⭐ `image` se queda con la portada a propósito: esa sí es «una imagen de la
+     * tienda», y es la que va en la tarjeta social. Son dos campos distintos porque
+     * responden a dos preguntas distintas.
+     */
+    logo: urlAbsoluta("/icono-512.png"),
     // Quién es la tienda en las redes. Ver la nota de `PERFILES`: esto declara
     // identidad, no enlaza. `comercioConIdentidad` lo hereda porque parte de aquí.
     sameAs: PERFILES,

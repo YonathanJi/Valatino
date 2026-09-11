@@ -67,7 +67,21 @@ describe("el comercio", () => {
     expect(f["@type"]).toBe("OnlineStore");
     expect(f.name).toBe("Valatino");
     expect(f.url).toBe("https://valatino.es");
-    expect(f.logo).toBe("https://valatino.es/portada.png");
+  });
+
+  /**
+   * ⭐ Los dos campos apuntaban al MISMO fichero —`/portada.png`— hasta el 11/09, y
+   * por eso se le declaraba a Google una foto de producto como logo de la marca.
+   * Este test fija que sigan siendo distintos: el logo es la marca (generada por
+   * `scripts/generar-marca.mjs`, la misma que el favicon) y la imagen es la foto de
+   * la tienda. Que vuelvan a coincidir sería volver al fallo.
+   */
+  it("distingue el logo de la marca de la foto de la tienda", () => {
+    const f = comercio();
+
+    expect(f.logo).toBe("https://valatino.es/icono-512.png");
+    expect(f.image).toBe("https://valatino.es/portada.png");
+    expect(f.logo).not.toBe(f.image);
   });
 
   /**
