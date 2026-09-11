@@ -87,6 +87,46 @@ const nextConfig = {
   async rewrites() {
     return [{ source: "/api/:path*", destination: `${API_TARGET}/:path*` }];
   },
+  /**
+   * URLs de fichas que cambiaron de slug. **Solo eso**: no es el sitio para
+   * redirecciones de navegación.
+   *
+   * ⚠️⚠️ POR QUÉ HACE FALTA, Y POR QUÉ NO ES OPCIONAL. Cuando un producto cambia
+   * de slug, su URL vieja **ya está en el sitemap que Google leyó** y puede estar
+   * en el historial o en un enlace de alguien. Sin esto devuelve un 404: quien
+   * llegue desde el buscador se encuentra una página de error en vez del producto,
+   * y Google tarda semanas en enterarse de que la ficha se mudó. El 301 es lo que
+   * le dice «es la misma, está aquí» y lo que traspasa a la nueva lo que la vieja
+   * tuviera ganado.
+   *
+   * ⚠️ `permanent: true` es un 308 en Next (301 permanente con el método
+   * preservado). Es deliberado y tiene consecuencias: los navegadores lo **cachean
+   * indefinidamente**, así que una entrada equivocada aquí es muy difícil de
+   * deshacer en el navegador de quien ya la visitó. Solo se añade cuando el slug
+   * cambió de verdad y el destino existe.
+   *
+   * ⚠️⚠️ Y EL ORDEN IMPORTA: esta línea tiene que estar DESPLEGADA antes de que el
+   * slug cambie en la base. Al revés, la URL vieja da un 404 pelado hasta que
+   * termine el despliegue siguiente; en este orden, como mucho el 301 lleva unos
+   * minutos a una ficha que todavía no responde, y se arregla solo en cuanto el
+   * dato entra. Es el mismo tipo de ventana que la de `NEXT_PUBLIC_API_URL` del
+   * 05/08.
+   */
+  async redirects() {
+    return [
+      /**
+       * 11/09/2026 — `jugo-hit-sabor-lulo-6` era el **Mango** con el nombre y el
+       * slug heredados del lulo, del que se duplicó la ficha el 17/08. La foto de
+       * la propia ficha es un Hit Mango de 237 ml, y `jugo-hit-sabor-lulo` sigue
+       * existiendo con su lulo de verdad. Ver `scripts/datos-jugo-hit-mango.sql`.
+       */
+      {
+        source: "/productos/jugo-hit-sabor-lulo-6",
+        destination: "/productos/jugo-hit-sabor-mango",
+        permanent: true,
+      },
+    ];
+  },
   // Se aplican a TODO lo que sirve Next, tienda y panel. No se filtra por ruta
   // a propósito: una lista de rutas protegidas es una lista que se olvida de
   // actualizar cuando se añade una página.
