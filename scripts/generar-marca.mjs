@@ -77,6 +77,35 @@ const BARRA = [
   [52.0, 88.0],
 ];
 
+/**
+ * ⚠️⚠️ CUÁNTO SE ENCOGE LA MARCA EN EL ICONO **MASKABLE**, y esto es un fallo que
+ * casi se desplegó mal: el manifest declaraba `purpose: "maskable"` sobre el icono
+ * normal, con el comentario de que «la marca se genera con margen». Era una
+ * racionalización, no una medición. **Al medirlo, los CINCO vértices exteriores
+ * estaban fuera de la zona segura** — el más lejano a radio 58,1.
+ *
+ * Un icono maskable se lo queda el sistema para recortarlo a la forma de su
+ * lanzador (círculo, cuadrado redondeado, gota…), y solo garantiza que se vea lo
+ * que cae dentro del **círculo centrado del 80 %**, o sea radio 40 sobre 100. Todo
+ * lo de fuera es zona de sacrificio. Declarar maskable un icono que la pisa es
+ * pedirle a Android que recorte las puntas de la V — justo lo que el comentario
+ * decía querer evitar.
+ *
+ * 0,65 y no el 0,69 justo que sale de la medición: la holgura es gratis aquí, y
+ * los lanzadores no recortan todos igual.
+ */
+const ESCALA_MASKABLE = 0.65;
+
+/** La marca encogida hacia el centro del lienzo. `1` la deja como está. */
+const escalar = (poli, factor) =>
+  poli.map(([x, y]) => [50 + (x - 50) * factor, 50 + (y - 50) * factor]);
+
+/** Las dos formas que son la marca. */
+const MARCA = [V, BARRA];
+
+/** La misma marca dentro de la zona segura de un icono maskable. */
+const MARCA_MASKABLE = MARCA.map((f) => escalar(f, ESCALA_MASKABLE));
+
 const dentro = (poli, x, y) => {
   let si = false;
   for (let i = 0, j = poli.length - 1; i < poli.length; j = i++) {
@@ -88,14 +117,14 @@ const dentro = (poli, x, y) => {
 };
 
 /** Cobertura de tinta de un píxel, con supersampling 4×4 para el antialiasing. */
-function cobertura(px, py, lado) {
+function cobertura(px, py, lado, formas) {
   const M = 4;
   let cubiertas = 0;
   for (let sy = 0; sy < M; sy++) {
     for (let sx = 0; sx < M; sx++) {
       const x = ((px + (sx + 0.5) / M) / lado) * 100;
       const y = ((py + (sy + 0.5) / M) / lado) * 100;
-      if (dentro(V, x, y) || dentro(BARRA, x, y)) cubiertas++;
+      if (formas.some((f) => dentro(f, x, y))) cubiertas++;
     }
   }
   return cubiertas / (M * M);
@@ -129,13 +158,13 @@ function trozo(tipo, datos) {
 }
 
 /** Un PNG RGB de `lado`×`lado`. Sin canal alfa: ver la nota de `PAPEL`. */
-function png(lado) {
+function png(lado, formas = MARCA) {
   const filas = [];
   for (let y = 0; y < lado; y++) {
     // El primer byte de cada fila es el filtro de PNG; 0 = sin filtro.
     const fila = Buffer.alloc(1 + lado * 3);
     for (let x = 0; x < lado; x++) {
-      const a = cobertura(x, y, lado);
+      const a = cobertura(x, y, lado, formas);
       for (let c = 0; c < 3; c++) {
         fila[1 + x * 3 + c] = Math.round(PAPEL[c] * (1 - a) + TINTA[c] * a);
       }
@@ -218,6 +247,13 @@ const salidas = [
   ["app/apple-icon.png", png(180)],
   ["public/icono-192.png", png(192)],
   ["public/icono-512.png", png(512)],
+  /**
+   * ⚠️ El maskable es un fichero APARTE y no el mismo con otra etiqueta. La marca
+   * va encogida al 65 % para caber en la zona segura (ver `ESCALA_MASKABLE`), lo
+   * que en el icono normal la dejaría nadando en blanco. Son dos usos con dos
+   * requisitos, así que son dos imágenes.
+   */
+  ["public/icono-maskable-512.png", png(512, MARCA_MASKABLE)],
 ];
 
 for (const [relativa, datos] of salidas) {

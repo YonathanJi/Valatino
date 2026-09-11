@@ -17,13 +17,20 @@ import { SITIO_NOMBRE, TITULO, DESCRIPCION } from "@lib/seo/metadatos";
  *     su marca.
  *   · La barra del navegador en Android toma el `theme_color`.
  *
- * ⚠️⚠️ `display: "browser"` Y NO `"standalone"`, y esto es lo que hay que pensar
- * antes de copiar el manifest de otro sitio. En `standalone` la tienda se abriría
- * **sin barra de direcciones**, y aquí eso sería un problema de verdad y no de
- * estética: se cobra con tarjeta. Quien paga tiene que poder ver el candado y el
- * dominio `valatino.es` en la barra antes de teclear su tarjeta, y Stripe redirige
- * a la pasarela y vuelve. Esconder la barra en una tienda es quitarle al cliente
- * la única señal con la que comprueba dónde está.
+ * ⚠️⚠️ `display: "minimal-ui"`, Y LAS TRES OPCIONES IMPORTAN AQUÍ:
+ *
+ *   · `standalone` abriría la tienda **sin barra de direcciones**, y aquí eso es un
+ *     problema de verdad y no de estética: **se cobra con tarjeta**. Quien paga
+ *     tiene que poder ver el candado y el dominio `valatino.es` antes de teclearla,
+ *     y encima Stripe redirige a su pasarela y vuelve. Esconder la barra en una
+ *     tienda es quitarle al cliente la única señal con la que comprueba dónde está.
+ *   · `browser` conserva la barra, pero **deja la tienda sin poder instalarse**:
+ *     Chrome solo ofrece «añadir a la pantalla de inicio» con `standalone`,
+ *     `fullscreen` o `minimal-ui`. Era el valor inicial y era peor de lo que
+ *     parecía — renunciaba al icono en el móvil del cliente que vuelve, que es
+ *     justo para lo que sirve tener un manifest.
+ *   · `minimal-ui` da las dos cosas: se instala **y** mantiene los controles
+ *     mínimos de navegación, la URL entre ellos.
  *
  * Los nombres y la descripción salen de `@lib/seo/metadatos`, que ya es el único
  * sitio donde vive el título de la tienda. Escribirlos aquí otra vez es la piedra
@@ -36,20 +43,33 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: SITIO_NOMBRE,
     description: DESCRIPCION,
     start_url: "/",
-    display: "browser",
+    display: "minimal-ui",
     background_color: "#ffffff",
     theme_color: "#ffffff",
     lang: "es-ES",
+    /**
+     * ⚠️⚠️ EL `maskable` ES UN FICHERO DISTINTO, NO EL MISMO CON OTRA ETIQUETA, y
+     * esto estuvo mal escrito y a punto de desplegarse: el 192 se declaraba
+     * `maskable` razonando que «la marca se genera con margen». Al medirlo, **los
+     * cinco vértices exteriores caían fuera de la zona segura** —el círculo del
+     * 80 %— y el más lejano a radio 58 de 40. O sea que se le estaba pidiendo a
+     * Android que recortara las puntas de la V, que es justo lo que ese comentario
+     * decía querer evitar. Era una racionalización, no una medición.
+     *
+     * Ahora el `maskable` lleva la marca al 65 % y los `any` la llevan a tamaño
+     * completo. Son dos usos con dos requisitos: en el icono normal el 65 %
+     * dejaría la marca nadando en blanco, y en el recortado el 100 % se pierde las
+     * esquinas. Los tres salen del mismo generador.
+     */
     icons: [
-      /**
-       * Los dos tamaños que pide Android, y `purpose` en cada uno a propósito:
-       * `maskable` deja que el sistema recorte el icono a la forma del lanzador
-       * (círculo, cuadrado redondeado…) y por eso la marca se genera con margen
-       * —ver `scripts/generar-marca.mjs`—; sin margen, un recorte circular se
-       * comería las puntas de la V.
-       */
-      { src: "/icono-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/icono-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icono-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      {
+        src: "/icono-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
     ],
   };
 }
