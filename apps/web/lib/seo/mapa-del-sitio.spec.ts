@@ -8,9 +8,10 @@ import {
   PLAZO_MS,
   POR_PAGINA,
   REVALIDAR_S,
-  RUTAS_CERRADAS,
+  FIJAS as FIJAS_DECLARADAS,
   mapaDelSitio,
 } from "./mapa-del-sitio";
+import { RUTAS_CERRADAS } from "./rutas-cerradas";
 
 /**
  * ⚠️⚠️ POR QUÉ ESTE FICHERO EXISTE, Y POR QUÉ LLEGÓ TARDE.
@@ -78,7 +79,12 @@ function producto(n: number, extra: Partial<Producto> = {}): Producto {
 const pagina = (productos: Producto[], total: number | null) =>
   ({ ok: true, cuerpo: total === null ? productos : { data: productos, total } }) as Respuesta;
 
-const FIJAS = 5;
+/**
+ * Cuántas rutas fijas lleva el mapa. Se cuenta de la lista de verdad en vez de
+ * escribir un 5: así, el día que se añada una página fija, estos tests siguen
+ * diciendo la verdad en vez de fallar por un número que se quedó viejo.
+ */
+const FIJAS = FIJAS_DECLARADAS.length;
 
 /**
  * Sin esperas y con un plazo de milisegundos: lo que se prueba es que REINTENTA y que
@@ -387,5 +393,142 @@ describe("la duplicación que Next obliga", () => {
 
   it("y no vuelve a ser una hora, que era el problema", () => {
     expect(REVALIDAR_S).toBeLessThanOrEqual(600);
+  });
+});
+
+// ── El `lastmod`, que decía la hora de generación ─────────────────────────────
+
+/**
+ * ⚠️⚠️ LO QUE ESTABA ROTO Y NINGUNO DE LOS 22 TESTS DE ARRIBA VEÍA. Las cinco rutas
+ * fijas salían con `lastModified: new Date()`, o sea la hora de cocinar el XML, y el
+ * mapa se regenera cada 5 minutos: a Google se le contaba que el aviso legal se
+ * reescribe varias veces por hora. Lo cazó la auditoría SEO del 09/09, no el código.
+ *
+ * ⭐ Y la lección de por qué se escapó: los tests de arriba comprobaban **qué URLs**
+ * salen y **cuántas**, que es lo que falló el 27/08. Nadie miró lo que cada entrada
+ * DICE de sí misma. Un mapa con las 34 URLs correctas y las fechas mintiendo pasaba
+ * los 22 tests en verde.
+ *
+ * El primero es el criterio de aceptación que pedía la auditoría, palabra por palabra:
+ * «dos descargas consecutivas del sitemap sin cambios de contenido devuelven el mismo
+ * lastmod para las URLs fijas».
+ */
+describe("⭐⭐ el lastmod de las fijas — el fallo del 09/09", () => {
+  const fija = (mapa: Awaited<ReturnType<typeof mapaDelSitio>>, ruta: string) =>
+    mapa.find((e) => String(e.url) === `${SITIO}${ruta}`);
+
+  /**
+   * ⚠️⚠️ ESTE TEST EMPEZÓ SIENDO «dos mapas seguidos declaran la misma fecha», que
+   * es la frase del criterio de aceptación — y **pasaba en verde con el fallo
+   * puesto**. El motivo merece quedar escrito porque es una trampa reutilizable:
+   * `String(new Date())` se queda en los segundos, así que dos mapas generados en el
+   * mismo segundo daban el mismo texto y el test se daba por satisfecho. Se vio al
+   * comprobar que fallara; solo 4 de los 8 de este bloque fallaban.
+   *
+   * ⭐ Lo que sí muerde es afirmar el valor EXACTO contra el dato declarado. Se
+   * compara contra `FIJAS` y no contra fechas escritas aquí a propósito: así el test
+   * prueba el mecanismo y no el dato, y editar una legal de verdad —tocando su
+   * fecha, como manda la nota de `FIJAS`— no rompe nada.
+   */
+  it("cada fija declara EXACTAMENTE la fecha que tiene escrita, no la del reloj", async () => {
+    servir(pagina([producto(1)], 1));
+    const mapa = await mapaDelSitio(RAPIDO);
+
+    const editadas = FIJAS_DECLARADAS.filter((f) => f.ruta !== "");
+    expect(editadas).toHaveLength(4);
+
+    for (const f of editadas) {
+      expect(new Date(String(fija(mapa, f.ruta)?.lastModified)).toISOString()).toBe(
+        `${f.editada}T00:00:00.000Z`,
+      );
+    }
+  });
+
+  it("ninguna fija declara la fecha de HOY, que era el síntoma", async () => {
+    servir(pagina([producto(1)], 1));
+    const mapa = await mapaDelSitio(RAPIDO);
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    for (const ruta of ["/contacto", "/terminos", "/aviso-legal", "/politica-privacidad"]) {
+      const declarada = new Date(String(fija(mapa, ruta)?.lastModified));
+      expect(declarada.toISOString().slice(0, 10)).not.toBe(hoy);
+    }
+  });
+
+  /**
+   * La portada es la única fija que no la edita una persona: lista el catálogo. Su
+   * fecha es la más reciente entre su código y el último producto que cambió.
+   */
+  it("la portada sigue al catálogo cuando un producto es más nuevo que su código", async () => {
+    servir(pagina([producto(1, { updated_at: "2026-09-10T08:00:00Z" })], 1));
+
+    const portada = fija(await mapaDelSitio(RAPIDO), "");
+
+    expect(new Date(String(portada?.lastModified)).toISOString()).toBe(
+      "2026-09-10T08:00:00.000Z",
+    );
+  });
+
+  /**
+   * ⚠️ La primera versión de este test comprobaba «el año es 2026 y la fecha no
+   * contiene 09-10», y **pasaba en verde con el fallo puesto**: la hora de generación
+   * también cumple las dos cosas. Afirmar el valor exacto es lo único que muerde. Es
+   * la misma lección que el test de las dos descargas, dos veces en el mismo bloque.
+   */
+  it("un producto DESACTIVADO no mueve la fecha de la portada", async () => {
+    servir(pagina([producto(1, { activo: false, updated_at: "2026-09-10T08:00:00Z" })], 1));
+
+    const portada = fija(await mapaDelSitio(RAPIDO), "");
+    const delCodigo = FIJAS_DECLARADAS.find((f) => f.ruta === "")?.editada;
+
+    expect(new Date(String(portada?.lastModified)).toISOString()).toBe(
+      `${delCodigo}T00:00:00.000Z`,
+    );
+  });
+
+  /**
+   * ⚠️⚠️ EL CASO QUE IMPORTA, y es el de siempre en este fichero: con la API dormida
+   * la portada NO puede caer en «ahora». Sale la fecha de su código, que es antigua
+   * pero cierta.
+   */
+  it("con la API caída la portada declara la fecha de su código, no la de hoy", async () => {
+    servir({ ok: false });
+
+    const portada = fija(await mapaDelSitio(RAPIDO), "");
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    expect(portada).toBeDefined();
+    expect(new Date(String(portada?.lastModified)).toISOString().slice(0, 10)).not.toBe(hoy);
+  });
+
+  it("una ficha sin `updated_at` OMITE el campo en vez de inventarlo", async () => {
+    servir(pagina([producto(1, { updated_at: undefined as unknown as string })], 1));
+
+    const mapa = await mapaDelSitio(RAPIDO);
+    const ficha = mapa.find((e) => String(e.url).includes("/productos/"));
+
+    expect(ficha).toBeDefined();
+    expect(ficha?.lastModified).toBeUndefined();
+  });
+
+  it("las fichas sí llevan su propio `updated_at`, que es la fecha de verdad", async () => {
+    servir(pagina([producto(1, { updated_at: "2026-07-04T10:30:00Z" })], 1));
+
+    const mapa = await mapaDelSitio(RAPIDO);
+    const ficha = mapa.find((e) => String(e.url).includes("/productos/"));
+
+    expect(new Date(String(ficha?.lastModified)).toISOString()).toBe("2026-07-04T10:30:00.000Z");
+  });
+
+  /** Una fecha en el futuro solo puede ser un dedazo al teclear el literal. */
+  it("ninguna fecha declarada está en el futuro", async () => {
+    servir(pagina([producto(1)], 1));
+    const mapa = await mapaDelSitio(RAPIDO);
+    const manana = Date.now() + 24 * 60 * 60 * 1000;
+
+    for (const entrada of mapa) {
+      if (!entrada.lastModified) continue;
+      expect(new Date(String(entrada.lastModified)).getTime()).toBeLessThan(manana);
+    }
   });
 });

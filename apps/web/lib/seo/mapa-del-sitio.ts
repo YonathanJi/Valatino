@@ -120,49 +120,76 @@ export const PAGINAS_MAX = 20;
  */
 export const REVALIDAR_S = 300;
 
-/**
- * Rutas cerradas al rastreo, en orden de importancia.
- *
- * ⚠️⚠️ VIVEN AQUÍ Y NO EN `app/robots.ts` PORQUE LAS NECESITAN LOS DOS FICHEROS:
- * `robots.txt` para prohibirlas y el mapa para no anunciarlas. Anunciar en el mapa lo
- * que se prohíbe rastrear es contradecirse —Search Console lo marca como aviso, y con
- * razón—, y hasta hoy la única defensa contra eso era un comentario en prosa dentro
- * de `sitemap.ts` que decía «NO van /carrito, /checkout…». El mismo dato en dos
- * sitios, uno de ellos en forma de buena intención: es la piedra con la que este
- * proyecto lleva tropezando (`API_URL`, el título de la tienda). Ahora hay una lista
- * y un test que comprueba que el mapa no pisa ninguna.
- *
- * ⚠️ `/api/` no se cierra por seguridad —eso lo hacen las RLS y los guards, no un
- * fichero de texto que cualquiera lee— sino porque son respuestas JSON sin nada que
- * indexar. Y `/checkout` es el que más importa: cada entrada crea una sesión y una
- * reserva de stock.
- */
-export const RUTAS_CERRADAS = [
-  "/checkout",
-  "/carrito",
-  // Distinta para cada visitante y sin nada que indexar, igual que el carrito.
-  "/favoritos",
-  "/cuenta",
-  "/backoffice",
-  "/login",
-  "/registro",
-  "/api/",
-  // El callback de acceso lleva el código de un solo uso en la URL.
-  "/auth/",
-] as const;
 
-/** Las páginas que existen siempre, con su prioridad relativa. */
-const FIJAS: ReadonlyArray<{
+/**
+ * Las páginas que existen siempre, con su prioridad relativa y **la fecha real en
+ * que se editaron**.
+ *
+ * ── POR QUÉ HAY UNA FECHA ESCRITA A MANO AQUÍ ──
+ *
+ * ⚠️⚠️ Hasta el 11/09 las cinco salían con `lastModified: new Date()`, o sea **la
+ * hora de generar el mapa**. Lo detectó la auditoría SEO del 09/09 y tiene razón en
+ * el fondo del asunto: `lastmod` no significa «cuándo se hizo este XML», significa
+ * «cuándo cambió esta página». Como el mapa se regenera cada 5 minutos, a Google se
+ * le estaba diciendo que el aviso legal se reescribe varias veces por hora. Una
+ * señal que siempre grita deja de ser una señal: Google aprende a no creérsela, y
+ * entonces tampoco se cree el `lastmod` de las fichas de producto, que **sí es
+ * verdad** y es el que interesa que mire.
+ *
+ * ⭐ Las fechas salen de `git log -1 --format=%ad -- <fichero>`, o sea de cuándo se
+ * tocó de verdad cada página. No se leen de git en tiempo de build **a propósito**:
+ * Vercel clona con `--depth=1` y ahí el historial de un fichero no existe, así que
+ * eso fallaría precisamente en el único sitio donde importa.
+ *
+ * ⚠️ **AL EDITAR UNA DE ESTAS PÁGINAS, HAY QUE TOCAR SU FECHA.** Es el mismo dato
+ * en dos sitios y no me gusta, pero la alternativa —deducirla— no es fiable en
+ * build. El olvido es inocuo en la dirección segura: el mapa diría que la página es
+ * más antigua de lo que es, lo que a lo sumo retrasa una revisita. Lo que no puede
+ * volver a pasar es lo contrario, que es lo que pasaba.
+ */
+export const FIJAS: ReadonlyArray<{
   ruta: string;
   frecuencia: "daily" | "yearly";
   prioridad: number;
+  /**
+   * Fecha ISO (`AAAA-MM-DD`) de la última edición del contenido. **Nunca la hora de
+   * generación.** Hay un test que comprueba que ninguna es de hoy por accidente.
+   */
+  editada: string;
 }> = [
-  { ruta: "", frecuencia: "daily", prioridad: 1 },
-  { ruta: "/contacto", frecuencia: "yearly", prioridad: 0.5 },
-  { ruta: "/terminos", frecuencia: "yearly", prioridad: 0.3 },
-  { ruta: "/aviso-legal", frecuencia: "yearly", prioridad: 0.3 },
-  { ruta: "/politica-privacidad", frecuencia: "yearly", prioridad: 0.3 },
+  { ruta: "", frecuencia: "daily", prioridad: 1, editada: "2026-08-20" },
+  { ruta: "/contacto", frecuencia: "yearly", prioridad: 0.5, editada: "2026-08-26" },
+  { ruta: "/terminos", frecuencia: "yearly", prioridad: 0.3, editada: "2026-08-26" },
+  { ruta: "/aviso-legal", frecuencia: "yearly", prioridad: 0.3, editada: "2026-08-26" },
+  {
+    ruta: "/politica-privacidad",
+    frecuencia: "yearly",
+    prioridad: 0.3,
+    editada: "2026-08-26",
+  },
 ];
+
+/**
+ * La portada, que es la única de las fijas que **no la edita una persona**: lista el
+ * catálogo, así que cambia cuando cambia un producto.
+ *
+ * ⭐ Se toma la MÁS RECIENTE entre la fecha de su código y el último `updated_at`
+ * del catálogo. Así la fecha es verdad en los dos casos y —esto es lo que importa—
+ * **cuando la API no contesta no se cae en `ahora`**: sale la fecha del código, que
+ * es antigua pero cierta. Es la misma regla que el resto del fichero: una respuesta
+ * a medias no se disfraza de respuesta completa.
+ */
+export function editadaLaPortada(productos: Producto[], editada: string): Date {
+  const delCodigo = new Date(`${editada}T00:00:00Z`);
+
+  let masReciente = delCodigo;
+  for (const p of productos) {
+    if (!p.activo || !p.updated_at) continue;
+    const cambio = new Date(p.updated_at);
+    if (!Number.isNaN(cambio.getTime()) && cambio > masReciente) masReciente = cambio;
+  }
+  return masReciente;
+}
 
 const dormir = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
 
@@ -287,16 +314,23 @@ export async function pedirCatalogo(opciones: Opciones = {}): Promise<Catalogo |
 }
 
 export async function mapaDelSitio(opciones: Opciones = {}): Promise<MetadataRoute.Sitemap> {
-  const ahora = new Date();
+  const catalogo = await pedirCatalogo(opciones);
 
+  /**
+   * ⚠️ El catálogo se pide ANTES de formar las fijas, y el orden no es casual: la
+   * portada necesita saber cuándo cambió el catálogo para declarar su fecha (ver
+   * `editadaLaPortada`). Antes las fijas se formaban primero porque todas usaban la
+   * misma hora de reloj.
+   */
   const fijas: MetadataRoute.Sitemap = FIJAS.map((f) => ({
     url: `${SITIO}${f.ruta}`,
-    lastModified: ahora,
+    lastModified:
+      f.ruta === ""
+        ? editadaLaPortada(catalogo?.productos ?? [], f.editada)
+        : new Date(`${f.editada}T00:00:00Z`),
     changeFrequency: f.frecuencia,
     priority: f.prioridad,
   }));
-
-  const catalogo = await pedirCatalogo(opciones);
 
   /**
    * ⚠️⚠️ Y ESTE DICE LA CONSECUENCIA, que es lo que faltaba para enterarse. Lo que
@@ -326,8 +360,17 @@ export async function mapaDelSitio(opciones: Opciones = {}): Promise<MetadataRou
       .filter((p) => p.activo)
       .map((p) => ({
         url: `${SITIO}${rutaDeProducto(p)}`,
-        // `updated_at` es la verdad de cuándo cambió la ficha: precio, foto o nombre.
-        lastModified: p.updated_at ? new Date(p.updated_at) : ahora,
+        /**
+         * `updated_at` es la verdad de cuándo cambió la ficha: precio, foto o
+         * nombre.
+         *
+         * ⚠️ Si no viene, el campo **se omite** en vez de poner la hora de ahora.
+         * `lastmod` es opcional en el protocolo, así que callarse es una respuesta
+         * válida — y decir «cambió hace un segundo» de una ficha de la que no se
+         * sabe nada es la misma mentira que las fijas llevaban contando, solo que
+         * de una en una.
+         */
+        ...(p.updated_at ? { lastModified: new Date(p.updated_at) } : {}),
         changeFrequency: "weekly" as const,
         priority: 0.8,
       })),
