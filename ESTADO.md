@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-09-11 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ⚠️⚠️ **Los cuatro commits están SIN `push`: nada de esto está vivo**, y el paso siguiente tiene un orden obligatorio)
+**Última actualización**: 2026-09-11 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ✅ **Desplegado y verificado en producción**, y el Jugo Hit aplicado a la base)
 
 ---
 
@@ -61,7 +61,7 @@ pedido_eventos 80 · productos 30 (29 activos) · favoritos 2 (2 usuarios)
 
 ⚠️ **Idénticas a las del 30/08, y `pedidos desde el 26/08 = 0`.** Son **16 días sin una venta**. No es una avería: es que la tienda está sana y no hay quien la encuentre, que es justo de lo que va la auditoría. `api.valatino.es/health` responde `commit f635988`.
 
-⚠️⚠️ **LOS CUATRO COMMITS ESTÁN EN LOCAL Y SIN `push`** — o sea que **nada de esto está vivo todavía**. Ver «lo que falta para cerrarlo» al final de esta sección, que tiene un orden obligatorio.
+✅ **TODO ESTO ESTÁ VIVO Y COMPROBADO EN PRODUCCIÓN** (cinco commits, `9edcbec`). La verificación al final de esta sección, con sus números.
 
 ### La auditoría, contrastada hallazgo por hallazgo
 
@@ -171,13 +171,37 @@ El SQL (`scripts/datos-jugo-hit-mango.sql`) lleva **tres guardas, y las tres se 
 
 **Web 511 · API 575 · 1.086 en verde.** La web venía de 495: **+16**, de `rutas-cerradas.spec.ts` (7) y del bloque del `lastmod` en `mapa-del-sitio.spec.ts` (8, +1 reescrito). `type-check`, `lint` y `next build` limpios — el build emite `/icon.svg` y `/manifest.webmanifest`.
 
-### 🔴 LO QUE FALTA PARA CERRAR ESTO, Y TIENE UN ORDEN OBLIGATORIO
+### ✅ DESPLEGADO Y VERIFICADO EN PRODUCCIÓN
 
-1. 🔴 **`git push`** — los cuatro commits están en local. Vercel despliega al empujar a `main`.
-2. 🔴 **Después del despliegue**, `node scripts/aplicar-sql.mjs --go scripts/datos-jugo-hit-mango.sql`. En este orden y no al revés (ver la regla de arriba).
-3. 🔜 **Comprobar en producción**: `X-Robots-Tag` en las cinco públicas y en `/admin`, `/favicon.ico` y `/manifest.webmanifest` a 200, el `lastmod` de las fijas, y que `/productos/jugo-hit-sabor-lulo-6` redirige a una ficha que **ya responde**.
-4. 🔜 **Y SOLO ENTONCES, el paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⚠️ Nunca antes de que el `noindex` esté vivo y comprobado. **`/checkout` no sale nunca.**
-5. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
+Se hizo en el orden obligatorio: `push` → esperar el despliegue **sondeando** dos señales que no existían (`/favicon.ico` a 200 y la cabecera en `/carrito`) → `--go` del SQL → verificar. **0 fallos** en 34 comprobaciones:
+
+| | Resultado |
+|---|---|
+| `noindex` | Las **9** rutas cerradas lo llevan, `/admin` incluida |
+| Las indexables | Las **6** limpias — es el control del bloque anterior |
+| Iconos y manifest | Los 6 a **200** (daban 404 por la mañana) y los 4 `<link>` en el `<head>` |
+| Logo JSON-LD | Ya es `icono-512.png`, no la foto de portada |
+| 301 del Jugo Hit | `Location: /productos/jugo-hit-sabor-mango`, y **el destino responde 200** |
+| La ficha nueva | `<title>Jugo Hit Sabor Mango`, con su meta description |
+| El sitemap | **34 URLs con el slug nuevo**; las legales con su fecha fija |
+| BD | `slug`, `nombre` y `variante` dicen Mango; descripción de 179 caracteres; `updated_at` a `2026-09-11T21:45:34` |
+
+⭐ El probe de verificación lleva un **control deliberado** —busca un `logo` que se sabe que no existe— para que un probe roto no pase por verde. Está en el scratchpad de la sesión.
+
+⚠️ **Y una impaciencia que conviene no repetir**: el sitemap tardó en mostrar el slug nuevo y pareció un problema. No lo era. `X-Vercel-Cache: HIT` con `Age: 277` sobre un `revalidate` de **300** lo dijo sin ambigüedad: **la caché aún no había expirado**. Antes de tocar nada, pedir las cabeceras — dicen si estás mirando una respuesta viva o una foto.
+
+### ⚠️⚠️ DOS FALLOS MÍOS QUE SALIERON AL REVISAR, DESPUÉS DE DESPLEGAR (`a2e7627`)
+
+Ninguno lo trajo la auditoría, y **el patrón de los dos es el mismo**: un comentario que explicaba con seguridad una decisión que nadie había medido.
+
+1. **El icono `maskable` era falso.** El de 192 se declaraba `purpose: "maskable"` razonando que «la marca se genera con margen». Al medirlo, **los cinco vértices exteriores caían fuera de la zona segura** —el círculo centrado del 80 %, o sea radio 40 sobre 100— y el más lejano estaba a **58,1**. Se le estaba pidiendo a Android que recortara las puntas de la V, **que es justo lo que ese comentario decía querer evitar**. Ahora el maskable es un fichero aparte con la marca al 65 %; los cinco anteriores salen byte a byte idénticos.
+2. **`display: "browser"` dejaba la tienda sin poder instalarse.** Conservaba la barra de direcciones —que es lo que se quiere, porque aquí se cobra con tarjeta y el cliente tiene que ver el candado y el dominio— pero Chrome solo ofrece «añadir a la pantalla de inicio» con `standalone`, `fullscreen` o **`minimal-ui`**. `minimal-ui` da las dos cosas. `browser` renunciaba al icono en el móvil del cliente que vuelve, que es para lo que sirve tener un manifest.
+
+### 🔜 LO SIGUIENTE, Y TIENE UN ORDEN
+
+1. 🔴 **`git push` del sexto commit** (`a2e7627`, el arreglo del maskable). Los cinco primeros ya están vivos; **este no**, así que el manifest de producción todavía declara un `maskable` que no lo es y un `display: browser` que impide instalar la tienda. No es urgente —nadie puede instalarla precisamente por eso— pero es lo único de hoy que queda a medias.
+2. 🔜 **El paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⭐ Ya se puede: el `noindex` está vivo y comprobado, que era la condición. **`/checkout` no sale nunca** (ver la discrepancia, arriba).
+3. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
 
 ### 🔜 Lo que queda de la auditoría, por orden de retorno
 
