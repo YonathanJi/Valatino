@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-09-12 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ✅ **Desplegado y verificado en producción**, y el Jugo Hit aplicado a la base. **12/09**: cerrado el **paso 2** —las cuatro pantallas públicas salen del `Disallow` para que Google pueda *leer* el `noindex`—, con lo que el **P1 del informe queda entero**. Lo siguiente que mueve la aguja ya no es código: es **Search Console**)
+**Última actualización**: 2026-09-12 (**el P1 de la auditoría queda entero** y las **categorías indexables** en pie. Search Console dio los datos: 21 de 34 páginas indexadas, 13 que Google **no ha rastreado nunca**, y demanda real de «nucita», «ducales» y «galletas festival» en posición 52. Las categorías son el puente de enlaces que faltaba: portada → 4 categorías → **29 de 29 fichas**. ⚠️ Y el arranque en frío de la API son **100 s**, no 42,5: con el plan Free, un despliegue con la API dormida sale degradado o falla)
 
 ---
 
@@ -48,7 +48,117 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-09-11
+### 🔜 Al volver, empezar por aquí — cierre del 2026-09-12
+
+Continuación de la auditoría. Dos commits: **el paso 2 del P1** (con lo que el P1 queda entero) y **las categorías indexables**, que eran el P2 más grande. Y por el camino, **Search Console dio los datos que cambian el diagnóstico** y un susto que resultó ser el plan Free de Render.
+
+**La línea base** (medida con ensayo revertido, no de memoria):
+
+```
+pedidos 5 · pedido_items 17 · facturas 24 · productos 30 (29 activos) · favoritos 2
+productos activos sin descripción: 0     ← el 11/09 era 1, el Jugo Hit
+último pedido: 2026-08-25 21:33          ← 17 días sin una venta
+```
+
+### ⭐⭐ LO QUE DIJO SEARCH CONSOLE, Y POR QUÉ CAMBIA EL DIAGNÓSTICO
+
+Estaba dado de alta desde el **26/08** —el sitemap enviado, leído hoy, «Correcto», 34 páginas descubiertas— así que el paso que quedaba pendiente ya estaba hecho.
+
+**1. La tienda SÍ sale en Google, y sí hay demanda real.** Consultas de 3 meses:
+
+```
+valatino            3 clics · 4 impresiones   ← marca. Los 3 clics son de Jonathan
+nucita              0 clics · 4 impresiones
+galletas noel       0 clics · 3 impresiones
+delicatino          0 clics · 2 impresiones
+galletas festival   0 clics · 2 impresiones
+ducales             0 clics · 2 impresiones
+```
+
+⭐ **«nucita», «ducales», «galletas noel» y «galletas festival» no son tráfico propio**: es gente buscando esos productos. La demanda existe. Lo que no existe es la visibilidad.
+
+⚠️ **9 clics, 80 impresiones, CTR 11,3 %, posición media 52,2.** Jonathan sospechó que los clics eran suyos y **tenía razón, y hay cómo demostrarlo**: un CTR del 11,3 % en posición 52 es entre cincuenta y cien veces lo normal (0,1–0,3 %). Esa mezcla solo sale si unas pocas impresiones están en posición 1 —la marca— y el resto en la página 9. Y 80 impresiones en 3 meses son **0,9 al día**.
+
+**2. Y el hallazgo serio: Google solo tiene indexadas 21 de las 34 páginas.**
+
+Las 13 que faltan comparten estado —«Descubierta: actualmente sin indexar»— y **último rastreo N/D**. Ese N/D es lo que importa: **no las ha rechazado, es que no ha ido nunca**.
+
+⚠️⚠️ Entre ellas `/productos/nucita`. O sea: **la gente busca «nucita», la tienda sale, y la ficha de Nucita no está en el índice** — sale `nucita-caja-12` (5,90 €) en vez de la unidad (0,50 €). La primera impresión que da la tienda a quien busca Nucita es el producto más caro, que es la diferencia entre una compra de impulso y una decisión.
+
+⭐ **Se comprobó que no era culpa del código antes de echarle la culpa a nada**: los `canonical` de esas siete fichas apuntan a sí mismos y ninguna lleva `noindex`. Lo que falta es **presupuesto de rastreo**, y eso se gana con enlaces.
+
+### ✅ El paso 2 del P1: las cuatro públicas salen del `Disallow` (`9ee4900`)
+
+Solo se podía hacer hoy, porque su condición era que el `noindex` estuviera vivo y comprobado. `robots.txt` pasa de diez `Disallow` a **seis**.
+
+⚠️ **Lo que NO cambia, y es lo fácil de confundir**: salir del `Disallow` no hace indexable una ruta ni la mete en el mapa. Son **tres** cosas distintas y las gobierna la misma lista. ✅ Verificado en producción que se cumplen a la vez: seis `Disallow`, las cinco públicas con `noindex, follow`, y **cero** rutas cerradas entre las URLs del sitemap.
+
+⚠️ `/checkout` no salió: cada entrada crea una sesión y una **reserva de stock**.
+
+### ✅⭐ LAS CATEGORÍAS INDEXABLES (`df2d980`) — y lo que son de verdad
+
+`/categorias/dulces`, `/bebidas`, `/galletas` y `/despensa`. **Antes que contenido, son un puente de enlaces internos**: portada → 4 categorías → 29 fichas. Es el mecanismo que le faltaba a Google para rastrear esas 13.
+
+⚠️⚠️ **EL AGUJERO QUE CASI SE ESCAPA, Y SOLO SE VIO MIDIENDO.** La primera versión enlazaba a **17 de las 29 fichas**: `ListaProductos` agrupa las presentaciones de una familia en UNA tarjeta, así que solo enlazaba a la representante. Y las que quedaban fuera eran **justo las que Google no rastrea** — `nucita-caja-12`, `bon-bon-bum-939`, `sparkies-caja-24`. La página creada para dar caminos a las fichas huérfanas se los daba a la mitad. Con el bloque «Todas las presentaciones»: **29 de 29**.
+
+⭐ La lección, que vale para la próxima: **una función que agrupa para el cliente esconde enlaces del rastreador**. Al añadir navegación por SEO, contar los `href` que salen de verdad, no los que uno cree que salen.
+
+✅ **Comprobado en producción tras desplegar**: las cuatro a 200 con su H1 —Dulces 9 · Bebidas 8 · Galletas 8 · Despensa 4 = **29 fichas**—, la portada enlazando a las cuatro, las migas de tres niveles (`Inicio › Dulces › Nucita`) y `/categorias/inventada` dando **404**.
+
+Lo demás que se decidió:
+
+- **Textos uno a uno, mencionando productos reales** —es lo que pedía el informe—, y **sin entradilla si no hay una escrita**: nada de párrafos genéricos, con un test que impide «arreglarlo» con uno por defecto.
+- **Orden alfabético y no por tamaño**: por tamaño, la navegación se reordenaría sola cada vez que entrara o se agotara stock.
+- **Migas de tres niveles** (`Inicio › Dulces › Nucita`). Eran dos y el motivo estaba escrito: no había categoría que enlazar. Ahora la hay — pero el nivel solo se añade **si el producto tiene categoría con slug**, porque la razón de fondo (una miga rota es peor que una miga de menos) no ha cambiado.
+- **`CollectionPage` + `ItemList` con las URLs y nada más**: repetir precios sería el mismo dato en dos sitios, y si discreparan Google retira los resultados enriquecidos **del sitio entero**.
+- El sitemap pasa de **34 a 38 URLs**, con las categorías deducidas del catálogo para que una nueva entre sola.
+- `pedirCatalogo` se muda a `lib/productos/catalogo.ts`: pedir el catálogo no es una tarea de SEO.
+
+⭐ **Y un 🔴 viejo que cayó de paso**: la portada decía «No hay productos disponibles» con la API dormida — **mentira, y de las caras**: quien llega de Google ve una tienda vacía y se va. Ahora son tres estados. Y además **pagina**: a 51 productos habría empezado a esconder catálogo en silencio.
+
+### ⚠️⚠️ EL ARRANQUE EN FRÍO SON 100 s, NO 42,5 — Y ESO CAMBIA UN PRESUPUESTO
+
+A media tarde la API dejó de responder y pareció una caída. **No lo era**: es el plan **Free** de Render, que apaga la instancia por inactividad. El panel lo avisa: «can delay requests by 50 seconds or more».
+
+Medido el 12/09: **tres peticiones de 70 s seguidas NO la despertaron**, y una cuarta sin cortar tardó **100 s exactos**. Caliente: 0,3–0,7 s.
+
+⚠️ **Lo que eso invalida**: `PLAZO_MS = 50 s` del catálogo se dimensionó contra los 42,5 s medidos el 28/08. Con 100 s no da — y **no se arregla subiendo el número**, porque Next mata la generación de una página a los **60 s**. Con la API dormida, el mapa sale sin catálogo y las páginas salen degradadas.
+
+⚠️⚠️ **Y LO QUE SE VIO EN VIVO, QUE ES LO GRAVE: `next build` FALLÓ ENTERO.** Con la API caída se cayeron la portada, las tres legales, contacto y las cuatro categorías por «took more than 60 seconds» → **Vercel no habría desplegado nada**. Ojo: contacto y las legales **no se habían tocado** — piden `/tienda/identidad`. O sea que **el despliegue de la tienda depende de que la API esté viva**, y eso es anterior a lo de hoy.
+
+⭐ **Regla operativa nueva: desplegar con la API caliente.** Antes de un `push`, pedir `api.valatino.es/health` y comprobar que responde rápido. El sondeo de despliegue de hoy además la pingea cada 15 s para que no se duerma a mitad del build.
+
+✅ **Y lo que el código sí puede hacer, ya hecho: degradar en vez de morir.** Ninguna página lanza, y `revalidate` las repara solas.
+
+### ⚠️ UN FALLO MÍO QUE DESTAPÓ ESE INCIDENTE
+
+La primera versión de la página de categoría hacía `throw` si no había catálogo, para no cachear un 404. **En el build eso tumba el despliegue entero** — que es exactamente lo que `mapa-del-sitio.ts` tiene escrito como inaceptable desde agosto, y no lo apliqué al escribir la página nueva. Ya no lanza.
+
+⭐ La forma del error es la de siempre: **una regla aprendida en un fichero no se aplicó sola al fichero de al lado**.
+
+### Las pruebas
+
+**Web 543 · API 575 · 1.118 en verde.** La web venía de 511: **+32**, de `categorias.spec.ts` (18), el bloque de categorías del mapa (6), las migas y la lista de categoría (6) y los dos del `Disallow`. `type-check`, `lint` y `next build` limpios.
+
+⭐ Y la guarda del 11/09 hizo su trabajo sin que nadie la llamara: al crear `/categorias/[slug]`, el test «ninguna ruta se queda sin decidir» **se puso rojo el mismo día**, obligando a declarar si la ruta iba al índice o no.
+
+### 🔜 LO SIGUIENTE
+
+1. 🔜 **Ver si las 13 se indexan.** Es lo que dirá si las categorías funcionaron. Dar unos días y volver a Search Console → Indexación → Páginas. ⚠️ No esperar resultados en 24 h: Google tarda semanas en redistribuir el rastreo.
+2. 🔜 **Solicitar indexación a mano** de las que más importan, en Inspección de URLs (unas 10 al día): `nucita`, `chocolate-corona`, `colcafe-clasico-85g`.
+3. 🔴 **El H1 de las variantes** — sigue diciendo «Jugo Hit» donde el title dice «Jugo Hit Sabor Mango». Es el P2 que queda y ahora se ve en pantalla en la ficha nueva.
+4. 🔴 **Bon Bon Bum**: las dos presentaciones sirven `<title>Bon Bon Bum | Valatino</title>` **idéntico**, y la unidad tiene `/placeholder.png`. Hace falta una foto de Jonathan.
+5. 🟠 **El plan de pago de Render** deja de ser cosmético: con el Free, cualquier despliegue con la API dormida sale degradado o falla.
+6. 🔜 **P1 · Merchant Listings** — marca, SKU, GTIN/EAN. Necesita los EAN de los envases.
+
+### Lo que sigue esperando a Jonathan
+
+- La **foto del Bon Bon Bum** unidad.
+- Los **EAN** de los envases.
+- Decidir si se implementa el **ámbito de envío** península y Baleares (decidido el 11/09, sin implementar: hay que cerrar el checkout a Canarias, Ceuta y Melilla, que llevan IGIC e IPSI en vez de IVA).
+
+
+### Cierre anterior — 2026-09-11
 
 Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan (`AUDITORIA_SEO_WEB_2026-09-09.txt`, en la raíz). Siete commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
 
