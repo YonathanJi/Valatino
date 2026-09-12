@@ -85,14 +85,14 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background min-[448px]:px-3.5 min-[448px]:py-2 min-[448px]:text-sm sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted/70 sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70 min-[448px]:px-3.5 min-[448px]:py-2 min-[448px]:text-sm sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </Link>
@@ -105,27 +105,30 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * Lo pidió Jonathan el 12/09: «centradas, más pequeñas, que quede solo una fila,
      * ten en cuenta los diferentes dispositivos».
      *
-     * ⚠️⚠️ EL MÓVIL VA ACHICADO HASTA QUE CABE, Y ESE ES EL PRECIO ELEGIDO. Las tres
-     * cosas que se querían —una sola fila, sin desplazar, y chips que se vean— no
-     * caben juntas en un móvil de 375 px, que deja 343 útiles. Medido con los cinco
+     * ⚠️⚠️ TRES TAMAÑOS Y NO DOS, Y ESE FUE EL ERROR QUE HUBO QUE CORREGIR. La
+     * primera versión usaba **un solo tamaño para todo lo que hay por debajo de
+     * 640 px**, dimensionado para que cupiera en el móvil más estrecho (375 px). Pero
+     * ahí caben desde un móvil de 360 hasta una ventana de 639, así que en cuanto la
+     * pantalla era un poco más ancha los chips se quedaban diminutos y con palmos de
+     * espacio a los lados — «exageras, puede ser un poco más grande», y con razón.
+     *
+     * Cada escalón es **lo más grande que cabe en su tramo**, medido con los cinco
      * nombres de hoy (Todas, Bebidas, Despensa, Dulces, Galletas):
      *
-     *     text-sm px-4     430 px   faltan 87
-     *     text-xs px-3     363 px   faltan 20
-     *     text-xs px-2     315 px   CABE
+     *     hasta 447 px   `text-xs px-2.5`     tira 335 px   cabe desde 367
+     *     448 a 639 px   `text-sm px-3.5`     tira 410 px   cabe desde 442
+     *     640 px o más   `text-base px-5`     tira 520 px   cabe desde 552
      *
-     * Se probó dejar que envolvieran en dos filas —se ven enteras y sin desplazar— y
-     * Jonathan lo descartó: quiere una fila. Así que se sacrifica el tamaño en móvil y
-     * se queda en `text-xs px-2`, que es lo más grande que cabe.
+     * ⭐ Y lo que hay que comprobar al tocar cualquiera de estos números: **que el
+     * salto no desborde**. En cada punto de corte, la tira del tamaño nuevo tiene que
+     * caber en el ancho donde empieza a aplicarse — si no, el chip crece justo cuando
+     * la pantalla aún no da para él y aparece un desplazamiento donde antes no había.
+     * Los dos saltos están comprobados (402 px en 448, 552 px en 640).
      *
-     * ⚠️ CONSECUENCIA QUE HAY QUE SABER: con una **sexta categoría** esto vuelve a no
-     * caber (393 px sobre 343) y habrá que volver a elegir. No se puede achicar más:
-     * por debajo de 12 px el texto deja de leerse y el chip deja de poder tocarse con
-     * el dedo. Cuando pase, las salidas son dos filas en móvil o acortar los nombres.
-     *
-     * ⭐ En escritorio no hay ese problema —sobran seiscientos píxeles—, así que ahí
-     * los chips van a `text-base px-5`: el `sm:` no es simetría, es que cada pantalla
-     * tiene un problema distinto.
+     * ⚠️ CONSECUENCIA QUE HAY QUE SABER: con una **sexta categoría** el tramo de móvil
+     * vuelve a no caber y habrá que elegir. No se puede achicar más — por debajo de
+     * 12 px el texto deja de leerse y el chip deja de poder tocarse con el dedo —, así
+     * que las salidas serán dos filas en móvil o acortar los nombres.
      *
      * ⭐ Una fila que **se centra** cuando cabe (`mx-auto` sobre `w-max`) y **se
      * desliza** cuando no (`overflow-x-auto` sin `flex-wrap`). El `w-max` es lo que lo
@@ -134,7 +137,7 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * hay categorías fuera de la vista, y esa es la pista que hace falta.
      */
     <nav aria-label="Filtrar por categoría" className="overflow-x-auto">
-      <ul className="mx-auto flex w-max gap-1.5 px-4 pb-2 sm:gap-3">
+      <ul className="mx-auto flex w-max gap-1.5 px-4 pb-2 min-[448px]:gap-2 sm:gap-3">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
         <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
