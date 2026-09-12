@@ -105,6 +105,30 @@ Solo se podía hacer hoy, porque su condición era que el `noindex` estuviera vi
 
 ✅ **Comprobado en producción tras desplegar**: las cuatro a 200 con su H1 —Dulces 9 · Bebidas 8 · Galletas 8 · Despensa 4 = **29 fichas**—, la portada enlazando a las cuatro, las migas de tres niveles (`Inicio › Dulces › Nucita`) y `/categorias/inventada` dando **404**.
 
+#### La cara visible: cuatro iteraciones con Jonathan mirando, y lo que enseñan
+
+El SEO estaba bien a la primera; **la pantalla no**. Se rehízo cuatro veces el mismo día y las cuatro las pidió él al verlo, que es como debe ser:
+
+1. Lista de enlaces sueltos bajo el hero → **«no me gustó, quiero un filtro que también pueda quitar»**.
+2. Barra de chips con «Todas» y contador (`95050ea`).
+3. Con una captura de New Balance delante: chips grises sin borde, pegados a la cabecera, sin contador (`867f366`).
+4. Y al verlo: **bajo «Todos los productos», centrados, más pequeños, una sola fila** (`238a987`).
+
+⚠️⚠️ **LO QUE NO SE PODÍA CEDER, Y POR QUÉ**: un filtro de los de verdad —que cambia lo que se ve **sin cambiar la URL**— habría deshecho el trabajo entero. Lo que un rastreador sigue es un `href`, no un `onClick`. Con `useState`, las 13 fichas que Google no rastrea seguirían exactamente igual de inalcanzables.
+
+⭐ **No hubo que elegir.** Cada chip es un `<Link>` a una página **ya generada**, y Next las precarga: al pulsar el cambio es inmediato y **se siente como filtrar**. El cliente ve un filtro; Google ve cinco URLs. Es lo que permite decir que sí a un cambio de UX sin negociar el SEO — y merece recordarse, porque la próxima vez que alguien pida «un filtro» la respuesta correcta sigue siendo esta.
+
+⚠️ **Y «una sola fila en todos los dispositivos» no se arreglaba achicando**, que era la salida obvia: los cinco nombres ocupan ~395 px y un móvil de 375 deja 343 útiles —**no caben por unos píxeles**—, y la sexta categoría lo rompería otra vez. Por debajo de 12 px el texto deja de leerse y el chip deja de poder tocarse. Se resolvió con **una regla que cubre los dos casos**: `overflow-x-auto` sin `flex-wrap` (se desliza cuando no cabe) sobre `mx-auto` + `w-max` (se centra cuando sí). Medido: se desliza a 375 px, cabe centrada de 414 en adelante. Sin `media queries` y **a prueba de categorías nuevas**.
+
+#### Y dos cosas más que quitó Jonathan, medidas antes de quitarlas (`d071738`)
+
+- **El texto bajo el título**, fuera de la pantalla — pero **no borrado**: se quedó en la `<meta name="description">`, que es el párrafo que Google enseña en los resultados. `introduccionDe` pasó a llamarse `textoEscritoDe`, porque un «introduce» que ya no introduce nada sería un nombre mintiendo.
+- **El bloque «Todas las presentaciones»**, fuera — y este sí era arriesgado, porque era el que daba enlace a las 12 fichas que las tarjetas esconden al agrupar. ⭐ **Se pudo quitar porque se midió**, recorriendo el sitio entero: cada ficha enlaza a todas sus hermanas con el selector de presentaciones, así que **cero huérfanas, 29 de 29 alcanzables**. La cadena queda portada → categoría → ficha → hermana: un salto más, ningún callejón.
+
+⚠️ Esa medición dio primero **una huérfana** (`jugo-hit-sabor-lulo-6`) y era un **falso positivo mío**: estaba usando el catálogo descargado *antes* de renombrar esa ficha a `jugo-hit-sabor-mango` el día anterior. Un dato cacheado de hace un día. Con el catálogo fresco: cero. Es la misma piedra de siempre, esta vez en una comprobación.
+
+⚠️ Y lo que **no** se puede hacer si algún día hace falta reforzar esos enlaces: esconderlos con CSS para que los vea el rastreador y no el cliente. Eso es lo que Google llama enlaces ocultos y lo penaliza. Queda escrito en la propia página.
+
 Lo demás que se decidió:
 
 - **Textos uno a uno, mencionando productos reales** —es lo que pedía el informe—, y **sin entradilla si no hay una escrita**: nada de párrafos genéricos, con un test que impide «arreglarlo» con uno por defecto.
