@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-09-12 (**el P1 de la auditoría queda entero** y las **categorías indexables** en pie. Search Console dio los datos: 21 de 34 páginas indexadas, 13 que Google **no ha rastreado nunca**, y demanda real de «nucita», «ducales» y «galletas festival» en posición 52. Las categorías son el puente de enlaces que faltaba: portada → 4 categorías → **29 de 29 fichas**. ⚠️ Y el arranque en frío de la API son **100 s**, no 42,5: con el plan Free, un despliegue con la API dormida sale degradado o falla)
+**Última actualización**: 2026-09-12, cierre de noche (**el P1 de la auditoría queda entero** y las **categorías indexables** en pie. Search Console dio los datos: 21 de 34 páginas indexadas, 13 que Google **no ha rastreado nunca**, y demanda real de «nucita», «ducales» y «galletas festival» en posición 52. Las categorías son el puente de enlaces que faltaba: portada → 4 categorías → **29 de 29 fichas**. ⚠️ Y el arranque en frío de la API son **100 s**, no 42,5: con el plan Free, un despliegue con la API dormida sale degradado o falla. **Por la tarde y la noche**: el favicon que Google no actualizaba, el nombre de la tienda empezando por la V de la marca, **los productos destacados** a lo ancho en el móvil, y **tres arreglos en cadena** donde cada uno destapó el siguiente)
 
 ---
 
@@ -166,6 +166,101 @@ La primera versión de la página de categoría hacía `throw` si no había cat�
 
 ⭐ Y la guarda del 11/09 hizo su trabajo sin que nadie la llamara: al crear `/categorias/[slug]`, el test «ninguna ruta se queda sin decidir» **se puso rojo el mismo día**, obligando a declarar si la ruta iba al índice o no.
 
+---
+
+## 🌙 La misma noche del 12/09 — la marca, los destacados, y tres arreglos que se destaparon en cadena
+
+Doce commits más, ya fuera de la auditoría. **Nada de esto salió de una lista**: cada cosa la vio Jonathan en pantalla y la pidió, y tres de ellas eran fallos míos del rato anterior.
+
+### ⭐ EL FAVICON QUE GOOGLE NO ACTUALIZABA — y no era paciencia, era un requisito incumplido
+
+Jonathan preguntó por qué en la pestaña del navegador sí se ve el icono nuevo y en Google no. La respuesta cómoda era «Google tarda». **Era falsa.**
+
+⚠️⚠️ **Google exige que el favicon sea CUADRADO y múltiplo de 48 px**, y el que se servía no lo cumplía. El navegador no exige nada de eso: por eso se veía bien en la pestaña y mal en el buscador — **dos consumidores del mismo fichero con reglas distintas**, y solo uno se quejaba. Mientras no se cumpla, Google no lo cambia por mucho que se espere (`802cfc0`).
+
+⚠️ **Y una trampa de Next que costó encontrar**: para el atributo `sizes` del `<link>`, Next lee **la primera imagen** del `.ico`. Un ICO lleva varias dentro; si la primera es la de 16 px, declara `sizes="16x16"` aunque dentro venga la de 48. Se generan en orden **descendente** (48 · 32 · 16) y por eso, no por gusto.
+
+Después vinieron dos retoques de forma, los dos pedidos mirando la pestaña de Anthropic al lado: **esquinas suaves, letra más pequeña y más aire** (`43ff66c`), y **el trazo diagonal más separado de la V** (`54ce512`), que con el margen nuevo se había pegado. El hueco pasó de 6 a 10 unidades.
+
+⭐ Todo sale de `scripts/generar-marca.mjs`, que sigue siendo **la fuente única**: seis ficheros y un módulo de TypeScript de una sola geometría. Cambiar el logo es tocar un número y regenerar.
+
+### ⭐⭐ EL NOMBRE DE LA TIENDA EMPIEZA POR LA V DE LA MARCA — y la idea fue de Jonathan
+
+Él pidió el nombre «más grande y despegado del borde» (`ce10294`). Yo propuse agrandarlo; **él propuso algo mejor**: que la **V** del nombre **sea la V del favicon**, la que lleva el trazo. Se probó y se quedó (`186032d`, y `59c2f39` para juntarlos un pelo más a petición suya).
+
+`NombreDeLaTienda.tsx` pinta el SVG de `MARCA_TRAZOS` —el mismo del generador— seguido de «alatino». ⭐ **Lo que eso compra**: el icono de la pestaña y la palabra de la cabecera **no pueden discrepar nunca**, porque son el mismo trazado. Si algún día cambia el logo, cambian los dos a la vez o no cambia ninguno.
+
+⚠️ Va con `aria-hidden` y el nombre accesible está aparte: un lector de pantalla no debe deletrear un `<path>`.
+
+### ⭐ LOS PRODUCTOS DESTACADOS (`1fbf271`) — uno a lo ancho cada seis tarjetas
+
+Lo pidió Jonathan de haberlo visto en otras tiendas: en el móvil el catálogo va de dos en dos y, cada seis tarjetas, **un producto ocupa el ancho entero**. Marcable desde el panel, «podrían ser dos».
+
+Está en `lib/productos/destacados.ts` —no en el JSX— por la regla de siempre: el runner de la web corre en `node` sin `jsdom` y un `.tsx` no se puede montar, así que **lo que puede salir mal vive en `lib/`**.
+
+Las dos decisiones que lleva dentro:
+
+- ⭐ **El destacado se MUDA, no se duplica.** Sale de su sitio normal y aparece solo en la grande. Enseñar el mismo producto dos veces en una pantalla es lo que hace que una tienda parezca tener menos catálogo del que tiene.
+- ⭐ **Sin tope.** Se coloca uno cada seis mientras haya. Un tope duro obligaría a un mensaje de error en el panel para algo que se ve de un vistazo mirando la tienda — y quien marca los productos es quien la mira. Los que no lleguen a colocarse **van al final en vez de perderse**: un producto marcado que no aparece por ningún lado sería un fallo mudo.
+
+⚠️ **Solo la portada lo enciende.** `ListaProductos` lo trae apagado por defecto a propósito: una categoría de cuatro productos no tiene monotonía que romper, y el destacado saldría antes de llegar a las seis o no saldría. Que haya que pedirlo obliga a decidirlo en cada sitio.
+
+Migración **086** (`destacado boolean not null default false`), aplicada con sus tres guardas auto-verificables, **vistas fallar** antes de darlas por buenas.
+
+### 🔴→✅ EL FALLO QUE LO SEGUÍA: «property destacado should not exist» (`501de46`)
+
+Jonathan marcó un producto y el panel dio error al guardar. Yo había comprobado que la API **devolvía** el campo y lo di por bueno.
+
+⚠️⚠️ **EL CAMINO DE LECTURA Y EL DE ESCRITURA NO SON EL MISMO.** La validación global va con `whitelist` + `forbidNonWhitelisted`, así que una propiedad que no esté declarada en el DTO **no se ignora: se rechaza la petición entera**. Faltaba en `CreateProductoDto` y en `UpdateProductoDto`.
+
+⭐ `producto.dto.spec.ts` nuevo, y **no prueba `destacado`**: prueba que **el DTO acepta exactamente lo que el panel envía**, que es la clase entera de fallo. El próximo campo que se añada al formulario y se olvide aquí romperá ese test el día que se escriba. Con su control —un campo inventado que debe seguir rechazándose—, porque si no, el test no probaría nada.
+
+### ⚠️⚠️ Y ENTONCES TRES ARREGLOS EN CADENA, DONDE CADA UNO DESTAPÓ EL SIGUIENTE
+
+Esto es lo más útil de la noche y conviene leerlo entero, porque la forma se va a repetir.
+
+**1. «Se distorsiona todo el catálogo» (`733d5cf`).** Al poner la tarjeta grande, la rejilla se vio torcida. Medido sobre un móvil de 375 px, eran **dos** problemas:
+
+```
+tarjeta de 164 px -> 140 px utiles dentro
+la tira de miniaturas (40 px cada una, gap 6):
+   2 presentaciones:  86 px  -> cabe en UNA fila
+   3 presentaciones: 132 px  -> cabe en UNA fila
+   4 presentaciones: 178 px  -> SE PARTE EN DOS
+```
+
+Son **Jugo Hit y Galleta Festival**, las dos familias de cuatro. Esa tarjeta quedaba ~46 px más alta. Arreglo: la tira **no envuelve, se desliza** (`overflow-x-auto`) — la misma solución que la barra de categorías y por el mismo motivo, porque encoger las miniaturas era la otra salida y la mala: 40 px es lo que se puede tocar con el dedo.
+
+El segundo problema **llevaba ahí desde siempre**: las tarjetas no medían lo mismo ni acababan igual, así que un nombre de dos líneas dejaba el precio a distinta altura que el de al lado. `h-full flex flex-col` + `mt-auto` en el precio.
+
+⭐⭐ **LA LECCIÓN: el destacado no rompió nada, hizo VISIBLE algo que ya estaba.** Con todas las tarjetas irregulares el ojo no distingue una rejilla torcida de una variada; al meter una tarjeta a lo ancho apareció la retícula, y con ella el defecto. **Un elemento nuevo que «rompe» el diseño suele ser un elemento que revela.**
+
+**2. La destacada salía apaisada y borrosa (`72a5b72`).** Jonathan: «no queda cuadrada, como era, y se ve fea». Tenía razón y se puede medir: **las fotos del catálogo son cuadradas** —la Nucita es de 1024×1024—, así que encajarlas en `aspect-[16/10]` con `object-cover` se llevaba el **37,5 % del alto**. Mi argumento para apaisarla (que un cuadrado al doble de ancho se comería la pantalla) era razonable en abstracto e **irrelevante en concreto, porque no miré la foto**.
+
+⚠️⚠️ **Y buscando eso salió lo que nadie había pedido pero también se veía**: las dos tarjetas compartían `sizes="(max-width: 640px) 50vw"`, **copiado literal en los dos ficheros**. Pero la grande ocupa las DOS columnas del móvil: 100vw. El navegador elige del `srcSet` por lo que le diga esa cadena, así que **se bajaba la copia de 384 px y la estiraba hasta ~694**, con el original de 1024 disponible. Medido en el HTML de producción.
+
+⭐ Por eso la medida ya no vive en el JSX: `medidaDeFoto` está en `destacados.ts`. **El fallo fue exactamente la duplicación** — al nacer la tarjeta grande había que tocar un solo sitio, y ese sitio no existía.
+
+**3. Las «comillas» negras (`041b343`), que las corté yo en el arreglo nº 1.** Jonathan vio dos palos negros a los lados de la miniatura elegida. No era un adorno nuevo: **era el aro de siempre, recortado**.
+
+⚠️⚠️ `overflow-x: auto` **obliga a `overflow-y` a valer `auto` también** (spec de CSS Overflow). El `ring` de Tailwind es un `box-shadow` que sobresale 3 px del borde, y la tira mide justo los 40 px de las miniaturas → le recortaba el aro por arriba y por abajo y dejaba los lados. Antes no pasaba porque `flex-wrap` no recortaba nada.
+
+⭐ Arreglado con **borde en vez de aro**: un borde vive DENTRO de la caja, así que no hay recorte posible por mucho que el contenedor desplace. Y de paso pesa menos, que era la otra mitad de la queja: el aro eran 3 px de casi negro (`--primary` es `0 0% 9%`) despegados de la foto; ahora son 2 px pegados a ella. `border-2` en los **dos** estados, o la foto encogería 2 px en cada toque.
+
+⚠️ **Lo que NO se pudo comprobar**: no hay navegador sin cabeza en el proyecto, así que el recorte está **razonado sobre el CSS, no medido en pantalla**. El síntoma encaja —dos marcas verticales, ninguna horizontal— pero **queda pendiente que Jonathan lo confirme en producción**.
+
+⭐⭐ **LA FORMA QUE SE REPITIÓ TRES VECES ESTA NOCHE**: cada arreglo destapó el siguiente. El destacado reveló la rejilla torcida; el arreglo de la rejilla recortó el aro; buscar la foto recortada destapó el `sizes` duplicado. **No es mala suerte: es que un cambio de disposición cambia las condiciones de todo lo que tiene al lado.** Al tocar un contenedor, mirar qué sobresale de sus hijos.
+
+### Las pruebas al cierre de la noche
+
+**Web 558 · API 567 · 1.125 en verde** (medido el 12/09 por la noche, los dos números corridos, no copiados). La web viene de 555: **+3**, los de `medidaDeFoto`. `type-check` y `next build` limpios en cada commit.
+
+⭐ **Y los tres se vieron ROJOS antes de darlos por buenos**, reintroduciendo el bug real —la cadena `sizes` compartida—: fallaron los dos que debían y **el de la tarjeta normal siguió verde**, porque para ella 50vw siempre fue lo correcto. Un test que nunca se ha visto fallar no comprueba nada.
+
+⚠️ Lo que los tests **no** cubren y hay que saber: nada de esta noche es CSS comprobable. Sin `jsdom` no se monta un `.tsx`, así que **la forma de las tarjetas, el recorte del aro y el aspecto del favicon solo los valida un ojo mirando la pantalla**. Por eso hubo tres iteraciones: no es desorden, es el único bucle disponible.
+
+---
+
 ### 🔜 LO SIGUIENTE
 
 1. 🔜 **Ver si las 13 se indexan.** Es lo que dirá si las categorías funcionaron. Dar unos días y volver a Search Console → Indexación → Páginas. ⚠️ No esperar resultados en 24 h: Google tarda semanas en redistribuir el rastreo.
@@ -174,6 +269,8 @@ La primera versión de la página de categoría hacía `throw` si no había cat�
 4. 🔴 **Bon Bon Bum**: las dos presentaciones sirven `<title>Bon Bon Bum | Valatino</title>` **idéntico**, y la unidad tiene `/placeholder.png`. Hace falta una foto de Jonathan.
 5. 🟠 **El plan de pago de Render** deja de ser cosmético: con el Free, cualquier despliegue con la API dormida sale degradado o falla.
 6. 🔜 **P1 · Merchant Listings** — marca, SKU, GTIN/EAN. Necesita los EAN de los envases.
+7. 👀 **Mirar el catálogo en el móvil con un destacado puesto**, que es lo único de la noche del 12/09 que no se pudo verificar sin ojos: que la foto grande salga cuadrada y nítida, que las tarjetas queden alineadas y que la miniatura elegida se marque con un borde limpio y **sin las «comillas»**. Si algo sigue torcido, el sitio es `ProductoCard.tsx` / `ProductoCardVariantes.tsx`, y el porqué de cada regla está escrito ahí dentro.
+8. 💭 **Si la tarjeta destacada se ve demasiado alta**, la salida NO es volver a recortarla a 16/10 —eso fue lo que se deshizo— sino bajarle el ancho a algo intermedio. Queda dicho para no dar la vuelta entera otra vez.
 
 ### Lo que sigue esperando a Jonathan
 
