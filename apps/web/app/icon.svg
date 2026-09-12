@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Valatino">
-  <rect width="100" height="100" fill="#fff"/>
-  <path d="M6,12L31,12L42.4,60.9L69.4,12L80.8,12L46,88L36,88Z" fill="#171717"/>
-  <path d="M83.2,19.8L93.1,19.8L61.9,88L52,88Z" fill="#171717"/>
+  <rect width="100" height="100" rx="22" fill="#fff"/>
+  <path d="M18.32,22.64L36.32,22.64L44.528,57.848L63.968,22.64L72.176,22.64L47.12,77.36L39.92,77.36Z" fill="#171717"/>
+  <path d="M73.904,28.256L81.032,28.256L58.568,77.36L51.44,77.36Z" fill="#171717"/>
 </svg>

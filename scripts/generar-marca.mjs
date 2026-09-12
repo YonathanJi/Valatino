@@ -96,12 +96,47 @@ const BARRA = [
  */
 const ESCALA_MASKABLE = 0.65;
 
+/**
+ * ⚠️⚠️ CUÁNTO RESPIRA LA MARCA DENTRO DEL ICONO, y esto lo trajo una comparación
+ * concreta: Jonathan puso al lado la pestaña de Anthropic y la de Valatino —«el suyo
+ * se ve con bordes suaves, la letra no tan grande, más premium, más centrada»— y
+ * tenía razón en las tres cosas.
+ *
+ * La de fondo es esta: **nuestra V ocupaba el 87 % del ancho del cuadro** y la suya
+ * ronda el 55 %. Un logotipo pegado a los bordes se lee como si no cupiera; el aire
+ * alrededor es lo que hace que parezca colocado y no metido con calzador. No es
+ * refinamiento gratuito: a 16 px en una pestaña, un icono sin margen se confunde con
+ * el borde de la propia pestaña.
+ *
+ * 0,72 deja la marca en un 63 % de ancho — con aire de sobra sin que la V se vuelva
+ * un garabato a 16 px, que es donde de verdad se juega esto.
+ */
+const ESCALA_ICONO = 0.72;
+
+/**
+ * El radio de las esquinas del cuadro, en las mismas unidades de 0–100.
+ *
+ * ⚠️ Redondear obliga a que el PNG lleve **canal alfa**: fuera del redondeo no puede
+ * haber blanco, tiene que no haber nada. Eso cambia el formato de RGB a RGBA (ver
+ * `png`), y es la razón de que este cambio toque el rasterizador y no solo un número.
+ *
+ * ⚠️⚠️ Y NO SE APLICA A TODOS LOS ICONOS. `apple-icon` y los del manifest siguen
+ * siendo cuadrados plenos **a propósito**: iOS y Android recortan ellos el icono a la
+ * forma de su sistema, y darles uno ya redondeado produce una esquina doble —el
+ * redondeo de ellos comiéndose el nuestro— que se ve fatal. El redondeo es solo para
+ * donde nadie lo va a recortar: la pestaña del navegador y el resultado de Google.
+ */
+const RADIO_ICONO = 22;
+
 /** La marca encogida hacia el centro del lienzo. `1` la deja como está. */
 const escalar = (poli, factor) =>
   poli.map(([x, y]) => [50 + (x - 50) * factor, 50 + (y - 50) * factor]);
 
 /** Las dos formas que son la marca. */
 const MARCA = [V, BARRA];
+
+/** La marca con aire, para los iconos que se ven tal cual. */
+const MARCA_ICONO = MARCA.map((f) => escalar(f, ESCALA_ICONO));
 
 /** La misma marca dentro de la zona segura de un icono maskable. */
 const MARCA_MASKABLE = MARCA.map((f) => escalar(f, ESCALA_MASKABLE));
@@ -116,18 +151,42 @@ const dentro = (poli, x, y) => {
   return si;
 };
 
-/** Cobertura de tinta de un píxel, con supersampling 4×4 para el antialiasing. */
-function cobertura(px, py, lado, formas) {
+/**
+ * Si un punto cae dentro del cuadro con las esquinas redondeadas.
+ *
+ * Dentro del rectángulo central siempre; en las cuatro esquinas, solo si está a menos
+ * de `radio` del centro del arco. Es la definición de un rectángulo redondeado sin
+ * necesidad de dibujarlo.
+ */
+function dentroDelCuadro(x, y, radio) {
+  if (radio <= 0) return true;
+  const cx = x < radio ? radio : x > 100 - radio ? 100 - radio : x;
+  const cy = y < radio ? radio : y > 100 - radio ? 100 - radio : y;
+  return Math.hypot(x - cx, y - cy) <= radio;
+}
+
+/**
+ * Cuánta tinta y cuánto cuadro cubren un píxel, con supersampling 4×4.
+ *
+ * ⭐ Devuelve las dos cosas de una pasada porque se calculan sobre las mismas
+ * muestras: la tinta pinta el color y el cuadro pinta el alfa. Y la tinta se recorta
+ * contra el cuadro —`dentroDelCuadro` en la misma condición— para que la marca no
+ * asome por fuera del redondeo si algún día crece.
+ */
+function cobertura(px, py, lado, formas, radio) {
   const M = 4;
-  let cubiertas = 0;
+  let conTinta = 0;
+  let enCuadro = 0;
   for (let sy = 0; sy < M; sy++) {
     for (let sx = 0; sx < M; sx++) {
       const x = ((px + (sx + 0.5) / M) / lado) * 100;
       const y = ((py + (sy + 0.5) / M) / lado) * 100;
-      if (formas.some((f) => dentro(f, x, y))) cubiertas++;
+      const dentroCuadro = dentroDelCuadro(x, y, radio);
+      if (dentroCuadro) enCuadro++;
+      if (dentroCuadro && formas.some((f) => dentro(f, x, y))) conTinta++;
     }
   }
-  return cubiertas / (M * M);
+  return { tinta: conTinta / (M * M), cuadro: enCuadro / (M * M) };
 }
 
 // ── PNG, escrito a pelo ──────────────────────────────────────────────────────
@@ -157,17 +216,33 @@ function trozo(tipo, datos) {
   return Buffer.concat([largo, cuerpo, crc]);
 }
 
-/** Un PNG RGB de `lado`×`lado`. Sin canal alfa: ver la nota de `PAPEL`. */
-function png(lado, formas = MARCA) {
+/**
+ * Un PNG cuadrado de `lado` píxeles.
+ *
+ * ⚠️⚠️ SALE EN RGB O EN RGBA SEGÚN SI LLEVA ESQUINAS REDONDEADAS, y no es una
+ * preferencia: fuera del redondeo no puede haber blanco —se vería el pico de un
+ * cuadrado— sino **nada**, y «nada» necesita canal alfa. Con `radio = 0` se queda en
+ * RGB, que es un tercio más pequeño y es lo que quieren iOS y Android.
+ *
+ * ⚠️ El interior sigue siendo BLANCO y no transparente, y eso no cambia: en una
+ * pestaña de tema oscuro, una V negra sobre transparente desaparece. Lo único que se
+ * vuelve transparente son las cuatro esquinas.
+ */
+function png(lado, formas = MARCA_ICONO, radio = 0) {
+  const conAlfa = radio > 0;
+  const canales = conAlfa ? 4 : 3;
   const filas = [];
+
   for (let y = 0; y < lado; y++) {
     // El primer byte de cada fila es el filtro de PNG; 0 = sin filtro.
-    const fila = Buffer.alloc(1 + lado * 3);
+    const fila = Buffer.alloc(1 + lado * canales);
     for (let x = 0; x < lado; x++) {
-      const a = cobertura(x, y, lado, formas);
+      const { tinta, cuadro } = cobertura(x, y, lado, formas, radio);
+      const base = 1 + x * canales;
       for (let c = 0; c < 3; c++) {
-        fila[1 + x * 3 + c] = Math.round(PAPEL[c] * (1 - a) + TINTA[c] * a);
+        fila[base + c] = Math.round(PAPEL[c] * (1 - tinta) + TINTA[c] * tinta);
       }
+      if (conAlfa) fila[base + 3] = Math.round(cuadro * 255);
     }
     filas.push(fila);
   }
@@ -176,7 +251,7 @@ function png(lado, formas = MARCA) {
   ihdr.writeUInt32BE(lado, 0);
   ihdr.writeUInt32BE(lado, 4);
   ihdr[8] = 8; // bits por canal
-  ihdr[9] = 2; // tipo de color: RGB
+  ihdr[9] = conAlfa ? 6 : 2; // tipo de color: 6 = RGBA, 2 = RGB
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     trozo("IHDR", ihdr),
@@ -217,7 +292,8 @@ function png(lado, formas = MARCA) {
  * resultados. Cumplir el requisito quita la causa que sí depende de nosotros.
  */
 function ico(lados) {
-  const imagenes = lados.map((lado) => ({ lado, datos: png(lado) }));
+  // El del navegador y Google: con esquinas redondeadas.
+  const imagenes = lados.map((lado) => ({ lado, datos: png(lado, MARCA_ICONO, RADIO_ICONO) }));
   const cabecera = Buffer.alloc(6);
   cabecera.writeUInt16LE(0, 0); // reservado
   cabecera.writeUInt16LE(1, 2); // 1 = icono
@@ -246,9 +322,9 @@ const punto = ([x, y]) => `${x},${y}`;
 const ruta = (poli) => `M${poli.map(punto).join("L")}Z`;
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Valatino">
-  <rect width="100" height="100" fill="#fff"/>
-  <path d="${ruta(V)}" fill="#171717"/>
-  <path d="${ruta(BARRA)}" fill="#171717"/>
+  <rect width="100" height="100" rx="${RADIO_ICONO}" fill="#fff"/>
+  <path d="${ruta(MARCA_ICONO[0])}" fill="#171717"/>
+  <path d="${ruta(MARCA_ICONO[1])}" fill="#171717"/>
 </svg>
 `;
 
@@ -275,16 +351,16 @@ const web = path.join(raiz, "apps/web");
 const salidas = [
   ["app/icon.svg", Buffer.from(svg, "utf8")],
   ["app/favicon.ico", ico([48, 32, 16])],
-  ["app/apple-icon.png", png(180)],
-  ["public/icono-192.png", png(192)],
-  ["public/icono-512.png", png(512)],
+  ["app/apple-icon.png", png(180, MARCA_ICONO, 0)],
+  ["public/icono-192.png", png(192, MARCA_ICONO, 0)],
+  ["public/icono-512.png", png(512, MARCA_ICONO, 0)],
   /**
    * ⚠️ El maskable es un fichero APARTE y no el mismo con otra etiqueta. La marca
    * va encogida al 65 % para caber en la zona segura (ver `ESCALA_MASKABLE`), lo
    * que en el icono normal la dejaría nadando en blanco. Son dos usos con dos
    * requisitos, así que son dos imágenes.
    */
-  ["public/icono-maskable-512.png", png(512, MARCA_MASKABLE)],
+  ["public/icono-maskable-512.png", png(512, MARCA_MASKABLE, 0)],
 ];
 
 for (const [relativa, datos] of salidas) {
