@@ -1,6 +1,6 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-09-11 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ✅ **Desplegado y verificado en producción**, y el Jugo Hit aplicado a la base)
+**Última actualización**: 2026-09-12 (la auditoría SEO del 09/09: medida hallazgo por hallazgo —los ocho son reales— y cerrados sus **tres P1 de código**: el `noindex` de las pantallas de utilidad, el `lastmod` que decía la hora de hacer el XML, y la marca —favicon, iconos y manifest— desde la V del logo. Y el 🔴 del Jugo Hit, que era el Mango. ✅ **Desplegado y verificado en producción**, y el Jugo Hit aplicado a la base. **12/09**: cerrado el **paso 2** —las cuatro pantallas públicas salen del `Disallow` para que Google pueda *leer* el `noindex`—, con lo que el **P1 del informe queda entero**. Lo siguiente que mueve la aguja ya no es código: es **Search Console**)
 
 ---
 
@@ -201,8 +201,15 @@ Ninguno lo trajo la auditoría, y **el patrón de los dos es el mismo**: un come
 
 ### 🔜 LO SIGUIENTE, Y TIENE UN ORDEN
 
-1. 🔜 **El paso 2 del informe**: retirar del `Disallow` `/carrito`, `/favoritos`, `/login` y `/registro` para que Google pueda **leer** el `noindex`. ⭐ Ya se puede: el `noindex` está vivo y comprobado, que era la condición. **`/checkout` no sale nunca** (ver la discrepancia, arriba).
-2. 🔜 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
+1. ✅ **HECHO EL 12/09** (`9ee4900`) — **el paso 2 del informe**: `/carrito`, `/favoritos`, `/login` y `/registro` salen del `Disallow` para que Google pueda **leer** el `noindex` que las saca del índice. Solo se podía hacer hoy: la condición era que el `noindex` estuviera vivo y comprobado.
+
+   ⚠️ **Lo que NO cambia, y es lo fácil de confundir**: salir del `Disallow` no las hace indexables ni las mete en el mapa. Son **tres** cosas distintas y la misma lista gobierna las tres. ✅ **Verificado en producción** que las tres se cumplen a la vez: `robots.txt` con **seis** `Disallow` —ya no diez—, las cinco públicas sirviendo `noindex, follow`, y **cero** rutas cerradas entre las 34 URLs del sitemap.
+
+   ⚠️ **`/checkout` no salió**, y es la discrepancia con el informe: cada entrada crea una sesión y una **reserva de stock**.
+
+   ⭐ La lista sigue siendo **una**, con un campo `rastreo` que discrimina, y `RUTAS_SIN_RASTREAR` se **deriva**. Dos listas sueltas que tienen que decir casi lo mismo acaban diciendo cosas distintas. +2 tests, los dos vistos en rojo. Y se corrigieron dos comentarios que el cambio dejaba mintiendo — uno afirmaba que el conjunto con `noindex` y el prohibido eran «el mismo conjunto», y desde hoy no lo son.
+
+2. 🔴 **Search Console**: dar de alta la propiedad de dominio y enviar el sitemap. Sin esto no hay forma de saber qué está indexado ni por qué términos — y es el paso que convierte todo lo anterior en algo medible. ⚠️ Al añadir el TXT de verificación, **conviven dos TXT en `@`** (el SPF y el `google-site-verification`) y los dos hacen falta.
 
 ### 🔜 Lo que queda de la auditoría, por orden de retorno
 
