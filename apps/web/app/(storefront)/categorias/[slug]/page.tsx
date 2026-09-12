@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ListaProductos } from "@components/storefront/ListaProductos";
+import { FiltroCategorias } from "@components/storefront/FiltroCategorias";
 import { agruparPorVariante, varianteVisible } from "@lib/productos/variantes";
 import { rutaDeProducto } from "@lib/seo/metadatos";
 import { JsonLd } from "@components/seo/JsonLd";
@@ -162,15 +163,6 @@ export default async function CategoriaPage({ params }: Props) {
   }
 
   const entradilla = introduccionDe(categoria.slug);
-  /**
-   * ⚠️ El `catalogo ?` no sobra aunque aquí ya haya categoría: TypeScript no deduce
-   * que tener categoría implica tener catálogo, y forzarlo con `!` sería apagar la
-   * comprobación en vez de decir la verdad. Si algún día ese razonamiento deja de
-   * valer, esto devuelve una lista vacía en vez de reventar.
-   */
-  const otras = catalogo
-    ? categoriasDe(catalogo.productos).filter((c) => c.slug !== categoria.slug)
-    : [];
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-12">
@@ -185,7 +177,11 @@ export default async function CategoriaPage({ params }: Props) {
         Las migas visibles, que son las mismas que el JSON-LD declara. Van en un <nav>
         con su `aria-label` porque son navegación, no decoración.
       */}
-      <nav aria-label="Migas de pan" className="mb-6 text-sm text-muted-foreground">
+      {/*
+        Las migas visibles, que son las mismas que el JSON-LD declara. Se quedan
+        aunque esté el filtro: dicen DÓNDE estás, y el filtro dice a dónde puedes ir.
+      */}
+      <nav aria-label="Migas de pan" className="mb-4 text-sm text-muted-foreground">
         <Link href="/" className="hover:text-foreground transition-colors">
           Inicio
         </Link>
@@ -194,6 +190,17 @@ export default async function CategoriaPage({ params }: Props) {
         </span>
         <span className="text-foreground">{categoria.nombre}</span>
       </nav>
+
+      {/*
+        ⚠️ El mismo filtro que la portada, con esta categoría marcada. Que sea el
+        mismo componente y esté en el mismo sitio es lo que hace que pulsar un chip se
+        sienta como filtrar y no como saltar a otra página.
+        ⭐ Va con `-mx-4` y sin `pt-8` porque aquí ya hay margen: el componente trae su
+        propio contenedor para la portada, y aquí está dentro de uno.
+      */}
+      <div className="-mx-4 mb-8">
+        <FiltroCategorias activa={categoria.slug} />
+      </div>
 
       <header className="mb-10">
         {/*
@@ -256,29 +263,6 @@ export default async function CategoriaPage({ params }: Props) {
         </section>
       )}
 
-      {/*
-        ⭐ Y ESTO ES LA MITAD DEL PUNTO DE LA PÁGINA: enlazar a las demás categorías.
-        Una categoría suelta solo da un camino nuevo; cuatro que se enlazan entre sí
-        tejen una red por la que el rastreador circula, y es lo que le faltaba a las 13
-        fichas que Google no ha visitado nunca.
-      */}
-      {otras.length > 0 && (
-        <section className="mt-16 border-t pt-8">
-          <h2 className="text-lg font-semibold mb-4">Otras categorías</h2>
-          <ul className="flex flex-wrap gap-2">
-            {otras.map((c) => (
-              <li key={c.slug}>
-                <Link
-                  href={rutaDeCategoria(c.slug)}
-                  className="inline-flex items-center rounded-full border px-4 py-1.5 text-sm hover:border-primary hover:text-primary transition-colors"
-                >
-                  {c.nombre}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </main>
   );
 }
