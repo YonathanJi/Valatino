@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { SITIO } from "@lib/seo/metadatos";
-import { RUTAS_CERRADAS } from "@lib/seo/rutas-cerradas";
+import { RUTAS_SIN_RASTREAR } from "@lib/seo/rutas-cerradas";
 
 /**
  * El `robots.txt` de la tienda, que **hasta hoy devolvía un 404**.
@@ -37,7 +37,7 @@ export default function robots(): MetadataRoute.Robots {
          * Console lo marca como aviso. Antes eran dos listas: esta, y un
          * comentario en prosa dentro de `sitemap.ts`.
          */
-        disallow: [...RUTAS_CERRADAS],
+        disallow: [...RUTAS_SIN_RASTREAR],
       },
     ],
     sitemap: `${SITIO}/sitemap.xml`,

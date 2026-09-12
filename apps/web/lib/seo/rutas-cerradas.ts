@@ -34,42 +34,64 @@
  *      —carrito, favoritos, login, registro— para que Google pueda leerlo.
  *
  * Al revés se abre a rastreo una zona que todavía no tiene la etiqueta puesta.
- * El paso 2 está **pendiente a propósito**: hoy solo se hace el 1.
  *
- * ⚠️ `/checkout` NO va a salir del `Disallow` ni en el paso 2, y esto es donde se
- * discrepa del informe, que agrupa las cinco pantallas públicas. `noindex` no evita
- * el rastreo, solo la indexación — y **cada entrada en `/checkout` crea una sesión y
- * una reserva de stock**. Abrirlo al rastreo para que un robot pueda leer una
- * etiqueta se paga en reservas de stock de productos que nadie va a comprar. Se
- * queda cerrado, y lleva el `noindex` de todas formas por si algún día se abre.
+ * ✅ **Los dos pasos están hechos**: el 1 el 11/09 y el 2 el 12/09, con el `noindex`
+ * ya verificado en las nueve rutas contra producción. Por eso `/carrito`,
+ * `/favoritos`, `/login` y `/registro` llevan hoy `rastreo: "permitido"` — siguen
+ * fuera del índice y **fuera del mapa del sitio**, pero se dejan rastrear para que
+ * Google pueda leer el `noindex` que las saca.
+ *
+ * ⚠️ Que una ruta salga del `Disallow` NO la convierte en indexable ni la mete en el
+ * mapa: son tres cosas distintas y esta lista gobierna las tres. Lo único que
+ * cambia `rastreo` es si el robot tiene permiso para ir a leer la etiqueta.
+ *
+ * ⚠️ `/checkout` NO sale del `Disallow`, y esto es donde se discrepa del informe,
+ * que agrupa las cinco pantallas públicas. `noindex` no evita el rastreo, solo la
+ * indexación — y **cada entrada en `/checkout` crea una sesión y una reserva de
+ * stock**. Abrirlo al rastreo para que un robot pueda leer una etiqueta se paga en
+ * reservas de stock de productos que nadie va a comprar. Se queda cerrado, y lleva
+ * el `noindex` de todas formas por si algún día se abre.
  */
 
 /**
- * Rutas cerradas al rastreo, en orden de importancia.
+ * Las rutas que **no van al índice de Google**, y si además se les prohíbe el
+ * rastreo.
  *
- * ⚠️⚠️ LAS NECESITAN TRES FICHEROS: `robots.txt` para prohibirlas, el mapa del sitio
- * para no anunciarlas, y el middleware para marcarlas como no indexables. Anunciar
- * en el mapa lo que se prohíbe rastrear es contradecirse —Search Console lo marca
- * como aviso, y con razón—, y hasta el 26/08 la única defensa contra eso era un
+ * ⚠️⚠️ LAS NECESITAN TRES FICHEROS, Y CADA UNO PIDE UNA COSA DISTINTA:
+ *
+ *   · el **middleware** las marca `noindex` — **todas**;
+ *   · el **mapa del sitio** no anuncia ninguna — **todas** (anunciar lo que no
+ *     quieres indexar es contradecirte, y Search Console lo marca como aviso);
+ *   · `robots.txt` prohíbe el rastreo — **solo las de `rastreo: "prohibido"`**.
+ *
+ * ⭐ Es UNA lista con un campo que discrimina, y no dos listas, por la razón de
+ * siempre en este proyecto: dos listas que tienen que decir casi lo mismo acaban
+ * diciendo cosas distintas. Hasta el 26/08 la única defensa contra esto era un
  * comentario en prosa dentro de `sitemap.ts` que decía «NO van /carrito,
- * /checkout…». El mismo dato en dos sitios, uno de ellos en forma de buena
- * intención: es la piedra con la que este proyecto lleva tropezando (`API_URL`, el
- * título de la tienda, el correo de contacto). Ahora hay una lista y tests que
- * comprueban que los tres la respetan.
+ * /checkout…» — el mismo dato en dos sitios, uno de ellos en forma de buena
+ * intención. Es la piedra con la que este proyecto lleva tropezando (`API_URL`, el
+ * título de la tienda, el correo de contacto).
  *
  * ⚠️ `/api/` no se cierra por seguridad —eso lo hacen las RLS y los guards, no un
  * fichero de texto que cualquiera lee— sino porque son respuestas JSON sin nada que
- * indexar. Y `/checkout` es el que más importa: cada entrada crea una sesión y una
- * reserva de stock.
+ * indexar.
  */
 export const RUTAS_CERRADAS = [
-  "/checkout",
-  "/carrito",
+  /**
+   * ⚠️⚠️ `/checkout` ES EL ÚNICO PÚBLICO QUE SE QUEDA PROHIBIDO, y aquí se discrepa
+   * del informe a propósito. **Cada entrada en el checkout crea una sesión y una
+   * reserva de stock.** Abrirlo al rastreo para que un robot pueda leer una
+   * etiqueta se paga en reservas de stock de productos que nadie va a comprar. El
+   * `noindex` lo lleva igual, por si algún día se abre.
+   */
+  { ruta: "/checkout", rastreo: "prohibido" },
+  { ruta: "/carrito", rastreo: "permitido" },
   // Distinta para cada visitante y sin nada que indexar, igual que el carrito.
-  "/favoritos",
-  "/cuenta",
-  "/backoffice",
-  "/login",
+  { ruta: "/favoritos", rastreo: "permitido" },
+  // Detrás de sesión: el rastreador se come un 307 al acceso y nada más.
+  { ruta: "/cuenta", rastreo: "prohibido" },
+  { ruta: "/backoffice", rastreo: "prohibido" },
+  { ruta: "/login", rastreo: "permitido" },
   /**
    * ⚠️⚠️ `/admin` ES LA PUERTA DEL PANEL, Y HASTA EL 11/09 NO ESTABA EN ESTA LISTA.
    * Medido ese día contra producción: respondía **200**, sin `Disallow` y sin
@@ -84,12 +106,23 @@ export const RUTAS_CERRADAS = [
    * criterio de aceptación del informe pedía que no pasara: «ninguna URL de acceso
    * ni administración aparece como página indexada».
    */
-  "/admin",
-  "/registro",
-  "/api/",
+  { ruta: "/admin", rastreo: "prohibido" },
+  { ruta: "/registro", rastreo: "permitido" },
+  { ruta: "/api/", rastreo: "prohibido" },
   // El callback de acceso lleva el código de un solo uso en la URL.
-  "/auth/",
+  { ruta: "/auth/", rastreo: "prohibido" },
 ] as const;
+
+/**
+ * Las que además se le prohíben al rastreador en `robots.txt`.
+ *
+ * ⚠️⚠️ ESTO SE DERIVA, NO SE ESCRIBE. Es la mitad del arreglo: si fueran dos listas
+ * sueltas, el día que alguien añada una pantalla la pondría en una y no en la otra,
+ * y ese desajuste es exactamente la avería que este fichero existe para evitar.
+ */
+export const RUTAS_SIN_RASTREAR = RUTAS_CERRADAS.filter(
+  (r) => r.rastreo === "prohibido",
+).map((r) => r.ruta);
 
 /**
  * Lo que se le dice al buscador de estas páginas.
@@ -105,11 +138,16 @@ export const NO_INDEXAR = "noindex, follow";
  * Si una ruta debe quedar fuera del índice.
  *
  * ⚠️ Compara por PREFIJO a propósito, que es exactamente como interpreta Google el
- * `Disallow` de `robots.txt`. Así el conjunto que lleva `noindex` y el que está
- * prohibido son **el mismo conjunto**, y hay un test que lo fija. Si esto comparara
- * por igualdad exacta, `/checkout/confirmacion` —que lleva la referencia del pago en
- * la URL— se quedaría fuera del `noindex` estando dentro del `Disallow`.
+ * `Disallow` de `robots.txt`. Así una regla y la otra cubren **el mismo conjunto de
+ * URLs** para la ruta que gobiernan. Si esto comparara por igualdad exacta,
+ * `/checkout/confirmacion` —que lleva la referencia del pago en la URL— se quedaría
+ * fuera del `noindex` estando dentro del `Disallow`.
+ *
+ * ⚠️ Ojo con el nombre: esto responde «¿va al índice?», **no** «¿se puede
+ * rastrear?». Desde el 12/09 no son la misma pregunta — cuatro rutas llevan
+ * `noindex` y sí se dejan rastrear, que es justo lo que hace que Google pueda leer
+ * el `noindex`. Para la otra pregunta está `RUTAS_SIN_RASTREAR`.
  */
 export function fueraDelIndice(ruta: string): boolean {
-  return RUTAS_CERRADAS.some((cerrada) => ruta.startsWith(cerrada));
+  return RUTAS_CERRADAS.some((cerrada) => ruta.startsWith(cerrada.ruta));
 }

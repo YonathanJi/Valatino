@@ -11,7 +11,7 @@ import {
   FIJAS as FIJAS_DECLARADAS,
   mapaDelSitio,
 } from "./mapa-del-sitio";
-import { RUTAS_CERRADAS } from "./rutas-cerradas";
+import { RUTAS_CERRADAS, RUTAS_SIN_RASTREAR, fueraDelIndice } from "./rutas-cerradas";
 
 /**
  * ⚠️⚠️ POR QUÉ ESTE FICHERO EXISTE, Y POR QUÉ LLEGÓ TARDE.
@@ -357,17 +357,52 @@ describe("el mapa y robots.txt no se contradicen", () => {
 
     const rutas = urls(await mapaDelSitio(RAPIDO)).map((u) => u.replace(SITIO, ""));
 
+    // TODAS, incluidas las que desde el 12/09 sí se dejan rastrear: que Google
+    // pueda entrar a leer el `noindex` no es motivo para invitarle en el mapa.
     for (const cerrada of RUTAS_CERRADAS) {
-      expect(rutas.some((r) => r.startsWith(cerrada))).toBe(false);
+      expect(rutas.some((r) => r.startsWith(cerrada.ruta))).toBe(false);
     }
   });
 
-  it("robots.txt prohíbe exactamente la lista compartida", () => {
+  /**
+   * ⚠️ Antes era «prohíbe exactamente la lista». Desde el 12/09 la lista tiene dos
+   * grupos y `robots.txt` solo refleja uno: las cuatro pantallas públicas se dejan
+   * rastrear **a propósito**, porque para leer un `noindex` hay que poder entrar.
+   */
+  it("robots.txt prohíbe exactamente las que tienen el rastreo prohibido", () => {
     const regla = robots().rules;
     const primera = Array.isArray(regla) ? regla[0] : regla;
 
-    expect(primera.disallow).toEqual([...RUTAS_CERRADAS]);
+    expect(primera.disallow).toEqual([...RUTAS_SIN_RASTREAR]);
     expect(primera.allow).toBe("/");
+  });
+
+  /**
+   * ⭐⭐ EL TEST QUE PROTEGE EL PASO 2 DEL INFORME. Dejar de prohibir una ruta solo
+   * es correcto si esa ruta sigue llevando `noindex`: si no, retirarla del
+   * `Disallow` la convierte en indexable de verdad — lo contrario de lo que se
+   * quería. Aquí es cierto por construcción (salen de la misma lista), y esto lo
+   * fija por si alguien separa las dos cosas algún día.
+   */
+  it("toda ruta que se deja rastrear sigue llevando noindex", () => {
+    const rastreables = RUTAS_CERRADAS.filter((r) => r.rastreo === "permitido");
+
+    expect(rastreables.map((r) => r.ruta)).toEqual([
+      "/carrito",
+      "/favoritos",
+      "/login",
+      "/registro",
+    ]);
+    for (const r of rastreables) {
+      expect(fueraDelIndice(r.ruta)).toBe(true);
+      expect(RUTAS_SIN_RASTREAR).not.toContain(r.ruta);
+    }
+  });
+
+  /** El checkout se queda cerrado: cada visita crea una reserva de stock. */
+  it("/checkout NO se deja rastrear, aunque sea público", () => {
+    expect(RUTAS_SIN_RASTREAR).toContain("/checkout");
+    expect(fueraDelIndice("/checkout")).toBe(true);
   });
 
   /** Si el mapa se anunciara en otro dominio, Search Console no lo aceptaría. */

@@ -140,7 +140,7 @@ describe("⭐⭐ ninguna ruta se queda sin decidir", () => {
   it("no se prohíben rutas que no existen", () => {
     const huerfanas = RUTAS_CERRADAS.filter(
       // `/api/` lo sirve el `rewrites()` de Next, no un `page.tsx`.
-      (cerrada) => cerrada !== "/api/" && !rutas.some((r) => r.startsWith(cerrada)),
+      (c) => c.ruta !== "/api/" && !rutas.some((r) => r.startsWith(c.ruta)),
     );
 
     expect(huerfanas).toEqual([]);
