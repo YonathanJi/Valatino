@@ -31,13 +31,25 @@ export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
   const agotado = producto.stock_disponible <= 0;
   const href = `/productos/${producto.slug ?? producto.id}`;
 
+  /**
+   * ⚠️⚠️ `h-full flex flex-col` + el `mt-auto` del precio: LAS TARJETAS TIENEN QUE
+   * MEDIR TODAS LO MISMO Y ACABAR IGUAL. Sin esto, una rejilla de dos columnas se ve
+   * torcida en cuanto los contenidos difieren —un nombre de dos líneas, una tira de
+   * presentaciones— porque cada tarjeta acaba donde acaba su contenido y los precios
+   * quedan a alturas distintas.
+   *
+   * Se notó el 12/09 al meter la tarjeta grande: no la causaba ella, pero la hizo
+   * evidente («se distorsiona todo el catálogo y no lleva un orden»). El grid ya
+   * estira las celdas; lo que faltaba era que la tarjeta ocupara la celda entera y
+   * repartiera por dentro.
+   */
   return (
     <motion.article
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className="group rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+      className="group flex h-full flex-col rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
     >
       {/**
        * El `relative` vive aquí fuera y no en el contenedor de la imagen porque
@@ -73,7 +85,7 @@ export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
         {!agotado && <BotonCarrito productoId={producto.id} nombre={producto.nombre} />}
       </div>
 
-      <div className="p-3 space-y-2">
+      <div className="flex flex-1 flex-col p-3 space-y-2">
         <p className="text-xs text-muted-foreground uppercase tracking-wide">
           {producto.categoria}
         </p>
@@ -82,7 +94,7 @@ export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
             {producto.nombre}
           </h3>
         </Link>
-        <span className={`block font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>{formatEUR(Number(producto.precio))}</span>
+        <span className={`mt-auto block pt-1 font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>{formatEUR(Number(producto.precio))}</span>
       </div>
     </motion.article>
   );

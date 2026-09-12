@@ -74,13 +74,25 @@ export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVar
    */
   const elegida = productos.find((p) => p.id === elegidaId) ?? representanteDe(grupo);
 
+  /**
+   * ⚠️⚠️ `h-full flex flex-col` + el `mt-auto` del precio: LAS TARJETAS TIENEN QUE
+   * MEDIR TODAS LO MISMO Y ACABAR IGUAL. Sin esto, una rejilla de dos columnas se ve
+   * torcida en cuanto los contenidos difieren —un nombre de dos líneas, una tira de
+   * presentaciones— porque cada tarjeta acaba donde acaba su contenido y los precios
+   * quedan a alturas distintas.
+   *
+   * Se notó el 12/09 al meter la tarjeta grande: no la causaba ella, pero la hizo
+   * evidente («se distorsiona todo el catálogo y no lleva un orden»). El grid ya
+   * estira las celdas; lo que faltaba era que la tarjeta ocupara la celda entera y
+   * repartiera por dentro.
+   */
   return (
     <motion.article
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className="group rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+      className="group flex h-full flex-col rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow"
     >
       <div className="relative">
         <Link href={vista.href}>
@@ -116,13 +128,32 @@ export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVar
         )}
       </div>
 
-      <div className="p-3 space-y-2">
+      <div className="flex flex-1 flex-col p-3 space-y-2">
         {/**
          * La tira. Son BOTONES y no enlaces: no llevan a ninguna parte, cambian
          * lo que hay encima. Un enlace que no navega es de las cosas que rompen
          * el clic central y el lector de pantalla a la vez.
          */}
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Elegir ${tipo}`}>
+        {/*
+          ⚠️⚠️ UNA SOLA FILA, SIEMPRE, Y ESTE ERA EL DESCUADRE DE VERDAD. Con
+          `flex-wrap`, una familia de CUATRO presentaciones no cabía: cuatro
+          miniaturas de 40 px más tres huecos son 178 px, y en el móvil una tarjeta
+          deja 140 px útiles. Se partía en dos filas y esa tarjeta quedaba ~46 px más
+          alta que las demás — Jugo Hit y Galleta Festival, que son las dos familias
+          de cuatro. Medido el 12/09 sobre un móvil de 375 px.
+
+          ⭐ Ahora no envuelve: se desliza. Es la misma solución que la barra de
+          categorías, y por el mismo motivo — encoger las miniaturas era la otra
+          salida y la mala, porque 40 px es lo que se puede tocar con el dedo.
+
+          ⚠️ `shrink-0` en cada botón (ya lo llevaban) es lo que impide que flex los
+          apriete para que quepan en vez de dejarlos deslizar.
+        */}
+        <div
+          className="flex gap-1.5 overflow-x-auto"
+          role="group"
+          aria-label={`Elegir ${tipo}`}
+        >
           {productos.map((p) => {
             const activa = p.id === elegidaId;
             const sinStock = p.stock_disponible <= 0;
@@ -184,7 +215,7 @@ export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVar
          * foto, así que la rejilla se leía en dos idiomas. Ahora las dos acaban
          * igual —datos y precio— y la acción vive en el mismo sitio en ambas.
          */}
-        <span className={`block font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>
+        <span className={`mt-auto block pt-1 font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>
           {vista.esDesde ? `Desde ${formatEUR(vista.precio)}` : formatEUR(vista.precio)}
         </span>
       </div>
