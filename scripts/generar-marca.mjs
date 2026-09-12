@@ -63,18 +63,26 @@ const V = [
  * abajo. Con pendientes distintas el hueco se abre en cuña y a tamaño pequeño se
  * lee como un borrón.
  *
- * ⚠️⚠️ EL HUECO SON 6 UNIDADES Y ESO ES UNA DECISIÓN DE TAMAÑO PEQUEÑO, no de
- * estética. Con los 3,9 que salían de medir el logo original, a 32 px el hueco mide
- * 1,25 px: el antialiasing lo convierte en un gris y la marca se lee como una V
- * gruesa a secas, perdiendo justo lo que la distingue. A 6 unidades son 1,9 px y
- * sobrevive. **En la pestaña del navegador esto se ve a 16 px**, así que el tamaño
- * que manda en el diseño es el más pequeño, no el de 512.
+ * ⚠️⚠️ EL HUECO SON 10 UNIDADES Y ESO ES UNA DECISIÓN DE TAMAÑO PEQUEÑO, no de
+ * estética. Ha subido dos veces y las dos por lo mismo:
+ *
+ *   · 3,9 — lo que salía de medir el logo original. A 32 px son 1,25 px: el
+ *     antialiasing lo vuelve un gris y la marca se lee como una V gruesa a secas.
+ *   · 6 — corregía eso, hasta que el icono pasó a dibujarse **al 72 %** para darle
+ *     aire (ver `ESCALA_ICONO`). Ese 72 % encoge también el hueco: 6 × 0,72 = 4,3
+ *     unidades, o sea **1,4 px a 32**, y volvió a verse pegado. Lo dijo Jonathan
+ *     mirando la pestaña.
+ *   · 10 — con el 72 % aplicado quedan 7,2 unidades, o sea **2,3 px a 32 px**.
+ *
+ * ⭐ La lección, que vale para cualquier icono: **un detalle no se mide en las
+ * unidades del dibujo, se mide en los píxeles del tamaño más pequeño donde tiene que
+ * verse.** Al encoger la marca para darle margen, encogí el hueco sin darme cuenta.
  */
 const BARRA = [
-  [83.2, 19.8],
-  [93.1, 19.8],
-  [61.9, 88.0],
-  [52.0, 88.0],
+  [87.2, 19.8],
+  [97.1, 19.8],
+  [65.9, 88.0],
+  [56.0, 88.0],
 ];
 
 /**
@@ -128,18 +136,41 @@ const ESCALA_ICONO = 0.72;
  */
 const RADIO_ICONO = 22;
 
-/** La marca encogida hacia el centro del lienzo. `1` la deja como está. */
-const escalar = (poli, factor) =>
-  poli.map(([x, y]) => [50 + (x - 50) * factor, 50 + (y - 50) * factor]);
+/** La caja que ocupa un conjunto de formas: `[x0, y0, x1, y1]`. */
+function caja(formas) {
+  const xs = formas.flat().map(([x]) => x);
+  const ys = formas.flat().map(([, y]) => y);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+
+/**
+ * Encoge la marca al factor pedido y la **centra ópticamente** en el lienzo.
+ *
+ * ⚠️⚠️ CENTRAR NO ES ESCALAR RESPECTO AL PUNTO (50,50), que es lo que hacía antes y
+ * funcionaba de casualidad: solo da el mismo resultado si la marca ya estaba centrada.
+ * En cuanto se tocó la geometría —al separar el trazo de la V el 12/09— la marca dejó
+ * de estarlo y se habría quedado pegada a un lado sin que nada avisara.
+ *
+ * ⭐ Ahora se mide la caja real de las formas y se lleva su centro al del lienzo, así
+ * que **la geometría se puede cambiar sin volver a cuadrar nada a mano**.
+ */
+function encajar(formas, factor) {
+  const [x0, y0, x1, y1] = caja(formas);
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  return formas.map((poli) =>
+    poli.map(([x, y]) => [50 + (x - cx) * factor, 50 + (y - cy) * factor]),
+  );
+}
 
 /** Las dos formas que son la marca. */
 const MARCA = [V, BARRA];
 
 /** La marca con aire, para los iconos que se ven tal cual. */
-const MARCA_ICONO = MARCA.map((f) => escalar(f, ESCALA_ICONO));
+const MARCA_ICONO = encajar(MARCA, ESCALA_ICONO);
 
 /** La misma marca dentro de la zona segura de un icono maskable. */
-const MARCA_MASKABLE = MARCA.map((f) => escalar(f, ESCALA_MASKABLE));
+const MARCA_MASKABLE = encajar(MARCA, ESCALA_MASKABLE);
 
 const dentro = (poli, x, y) => {
   let si = false;
