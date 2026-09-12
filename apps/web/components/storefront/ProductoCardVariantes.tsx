@@ -191,10 +191,29 @@ export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVar
                   sinStock ? `${varianteVisible(p.variante)} (agotado)` : varianteVisible(p.variante)
                 }
                 title={varianteVisible(p.variante)}
-                className={`relative h-10 w-10 shrink-0 overflow-hidden rounded-md border transition-all ${
-                  activa
-                    ? "border-primary ring-2 ring-primary ring-offset-1"
-                    : "border-border hover:border-primary/50"
+                /**
+                 * ⚠️⚠️ LA ELEGIDA SE MARCA CON BORDE, NUNCA CON `ring`, Y ESTO YA
+                 * SALIÓ MAL UNA VEZ.
+                 *
+                 * Llevaba `ring-2 ring-primary ring-offset-1`. El 12/09, al pasar la
+                 * tira de `flex-wrap` a `overflow-x-auto` para que no se partiera en
+                 * dos filas, aparecieron dos palos negros a los lados de la elegida
+                 * («comillas», lo llamó Jonathan). El motivo: `overflow-x: auto`
+                 * obliga a `overflow-y` a valer `auto` también, el `ring` de Tailwind
+                 * es un `box-shadow` que sobresale 3 px del borde, y la tira mide
+                 * justo los 40 px de las miniaturas — así que le recortaba el aro por
+                 * arriba y por abajo y solo dejaba los lados.
+                 *
+                 * ⭐ Un borde vive DENTRO de la caja, así que no hay recorte posible.
+                 * Y de paso pesa menos: el aro eran 3 px de negro despegados de la
+                 * foto; esto son 2 px pegados a ella.
+                 *
+                 * ⚠️ `border-2` en los DOS estados a propósito. Con 1 px en reposo y
+                 * 2 px al elegir, la foto encogería 2 px al tocarla y la tira daría un
+                 * salto en cada cambio.
+                 */
+                className={`relative h-10 w-10 shrink-0 overflow-hidden rounded-md border-2 transition-colors ${
+                  activa ? "border-primary" : "border-border hover:border-primary/50"
                 }`}
               >
                 <Image
