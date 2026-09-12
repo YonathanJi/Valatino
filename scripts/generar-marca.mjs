@@ -186,27 +186,58 @@ function png(lado, formas = MARCA) {
 }
 
 /**
- * Un `.ico` que lleva un PNG dentro.
+ * Un `.ico` con VARIOS tamaños dentro.
  *
  * ⚠️ Hace falta aunque ya haya un `icon.svg`: **`/favicon.ico` es la ruta que se
- * pide sola**, sin leer el HTML, y hasta hoy daba 404 (medido el 11/09). La piden
- * agentes que no ejecutan nada y algún rastreador. Un ICO con PNG dentro lo
- * entiende cualquier navegador de esta década.
+ * pide sola**, sin leer el HTML, y hasta el 11/09 daba 404. La piden agentes que no
+ * ejecutan nada y algún rastreador. Un ICO con PNG dentro lo entiende cualquier
+ * navegador de esta década.
+ *
+ * ⚠️⚠️ Y LLEVA UN 48 DENTRO POR UN REQUISITO DE GOOGLE QUE NO SE CUMPLÍA. Para
+ * enseñar el favicon junto al resultado de búsqueda, Google pide que sea **un
+ * cuadrado múltiplo de 48 px** (48, 96, 144…). El primer ICO se generó a 32×32 —el
+ * tamaño clásico de la pestaña— y 32 no es múltiplo de 48, así que en los resultados
+ * salía el globo gris genérico mientras en la pestaña se veía la marca. Lo notó
+ * Jonathan el 12/09.
+ *
+ * ⭐ Van los tres (48, 32 y 16) y no solo el 48, porque cada uno sirve a un sitio: el
+ * navegador coge el que mejor le encaje para la pestaña —donde 48 escalado a 16 se
+ * emborrona— y Google coge el mayor. Un ICO es un contenedor de varias imágenes
+ * justamente para esto.
+ *
+ * ⚠️⚠️ Y EL ORDEN IMPORTA, que es la clase de detalle que solo se ve mirando el HTML:
+ * **Next lee la PRIMERA imagen del ICO para escribir el `sizes` del `<link>`**. Con
+ * los tamaños en orden ascendente publicaba `sizes="16x16"` —peor aún que el `32x32`
+ * de antes, y es justo el atributo que lee Google—. En orden descendente publica
+ * `sizes="48x48"`, que es lo que se quiere. El navegador sigue eligiendo por su
+ * cuenta la imagen que mejor le encaje: el `sizes` es una pista, no una imposición.
+ *
+ * ⚠️ Lo que esto NO arregla: la espera. Google refresca los favicons en su propio
+ * ciclo de rastreo, así que el cambio tarda días o semanas en verse en los
+ * resultados. Cumplir el requisito quita la causa que sí depende de nosotros.
  */
-function ico(lado) {
-  const imagen = png(lado);
+function ico(lados) {
+  const imagenes = lados.map((lado) => ({ lado, datos: png(lado) }));
   const cabecera = Buffer.alloc(6);
   cabecera.writeUInt16LE(0, 0); // reservado
   cabecera.writeUInt16LE(1, 2); // 1 = icono
-  cabecera.writeUInt16LE(1, 4); // una sola imagen
-  const entrada = Buffer.alloc(16);
-  entrada[0] = lado; // ancho  (0 significaría 256)
-  entrada[1] = lado; // alto
-  entrada.writeUInt16LE(1, 4); // planos
-  entrada.writeUInt16LE(32, 6); // bits por píxel
-  entrada.writeUInt32LE(imagen.length, 8);
-  entrada.writeUInt32LE(6 + 16, 12); // desplazamiento de los datos
-  return Buffer.concat([cabecera, entrada, imagen]);
+  cabecera.writeUInt16LE(imagenes.length, 4);
+
+  // Los datos empiezan después de la cabecera y de TODAS las entradas del índice.
+  let desplazamiento = 6 + imagenes.length * 16;
+  const entradas = imagenes.map(({ lado, datos }) => {
+    const e = Buffer.alloc(16);
+    e[0] = lado === 256 ? 0 : lado; // 0 significa 256 en el formato
+    e[1] = lado === 256 ? 0 : lado;
+    e.writeUInt16LE(1, 4); // planos
+    e.writeUInt16LE(32, 6); // bits por píxel
+    e.writeUInt32LE(datos.length, 8);
+    e.writeUInt32LE(desplazamiento, 12);
+    desplazamiento += datos.length;
+    return e;
+  });
+
+  return Buffer.concat([cabecera, ...entradas, ...imagenes.map((i) => i.datos)]);
 }
 
 // ── SVG ──────────────────────────────────────────────────────────────────────
@@ -243,7 +274,7 @@ const web = path.join(raiz, "apps/web");
  */
 const salidas = [
   ["app/icon.svg", Buffer.from(svg, "utf8")],
-  ["app/favicon.ico", ico(32)],
+  ["app/favicon.ico", ico([48, 32, 16])],
   ["app/apple-icon.png", png(180)],
   ["public/icono-192.png", png(192)],
   ["public/icono-512.png", png(512)],
