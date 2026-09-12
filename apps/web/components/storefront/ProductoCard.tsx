@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import type { Producto } from "@valatino/types";
 import { BotonCarrito } from "./BotonCarrito";
 import { BotonFavorito } from "./BotonFavorito";
+import { medidaDeFoto } from "@lib/productos/destacados";
 import { formatEUR } from "@lib/utils";
 
 interface ProductoCardProps {
@@ -17,14 +18,26 @@ interface ProductoCardProps {
 
 /**
  * ⚠️⚠️ `grande` ES SOLO PARA EL MÓVIL DE LA PORTADA, donde la tarjeta ocupa las dos
- * columnas (ver `ListaProductos` y `lib/productos/destacados.ts`). Lo único que hace
- * es cambiar la FORMA DE LA FOTO y agrandar el texto; de `sm` en adelante vuelve todo
- * a lo normal, porque ahí la tarjeta ya no es ancha.
+ * columnas (ver `ListaProductos` y `lib/productos/destacados.ts`). Agranda el texto y
+ * —esto es lo que se olvidó al principio— le pide al navegador una foto del ancho que
+ * de verdad ocupa, vía `medidaDeFoto`. De `sm` en adelante no hace nada, porque ahí la
+ * tarjeta ya no es ancha.
+ */
+
+/**
+ * ⚠️⚠️ LA FOTO SE QUEDA CUADRADA, Y ESTO YA SE PROBÓ AL REVÉS EL MISMO DÍA.
  *
- * ⚠️ La foto pasa de cuadrada a apaisada (`aspect-[16/10]`) y eso no es estético: al
- * doble de ancho, un cuadrado sería el doble de alto y la tarjeta se comería la
- * pantalla del móvil entera. Lo que se quiere es que destaque, no que tape el resto
- * del catálogo.
+ * La grande nació apaisada (`aspect-[16/10]`) con el argumento de que, al doble de
+ * ancho, un cuadrado se comería la pantalla del móvil. Jonathan la vio en producción y
+ * la tumbó —«no queda cuadrada, como era, y se ve fea»— y tenía razón por un motivo
+ * que se puede medir: **las fotos del catálogo son cuadradas** (la Nucita es de
+ * 1024×1024), así que encajarlas en 16/10 con `object-cover` se lleva el **37,5 %**
+ * del alto, 18,75 % por arriba y otro tanto por abajo. La foto no se adaptaba al
+ * hueco: se le recortaba el producto que vende.
+ *
+ * ⭐ Que sea más alta es justo lo que se pidió. Ocupa las dos columnas y es cuadrada,
+ * o sea **cuatro veces** el área de una normal — eso es destacar. Y la rejilla se lee
+ * mejor con todas las fotos de la misma forma, no peor.
  */
 export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
   const imagenPrincipal = producto.imagenes[0] ?? "/placeholder.png";
@@ -58,14 +71,14 @@ export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
        */}
       <div className="relative">
         <Link href={href}>
-          <div className={`relative overflow-hidden bg-muted ${grande ? "aspect-[16/10] sm:aspect-square" : "aspect-square"}`}>
+          <div className="relative aspect-square overflow-hidden bg-muted">
             <Image
               src={imagenPrincipal}
               alt={producto.nombre}
               unoptimized={imagenPrincipal.endsWith(".svg")}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              sizes={medidaDeFoto(grande)}
             />
             {agotado && (
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">

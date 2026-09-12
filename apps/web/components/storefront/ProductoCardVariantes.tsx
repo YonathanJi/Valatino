@@ -13,6 +13,7 @@ import {
   type GrupoVariantes,
   varianteVisible,
 } from "@lib/productos/variantes";
+import { medidaDeFoto } from "@lib/productos/destacados";
 import { formatEUR } from "@lib/utils";
 
 interface ProductoCardVariantesProps {
@@ -20,6 +21,22 @@ interface ProductoCardVariantesProps {
   /** Si se pinta a lo ancho en el móvil de la portada. Ver la nota de `ProductoCard`. */
   grande?: boolean;
 }
+
+/**
+ * ⚠️⚠️ LA FOTO SE QUEDA CUADRADA, Y ESTO YA SE PROBÓ AL REVÉS EL MISMO DÍA.
+ *
+ * La grande nació apaisada (`aspect-[16/10]`) con el argumento de que, al doble de
+ * ancho, un cuadrado se comería la pantalla del móvil. Jonathan la vio en producción y
+ * la tumbó —«no queda cuadrada, como era, y se ve fea»— y tenía razón por un motivo
+ * que se puede medir: **las fotos del catálogo son cuadradas** (la Nucita es de
+ * 1024×1024), así que encajarlas en 16/10 con `object-cover` se lleva el **37,5 %**
+ * del alto, 18,75 % por arriba y otro tanto por abajo. La foto no se adaptaba al
+ * hueco: se le recortaba el producto que vende.
+ *
+ * ⭐ Que sea más alta es justo lo que se pidió. Ocupa las dos columnas y es cuadrada,
+ * o sea **cuatro veces** el área de una normal — eso es destacar. Y la rejilla se lee
+ * mejor con todas las fotos de la misma forma, no peor.
+ */
 
 /**
  * Tarjeta de catálogo para una familia con varias presentaciones: una foto
@@ -96,14 +113,14 @@ export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVar
     >
       <div className="relative">
         <Link href={vista.href}>
-          <div className={`relative overflow-hidden bg-muted ${grande ? "aspect-[16/10] sm:aspect-square" : "aspect-square"}`}>
+          <div className="relative aspect-square overflow-hidden bg-muted">
             <Image
               src={vista.imagen}
               alt={vista.alt}
               unoptimized={vista.imagen.endsWith(".svg")}
               fill
               className="object-cover transition-transform duration-300 group-hover:scale-105"
-              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              sizes={medidaDeFoto(grande)}
             />
             {vista.agotado && (
               <div className="absolute inset-0 bg-black/50 flex items-center justify-center">

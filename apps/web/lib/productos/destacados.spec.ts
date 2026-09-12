@@ -1,6 +1,6 @@
 import type { Producto } from "@valatino/types";
 import type { ItemCatalogo } from "./variantes";
-import { CADA_CUANTAS, esDestacado, repartirCatalogo } from "./destacados";
+import { CADA_CUANTAS, esDestacado, medidaDeFoto, repartirCatalogo } from "./destacados";
 
 /**
  * El reparto del catálogo con productos destacados.
@@ -172,5 +172,32 @@ describe("el reparto del catálogo", () => {
    */
   it("el intervalo es par, que es lo que cierra filas de dos columnas", () => {
     expect(CADA_CUANTAS % 2).toBe(0);
+  });
+});
+
+/**
+ * ⚠️⚠️ ESTO SALIO DE UN FALLO VISTO EN PRODUCCION, no de imaginar casos: la tarjeta
+ * grande se veia borrosa porque pedia el trozo de 50vw para un hueco de 100vw. Los
+ * dos primeros tests son el fallo; el tercero es el control.
+ */
+describe("la medida que se le pide al navegador", () => {
+  it("la grande ocupa el movil entero", () => {
+    expect(medidaDeFoto(true)).toContain("(max-width: 640px) 100vw");
+  });
+
+  it("la normal sigue siendo media pantalla, que son dos columnas", () => {
+    expect(medidaDeFoto(false)).toContain("(max-width: 640px) 50vw");
+  });
+
+  /**
+   * ⭐ El control: de `sm` en adelante la grande YA NO es ancha (`sm:col-span-1`), asi
+   * que pedir mas ahi seria bajarse una foto que no se usa. Si este test se pusiera
+   * verde por accidente —porque alguien cambie los dos tramos a la vez— los de arriba
+   * dejarian de significar «solo el movil».
+   */
+  it("y de tablet en adelante las dos piden lo mismo", () => {
+    const soloDesdeSm = (s: string) => s.slice(s.indexOf(","));
+    expect(soloDesdeSm(medidaDeFoto(true))).toBe(soloDesdeSm(medidaDeFoto(false)));
+    expect(medidaDeFoto(true)).not.toBe(medidaDeFoto(false));
   });
 });

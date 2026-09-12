@@ -27,6 +27,28 @@ import type { ItemCatalogo } from "./variantes";
  * marca los productos es quien la mira.
  */
 
+/**
+ * El `sizes` de la foto de una tarjeta del catalogo.
+ *
+ * ⚠️⚠️ EXISTE PORQUE LA GRANDE SE VEIA BORROSA, y el motivo no era la foto sino esta
+ * cadena. Las dos tarjetas compartian `sizes="(max-width: 640px) 50vw, …"`, pero la
+ * grande ocupa las DOS columnas del movil: 100vw, no 50vw. El navegador elige del
+ * `srcSet` por lo que le diga esto, asi que pedia media foto y luego la estiraba al
+ * doble. Medido el 12/09 en produccion sobre la Nucita destacada: el original es de
+ * 1024x1024 y el movil se bajaba la copia de 384 px para pintarla a ~694.
+ *
+ * ⭐ Solo cambia el primer tramo. De `sm` en adelante la grande vuelve a ser una celda
+ * normal (`sm:col-span-1` en `ListaProductos`), asi que ahi mide lo mismo que el resto.
+ *
+ * ⚠️ Esta aqui, y no en el JSX de cada tarjeta, porque son DOS componentes
+ * (`ProductoCard` y `ProductoCardVariantes`) y el fallo fue justamente que la cadena
+ * estaba copiada: al nacer la grande solo habia que tocar un sitio, y ese sitio no
+ * existia.
+ */
+export function medidaDeFoto(grande: boolean): string {
+  return `(max-width: 640px) ${grande ? "100vw" : "50vw"}, (max-width: 1024px) 33vw, 25vw`;
+}
+
 /** Una tarjeta con su sitio en la rejilla. */
 export interface EnRejilla {
   item: ItemCatalogo;
