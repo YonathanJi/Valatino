@@ -162,7 +162,7 @@ La primera versión de la página de categoría hacía `throw` si no había cat�
 
 ### Las pruebas
 
-**Web 543 · API 575 · 1.118 en verde.** La web venía de 511: **+32**, de `categorias.spec.ts` (18), el bloque de categorías del mapa (6), las migas y la lista de categoría (6) y los dos del `Disallow`. `type-check`, `lint` y `next build` limpios.
+**Web 555 · API 567 · 1.122 en verde** (medido el 12/09). ⚠️ Este fichero arrastraba «API 575» desde el 30/08 y **no se reproduce**: hoy la API da 562 sin el spec nuevo del DTO. Nada falta —árbol limpio, ningún fichero sin versionar, 40 suites en verde—, así que el 575 era un número mal copiado en algún cierre. Queda dicho para que nadie lo busque. La web venía de 511: **+32**, de `categorias.spec.ts` (18), el bloque de categorías del mapa (6), las migas y la lista de categoría (6) y los dos del `Disallow`. `type-check`, `lint` y `next build` limpios.
 
 ⭐ Y la guarda del 11/09 hizo su trabajo sin que nadie la llamara: al crear `/categorias/[slug]`, el test «ninguna ruta se queda sin decidir» **se puso rojo el mismo día**, obligando a declarar si la ruta iba al índice o no.
 
