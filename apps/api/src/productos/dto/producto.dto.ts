@@ -70,6 +70,20 @@ export class CreateProductoDto {
   @IsBoolean()
   activo?: boolean;
 
+  /**
+   * Si el producto se pinta a lo ancho en el catálogo del móvil (migración 086).
+   *
+   * ⚠️⚠️ SIN ESTA LÍNEA, EL PANEL NO PUEDE GUARDARLO. La validación global va con
+   * `whitelist` + `forbidNonWhitelisted` (ver `main.ts`), así que una propiedad que no
+   * esté declarada aquí **no se ignora: se rechaza la petición entera** con «property
+   * destacado should not exist». Pasó el 12/09: la columna estaba en la base, la API
+   * la devolvía y el formulario la enviaba, y guardar fallaba — porque el camino de
+   * LECTURA y el de ESCRITURA no son el mismo y solo se había comprobado el primero.
+   */
+  @IsOptional()
+  @IsBoolean()
+  destacado?: boolean;
+
   @IsOptional()
   @IsString()
   @MaxLength(250)
@@ -139,6 +153,20 @@ export class UpdateProductoDto {
   @IsOptional()
   @IsBoolean()
   activo?: boolean;
+
+  /**
+   * Si el producto se pinta a lo ancho en el catálogo del móvil (migración 086).
+   *
+   * ⚠️⚠️ SIN ESTA LÍNEA, EL PANEL NO PUEDE GUARDARLO. La validación global va con
+   * `whitelist` + `forbidNonWhitelisted` (ver `main.ts`), así que una propiedad que no
+   * esté declarada aquí **no se ignora: se rechaza la petición entera** con «property
+   * destacado should not exist». Pasó el 12/09: la columna estaba en la base, la API
+   * la devolvía y el formulario la enviaba, y guardar fallaba — porque el camino de
+   * LECTURA y el de ESCRITURA no son el mismo y solo se había comprobado el primero.
+   */
+  @IsOptional()
+  @IsBoolean()
+  destacado?: boolean;
 
   @IsOptional()
   @IsString()

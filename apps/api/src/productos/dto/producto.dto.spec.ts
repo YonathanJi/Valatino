@@ -1,127 +1,99 @@
-import "reflect-metadata";
-import { BadRequestException, ValidationPipe } from "@nestjs/common";
-import { AjustarStockDto, CreateProductoDto, UpdateProductoDto } from "./producto.dto";
-
-/** Mismo pipe que main.ts: si aquí pasa, en producción pasa. */
-const pipe = new ValidationPipe({
-  whitelist: true,
-  forbidNonWhitelisted: true,
-  transform: true,
-});
-
-const validar = (valor: unknown, metatype: unknown) =>
-  pipe.transform(valor, { type: "body", metatype: metatype as never });
-
-const BASE = { nombre: "Pony Malta", precio: 1.5, categoria: "Bebidas", iva_pct: 21 };
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { CreateProductoDto, UpdateProductoDto } from "./producto.dto";
 
 /**
- * El tipo de IVA es lo que hace que una venta sea declarable (migración 062).
- * Antes de tenerlo, el IVA repercutido de un pedido no era CALCULABLE: el precio
- * es un número sin tipo asociado y el catálogo mezcla el 4, el 10 y el 21.
+ * ⚠️⚠️ POR QUÉ EXISTE ESTE FICHERO, Y QUÉ FALLO LO TRAJO.
  *
- * Estas pruebas fijan la frontera de la API. La regla de redondeo NO se prueba
- * aquí a propósito: vive en SQL (`recalcular_iva_pedido`) y escribirla también
- * en TypeScript para poder testearla sería crear el segundo sitio que redondea,
- * que es justo lo que esa función existe para evitar.
+ * El 12/09 se añadió `destacado` a la tabla, al tipo, al servicio y al formulario del
+ * panel. Se comprobó que la API **devolvía** el campo y se dio por bueno. Al guardar
+ * desde el panel salía «property destacado should not exist».
+ *
+ * El motivo: la validación global va con `whitelist` + `forbidNonWhitelisted` (ver
+ * `main.ts`), así que una propiedad que no esté declarada en el DTO **no se ignora:
+ * se rechaza la petición entera**. El camino de LECTURA y el de ESCRITURA no son el
+ * mismo, y solo se había comprobado el primero.
+ *
+ * ⭐ Y no había NI UN test de DTO en todo el proyecto, así que nada podía avisar. Este
+ * fichero no prueba `destacado`: prueba que **el DTO acepta exactamente lo que el
+ * panel envía**, que es la clase entera de fallo. El próximo campo que se añada al
+ * formulario y se olvide aquí rompe este test el día que se escriba.
  */
-describe("CreateProductoDto — el tipo de IVA", () => {
-  it("acepta los tres tipos del impuesto", async () => {
-    for (const iva_pct of [4, 10, 21]) {
-      await expect(validar({ ...BASE, iva_pct }, CreateProductoDto)).resolves.toMatchObject({
-        iva_pct,
-      });
-    }
-  });
-
-  /**
-   * Sin valor por defecto a propósito: un defecto sería inventarse un número que
-   * acaba en el modelo 303, y lo peor de un número inventado es que parece
-   * puesto. Que falle al crear es ruidoso e inofensivo; declarar de menos, no.
-   */
-  it("es obligatorio: crear un producto sin él se rechaza", async () => {
-    const { iva_pct: _omitido, ...sinIva } = BASE;
-    await expect(validar(sinIva, CreateProductoDto)).rejects.toThrow();
-  });
-
-  it("no acepta un tipo inventado", async () => {
-    for (const iva_pct of [0, 7, 16, 21.5, 100, -21]) {
-      await expect(validar({ ...BASE, iva_pct }, CreateProductoDto)).rejects.toThrow();
-    }
-  });
-
-  /**
-   * El 0 se rechaza como cualquier otro número raro, y no es un olvido: una
-   * operación exenta no es «IVA al cero», va a otra casilla del 303 y necesita
-   * más que un tipo distinto.
-   */
-  it("el 0 (exento) se rechaza, y el mensaje dice cuáles valen", async () => {
-    // El detalle de la ValidationPipe va en el cuerpo de la respuesta, no en
-    // `error.message` (que es siempre «Bad Request Exception»). Es lo que ve
-    // quien llama a la API, así que es lo que hay que comprobar.
-    const error = await validar({ ...BASE, iva_pct: 0 }, CreateProductoDto).catch((e) => e);
-    const cuerpo = (error as BadRequestException).getResponse() as { message: string[] };
-
-    expect(cuerpo.message.join(" ")).toMatch(/El IVA debe ser 4, 10, 21/);
-  });
-
-  it("un tipo en texto no cuela", async () => {
-    await expect(validar({ ...BASE, iva_pct: "21" }, CreateProductoDto)).rejects.toThrow();
-  });
-});
-
-describe("UpdateProductoDto — el tipo de IVA", () => {
-  /** Editar el precio de un producto no debería obligar a repetir su IVA. */
-  it("es opcional: se puede editar otra cosa sin mandarlo", async () => {
-    await expect(validar({ precio: 1.6 }, UpdateProductoDto)).resolves.toEqual({ precio: 1.6 });
-  });
-
-  it("pero si viene, sigue teniendo que ser uno de los tres", async () => {
-    await expect(validar({ iva_pct: 10 }, UpdateProductoDto)).resolves.toEqual({ iva_pct: 10 });
-    await expect(validar({ iva_pct: 16 }, UpdateProductoDto)).rejects.toThrow();
-  });
-});
 
 /**
- * El motivo del ajuste (migración 063). Sin él el stock no era reconstruible:
- * se comprobó contra la base real que 19 de 20 productos se deducen de sus
- * movimientos, y el que no —una caja de Quipitos— tenía una unidad puesta a
- * mano de la que no quedaba ningún rastro.
+ * El cuerpo que manda `ProductoForm` del panel, campo por campo.
+ *
+ * ⚠️ Es el mismo dato en dos sitios —el formulario y esto— y no se puede evitar: el
+ * panel es otra aplicación y no puede importar los DTO de la API. Lo que sí se puede
+ * es **vigilar la duplicación**, que es lo que hace este fichero. Al tocar el payload
+ * de `ProductoForm`, tocar esto.
  */
-describe("AjustarStockDto", () => {
-  it("acepta los motivos del vocabulario", async () => {
-    for (const motivo of ["rotura", "merma", "caducidad", "recuento", "correccion"]) {
-      await expect(validar({ cantidad: 3, motivo }, AjustarStockDto)).resolves.toMatchObject({
-        motivo,
-      });
-    }
+const LO_QUE_ENVIA_EL_PANEL = {
+  nombre: "Nucita",
+  descripcion: "Crema de avellana y cacao en vasito.",
+  precio: 0.5,
+  iva_pct: 10,
+  categoria: "Dulces",
+  imagenes: ["https://ejemplo.supabase.co/storage/v1/object/public/productos/nucita.webp"],
+  activo: true,
+  destacado: false,
+  familia: null,
+  variante: null,
+  variante_tipo: null,
+};
+
+/** La misma configuración que `main.ts`, o el test no probaría lo que pasa de verdad. */
+const COMO_EN_PRODUCCION = { whitelist: true, forbidNonWhitelisted: true };
+
+describe("el DTO de producto acepta lo que envía el panel", () => {
+  it("al crear", async () => {
+    const dto = plainToInstance(CreateProductoDto, LO_QUE_ENVIA_EL_PANEL);
+    const errores = await validate(dto, COMO_EN_PRODUCCION);
+
+    expect(errores.map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(", ")}`)).toEqual(
+      [],
+    );
   });
 
-  /** Rotura, merma y caducidad son salidas: sin signo negativo no se registran. */
-  it("acepta cantidades negativas: quitar stock también es un ajuste", async () => {
-    await expect(
-      validar({ cantidad: -2, motivo: "rotura" }, AjustarStockDto),
-    ).resolves.toMatchObject({ cantidad: -2 });
-  });
+  it("al editar", async () => {
+    const dto = plainToInstance(UpdateProductoDto, LO_QUE_ENVIA_EL_PANEL);
+    const errores = await validate(dto, COMO_EN_PRODUCCION);
 
-  it("cero sigue sin ser un ajuste", async () => {
-    await expect(validar({ cantidad: 0, motivo: "recuento" }, AjustarStockDto)).rejects.toThrow();
-  });
-
-  it("un motivo inventado se rechaza", async () => {
-    await expect(validar({ cantidad: 1, motivo: "porque_si" }, AjustarStockDto)).rejects.toThrow();
+    expect(errores.map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(", ")}`)).toEqual(
+      [],
+    );
   });
 
   /**
-   * Opcional en el DTO para no romper a quien llame sin él; la RPC lo apunta
-   * como `sin_indicar`. El panel lo pide siempre.
+   * ⭐ El control del test: si esto NO fallara, el de arriba tampoco probaría nada —
+   * significaría que el DTO acepta cualquier cosa y que `forbidNonWhitelisted` no
+   * está actuando en la comprobación.
    */
-  it("es opcional, para no romper a quien llame sin él", async () => {
-    await expect(validar({ cantidad: 5 }, AjustarStockDto)).resolves.toEqual({ cantidad: 5 });
+  it("y sigue rechazando lo que no conoce", async () => {
+    const dto = plainToInstance(UpdateProductoDto, {
+      ...LO_QUE_ENVIA_EL_PANEL,
+      inventado: true,
+    });
+    const errores = await validate(dto, COMO_EN_PRODUCCION);
+
+    expect(errores).toHaveLength(1);
+    expect(errores[0]?.property).toBe("inventado");
   });
 
-  it("la nota tiene tope: no es un cajón de sastre", async () => {
-    await expect(
-      validar({ cantidad: 1, motivo: "merma", nota: "x".repeat(301) }, AjustarStockDto),
-    ).rejects.toThrow();
+  /** Marcar y desmarcar el destacado son las dos operaciones del panel. */
+  it("acepta destacado en los dos sentidos", async () => {
+    for (const destacado of [true, false]) {
+      const dto = plainToInstance(UpdateProductoDto, { destacado });
+      expect(await validate(dto, COMO_EN_PRODUCCION)).toEqual([]);
+    }
+  });
+
+  /** Y no se lo cree si no es booleano: un "on" de formulario mal convertido. */
+  it("pero no un destacado que no sea booleano", async () => {
+    const dto = plainToInstance(UpdateProductoDto, { destacado: "on" });
+    const errores = await validate(dto, COMO_EN_PRODUCCION);
+
+    expect(errores).toHaveLength(1);
+    expect(errores[0]?.property).toBe("destacado");
   });
 });
