@@ -19,11 +19,11 @@ import { categoriasDe, rutaDeCategoria } from "@lib/productos/categorias";
  * como filtrar. El cliente ve un filtro; Google ve cinco URLs. Es lo que hacen las
  * tiendas bien hechas, y el motivo por el que aquí no se usa `useState`.
  *
- * ⚠️ El estilo es **el mismo que el selector de presentaciones de la ficha de
- * producto** (borde, redondeado, el actual con `border-2 border-primary bg-primary/5`)
- * a propósito: es el mismo gesto —elegir una opción entre varias— y que dos sitios de
- * la tienda resuelvan el mismo gesto de dos formas distintas es cómo una tienda
- * empieza a parecer dos.
+ * ⚠️ El estilo NO es el del selector de presentaciones de la ficha —que usa borde y
+ * `border-2 border-primary`— aunque el gesto sea parecido, y conviene saber por qué:
+ * aquí Jonathan puso un ejemplo delante (New Balance) y pidió chips de fondo gris sin
+ * borde. Cuando hay una referencia concreta, gana la referencia. Si algún día se
+ * unifican los dos, que sea una decisión y no un despiste.
  */
 export async function FiltroCategorias({ activa }: { activa?: string }) {
   const catalogo = await pedirCatalogo({ plazoMs: PLAZO_PAGINA_MS });
@@ -57,19 +57,34 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
    * ⚠️ `whitespace-nowrap` es lo que impide que «Vuelta al cole» se parta en dos
    * líneas y descuadre la altura de toda la fila. Con una sola fila (ver abajo) es
    * imprescindible, no cosmético.
+   *
+   * ⭐⭐ CRECEN EN PANTALLA GRANDE, Y ESA ES LA FORMA CORRECTA DE RESOLVERLO. El
+   * tamaño pequeño del móvil no es una preferencia estética: es lo que hace que los
+   * cinco quepan sin tener que deslizar demasiado en 375 px. Pero en un escritorio
+   * sobran seiscientos píxeles y ahí el mismo chip se ve diminuto y cuesta acertarle.
+   *
+   * Dos tamaños, entonces, y **no uno intermedio que quede regular en los dos**:
+   *
+   *   · hasta 640 px → `text-xs` con `px-3 py-1.5`  (~395 px la tira: se desliza)
+   *   · de 640 en adelante → `text-sm` con `px-4 py-2`  (~470 px: cabe centrada
+   *     de sobra en 640, así que el salto nunca provoca desbordamiento)
+   *
+   * ⚠️ El breakpoint es `sm` (640 px) y no `md` a propósito: a 640 ya hay espacio
+   * para la versión grande, y esperar a 768 dejaría las tablets pequeñas con el
+   * tamaño de móvil sin necesitarlo.
    */
   const chip = (texto: string, href: string, activo: boolean) =>
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background sm:px-4 sm:py-2 sm:text-sm"
       >
         {texto}
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-3 py-1.5 text-xs text-foreground hover:bg-muted/70 transition-colors"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70 sm:px-4 sm:py-2 sm:text-sm"
       >
         {texto}
       </Link>
@@ -83,9 +98,9 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * ten en cuenta los diferentes dispositivos».
      *
      * ⚠️⚠️ «UNA FILA» Y «MÓVIL» NO SE ARREGLAN SOLO ACHICANDO. Con los cinco nombres
-     * de hoy —Todas, Bebidas, Despensa, Dulces, Galletas— hacen falta unos 345 px y
-     * un móvil de 375 px deja 343 útiles: **no caben por dos píxeles**. Y aunque se
-     * forzara, la quinta categoría que Jonathan añada lo rompe otra vez. Encoger más
+     * de hoy —Todas, Bebidas, Despensa, Dulces, Galletas— la tira mide unos 395 px al
+     * tamaño de móvil, y un móvil de 375 px deja 343 útiles: **no caben**. Y aunque se
+     * forzara, la siguiente categoría que se añada lo rompe otra vez. Encoger más
      * tampoco vale: por debajo de 12 px el texto deja de leerse y el chip deja de
      * poder tocarse con el dedo.
      *
@@ -103,7 +118,7 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * categorías fuera de la vista, y esa es justo la pista que necesita quien mira.
      */
     <nav aria-label="Filtrar por categoría" className="overflow-x-auto">
-      <ul className="mx-auto flex w-max gap-2 px-4 pb-2">
+      <ul className="mx-auto flex w-max gap-2 px-4 pb-2 sm:gap-2.5">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
         <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
