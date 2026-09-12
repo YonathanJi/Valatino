@@ -165,6 +165,7 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
         categoria: formData.get("categoria") as string,
         imagenes: familiaUrl ? [imagenUrl, familiaUrl] : [imagenUrl],
         activo: formData.get("activo") === "on",
+        destacado: formData.get("destacado") === "on",
         familia: agrupado ? familiaNombre.trim() : null,
         variante: agrupado ? varianteFinal : null,
         variante_tipo: agrupado ? tipo : null,
@@ -496,6 +497,33 @@ export function ProductoForm({ producto, familias = [], onClose, onSaved }: Prod
             className="h-4 w-4"
           />
           <Label htmlFor="activo">Activo (visible en catálogo)</Label>
+        </div>
+
+        {/*
+          Destacar un producto en el catálogo del móvil (migración 086).
+
+          ⚠️ La explicación de DÓNDE se ve es tan importante como la casilla: sin
+          ella, quien marque un producto y mire la tienda en el ordenador pensará
+          que no funciona. Solo cambia el móvil, solo en la portada, y no en las
+          páginas de categoría.
+        */}
+        <div className="col-span-2 rounded-lg border bg-muted/30 p-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="destacado"
+              name="destacado"
+              defaultChecked={producto?.destacado ?? false}
+              className="h-4 w-4"
+            />
+            <Label htmlFor="destacado">Destacar en el catálogo</Label>
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            En el <strong>móvil</strong>, este producto se pinta a lo ancho cada seis
+            tarjetas de la portada, en vez de salir en su sitio de la rejilla. En
+            ordenador y en las páginas de categoría no cambia nada. Se pueden marcar
+            varios: se reparten uno cada seis.
+          </p>
         </div>
 
         <div className="col-span-2 flex gap-3 justify-end">

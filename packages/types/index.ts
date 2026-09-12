@@ -474,6 +474,18 @@ export interface Producto {
   /** Etiqueta de esta presentación en el selector: «C/U», «Caja 24 unidades» */
   variante: string | null;
   variante_tipo: TipoVariante | null;
+  /**
+   * Si se pinta a lo ancho en el catálogo del móvil (migración 086).
+   *
+   * ⭐ Se coloca uno cada seis tarjetas, y **solo en la portada y solo en móvil**: es
+   * donde la lista es larga y estrecha. El reparto vive en
+   * `apps/web/lib/productos/destacados.ts`, con pruebas.
+   *
+   * ⚠️ Opcional en el tipo aunque en la base sea `NOT NULL`: la API pudo responder
+   * antes de la migración y un cliente cacheado puede traer productos sin el campo.
+   * `undefined` se trata como «no destacado», que es lo correcto.
+   */
+  destacado?: boolean;
   created_at: string;
   updated_at: string;
 }

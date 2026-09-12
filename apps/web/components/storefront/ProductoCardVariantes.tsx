@@ -17,6 +17,8 @@ import { formatEUR } from "@lib/utils";
 
 interface ProductoCardVariantesProps {
   grupo: GrupoVariantes;
+  /** Si se pinta a lo ancho en el móvil de la portada. Ver la nota de `ProductoCard`. */
+  grande?: boolean;
 }
 
 /**
@@ -37,7 +39,7 @@ interface ProductoCardVariantesProps {
  * de **la elegida**. Así se comparan cuatro sabores sin salir del catálogo ni
  * volver atrás cuatro veces, que en móvil es donde se abandona.
  */
-export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
+export function ProductoCardVariantes({ grupo, grande = false }: ProductoCardVariantesProps) {
   const { familia: base, tipo, productos } = grupo;
   /**
    * ⚠️⚠️ SE PRESELECCIONA LA REPRESENTANTE, y antes esto empezaba en `null`.
@@ -82,7 +84,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
     >
       <div className="relative">
         <Link href={vista.href}>
-          <div className="relative aspect-square overflow-hidden bg-muted">
+          <div className={`relative overflow-hidden bg-muted ${grande ? "aspect-[16/10] sm:aspect-square" : "aspect-square"}`}>
             <Image
               src={vista.imagen}
               alt={vista.alt}
@@ -167,7 +169,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
           {productos[0]!.categoria}
         </p>
         <Link href={vista.href}>
-          <h3 className="font-medium text-sm leading-tight hover:text-primary transition-colors line-clamp-2">
+          <h3 className={`font-medium leading-tight hover:text-primary transition-colors line-clamp-2 ${grande ? "text-base sm:text-sm" : "text-sm"}`}>
             {base}
           </h3>
         </Link>
@@ -182,7 +184,7 @@ export function ProductoCardVariantes({ grupo }: ProductoCardVariantesProps) {
          * foto, así que la rejilla se leía en dos idiomas. Ahora las dos acaban
          * igual —datos y precio— y la acción vive en el mismo sitio en ambas.
          */}
-        <span className="block font-bold text-primary">
+        <span className={`block font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>
           {vista.esDesde ? `Desde ${formatEUR(vista.precio)}` : formatEUR(vista.precio)}
         </span>
       </div>

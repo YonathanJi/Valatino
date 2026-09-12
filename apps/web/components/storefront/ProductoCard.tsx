@@ -10,9 +10,23 @@ import { formatEUR } from "@lib/utils";
 
 interface ProductoCardProps {
   producto: Producto;
+  /** Si se pinta a lo ancho en el móvil de la portada. Ver la nota de abajo. */
+  grande?: boolean;
 }
 
-export function ProductoCard({ producto }: ProductoCardProps) {
+
+/**
+ * ⚠️⚠️ `grande` ES SOLO PARA EL MÓVIL DE LA PORTADA, donde la tarjeta ocupa las dos
+ * columnas (ver `ListaProductos` y `lib/productos/destacados.ts`). Lo único que hace
+ * es cambiar la FORMA DE LA FOTO y agrandar el texto; de `sm` en adelante vuelve todo
+ * a lo normal, porque ahí la tarjeta ya no es ancha.
+ *
+ * ⚠️ La foto pasa de cuadrada a apaisada (`aspect-[16/10]`) y eso no es estético: al
+ * doble de ancho, un cuadrado sería el doble de alto y la tarjeta se comería la
+ * pantalla del móvil entera. Lo que se quiere es que destaque, no que tape el resto
+ * del catálogo.
+ */
+export function ProductoCard({ producto, grande = false }: ProductoCardProps) {
   const imagenPrincipal = producto.imagenes[0] ?? "/placeholder.png";
   const agotado = producto.stock_disponible <= 0;
   const href = `/productos/${producto.slug ?? producto.id}`;
@@ -32,7 +46,7 @@ export function ProductoCard({ producto }: ProductoCardProps) {
        */}
       <div className="relative">
         <Link href={href}>
-          <div className="relative aspect-square overflow-hidden bg-muted">
+          <div className={`relative overflow-hidden bg-muted ${grande ? "aspect-[16/10] sm:aspect-square" : "aspect-square"}`}>
             <Image
               src={imagenPrincipal}
               alt={producto.nombre}
@@ -64,11 +78,11 @@ export function ProductoCard({ producto }: ProductoCardProps) {
           {producto.categoria}
         </p>
         <Link href={href}>
-          <h3 className="font-medium text-sm leading-tight hover:text-primary transition-colors line-clamp-2">
+          <h3 className={`font-medium leading-tight hover:text-primary transition-colors line-clamp-2 ${grande ? "text-base sm:text-sm" : "text-sm"}`}>
             {producto.nombre}
           </h3>
         </Link>
-        <span className="block font-bold text-primary">{formatEUR(Number(producto.precio))}</span>
+        <span className={`block font-bold text-primary ${grande ? "text-lg sm:text-base" : ""}`}>{formatEUR(Number(producto.precio))}</span>
       </div>
     </motion.article>
   );

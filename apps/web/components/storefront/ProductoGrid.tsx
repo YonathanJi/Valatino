@@ -51,5 +51,12 @@ export async function ProductoGrid() {
     );
   }
 
-  return <ListaProductos productos={activos} />;
+  /**
+   * ⭐ `conDestacados` SOLO AQUÍ. Este componente es el catálogo de la portada, que
+   * es la única lista larga de la tienda y la única que se ve en móvil de dos en dos
+   * durante veinte tarjetas. Las páginas de categoría llaman a `ListaProductos`
+   * directamente y no lo piden: con cuatro o nueve productos no hay monotonía que
+   * romper, y el destacado saldría antes de las seis tarjetas o no saldría.
+   */
+  return <ListaProductos productos={activos} conDestacados />;
 }
