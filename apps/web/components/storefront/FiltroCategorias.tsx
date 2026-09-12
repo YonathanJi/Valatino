@@ -85,14 +85,14 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center whitespace-nowrap rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background sm:px-5 sm:py-2.5 sm:text-base"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-medium text-background sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center whitespace-nowrap rounded-lg bg-muted px-4 py-2 text-sm text-foreground transition-colors hover:bg-muted/70 sm:px-5 sm:py-2.5 sm:text-base"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted/70 sm:rounded-lg sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </Link>
@@ -105,28 +105,36 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * Lo pidió Jonathan el 12/09: «centradas, más pequeñas, que quede solo una fila,
      * ten en cuenta los diferentes dispositivos».
      *
-     * ⚠️⚠️ «UNA FILA» Y «MÓVIL» NO SE ARREGLAN SOLO ACHICANDO. Con los cinco nombres
-     * de hoy —Todas, Bebidas, Despensa, Dulces, Galletas— la tira mide unos 395 px al
-     * tamaño de móvil, y un móvil de 375 px deja 343 útiles: **no caben**. Y aunque se
-     * forzara, la siguiente categoría que se añada lo rompe otra vez. Encoger más
-     * tampoco vale: por debajo de 12 px el texto deja de leerse y el chip deja de
-     * poder tocarse con el dedo.
+     * ⚠️⚠️ EL MÓVIL VA ACHICADO HASTA QUE CABE, Y ESE ES EL PRECIO ELEGIDO. Las tres
+     * cosas que se querían —una sola fila, sin desplazar, y chips que se vean— no
+     * caben juntas en un móvil de 375 px, que deja 343 útiles. Medido con los cinco
+     * nombres de hoy (Todas, Bebidas, Despensa, Dulces, Galletas):
      *
-     * ⭐ Por eso la fila **se desliza** cuando no cabe (`overflow-x-auto` sin
-     * `flex-wrap`) y **se centra** cuando sí (`mx-auto` sobre un `w-max`). Es una
-     * sola regla que resuelve los dos casos sin `media queries` ni contar píxeles: en
-     * escritorio se ve centrada y quieta; en móvil se arrastra con el dedo, que es el
-     * gesto que ya espera cualquiera en una tira de categorías.
+     *     text-sm px-4     430 px   faltan 87
+     *     text-xs px-3     363 px   faltan 20
+     *     text-xs px-2     315 px   CABE
      *
-     * ⚠️ El `w-max` es lo que hace que funcione. Sin él, el `<ul>` ocuparía el ancho
-     * del contenedor y `mx-auto` no tendría nada que centrar; con él toma el ancho de
-     * su contenido, así que sobra espacio (se centra) o no sobra (se desplaza).
+     * Se probó dejar que envolvieran en dos filas —se ven enteras y sin desplazar— y
+     * Jonathan lo descartó: quiere una fila. Así que se sacrifica el tamaño en móvil y
+     * se queda en `text-xs px-2`, que es lo más grande que cabe.
      *
-     * ⚠️ Y no se esconde la barra de desplazamiento: cuando aparece es porque hay más
-     * categorías fuera de la vista, y esa es justo la pista que necesita quien mira.
+     * ⚠️ CONSECUENCIA QUE HAY QUE SABER: con una **sexta categoría** esto vuelve a no
+     * caber (393 px sobre 343) y habrá que volver a elegir. No se puede achicar más:
+     * por debajo de 12 px el texto deja de leerse y el chip deja de poder tocarse con
+     * el dedo. Cuando pase, las salidas son dos filas en móvil o acortar los nombres.
+     *
+     * ⭐ En escritorio no hay ese problema —sobran seiscientos píxeles—, así que ahí
+     * los chips van a `text-base px-5`: el `sm:` no es simetría, es que cada pantalla
+     * tiene un problema distinto.
+     *
+     * ⭐ Una fila que **se centra** cuando cabe (`mx-auto` sobre `w-max`) y **se
+     * desliza** cuando no (`overflow-x-auto` sin `flex-wrap`). El `w-max` es lo que lo
+     * permite: sin él, el `<ul>` ocuparía todo el ancho y `mx-auto` no tendría nada
+     * que centrar. Y la barra de desplazamiento no se esconde: si aparece es porque
+     * hay categorías fuera de la vista, y esa es la pista que hace falta.
      */
     <nav aria-label="Filtrar por categoría" className="overflow-x-auto">
-      <ul className="mx-auto flex w-max gap-2 px-4 pb-2 sm:gap-3">
+      <ul className="mx-auto flex w-max gap-1.5 px-4 pb-2 sm:gap-3">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
         <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
