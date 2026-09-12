@@ -50,11 +50,18 @@ export function NombreDeLaTienda({ className = "" }: { className?: string }) {
         ))}
       </svg>
       {/*
-        ⚠️ El `-ml-[0.04em]` cierra el hueco que deja el `viewBox` de la marca por su
-        lado derecho. Sin él, «alatino» se separa lo justo para que la palabra se lea
-        partida en dos, que es lo contrario de lo que se busca.
+        ⚠️⚠️ ESTE MARGEN NEGATIVO ES LO QUE HACE QUE «Valatino» SE LEA COMO UNA PALABRA
+        y no como un logo seguido de un texto. Y hace falta más de lo que parece por la
+        forma de la marca: **el trazo diagonal termina arriba**, así que en la mitad
+        baja del SVG —justo a la altura donde empieza la «a»— hay espacio vacío. El
+        `viewBox` es rectangular y no sabe de eso; el ojo sí, y ve un hueco.
+
+        ⭐ Empezó en 0,04 em, que era lo que cerraba el margen del `viewBox` medido
+        sobre el papel. Jonathan lo vio en pantalla: «creo que se puede juntar un
+        poquito». Es la clase de ajuste que no sale de una fórmula — el hueco óptico
+        depende de la silueta, no de la caja.
       */}
-      <span className="-ml-[0.04em]">alatino</span>
+      <span className="-ml-[0.1em]">alatino</span>
     </span>
   );
 }
