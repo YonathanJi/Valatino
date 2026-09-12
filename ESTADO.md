@@ -160,7 +160,8 @@ La primera versión de la página de categoría hacía `throw` si no había cat�
 
 ### Cierre anterior — 2026-09-11
 
-Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan (`AUDITORIA_SEO_WEB_2026-09-09.txt`, en la raíz). Siete commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
+Sesión de una sola cosa: **la auditoría SEO del 09/09** que trajo Jonathan. ⚠️ El informe **se borró de la raíz el 12/09** a petición suya, pero sigue en el historial: se recupera entero con
+`git show 9edcbec:AUDITORIA_SEO_WEB_2026-09-09.txt`. Hace falta si se retoman los hallazgos que quedan —**Merchant Listings, el H1 de las variantes y la foto del Bon Bon Bum**—, porque sus criterios de aceptación están en el informe y no copiados aquí. Siete commits, y de los ocho hallazgos del informe **se han cerrado los tres P1 de código**. De paso cayó el 🔴 del Jugo Hit, que llevaba doce días abierto.
 
 **La línea base al cerrar** (medida contra la BD con un ensayo revertido, no de memoria):
 
