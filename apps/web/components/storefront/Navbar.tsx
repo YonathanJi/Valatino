@@ -122,8 +122,26 @@ export function Navbar() {
         oculta && !menuOpen ? "-translate-y-full" : "translate-y-0"
       }`}
     >
-      <nav className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-        <Link href="/" className="text-xl font-bold text-primary">
+      {/*
+        ⚠️ LA ALTURA (`h-16`) NO SE TOCA A LA LIGERA: `ALTURA_BARRA` en
+        `lib/ui/barra-al-scroll.ts` vale 64 porque vale este `h-16`, y de ese número
+        depende que la barra no se esconda cuando aún no has bajado ni su propio alto.
+        Son el mismo dato en dos sitios —lo que este proyecto tiene prohibido— y aquí
+        no se puede evitar, porque una clase de Tailwind no se puede leer desde
+        JavaScript. Si algún día cambia, hay que cambiar los dos.
+      */}
+      <nav className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
+        {/*
+          El nombre de la tienda, que es su logotipo mientras no haya uno dibujado.
+          Lo pidió Jonathan el 12/09: «lo veo muy arriba a la izquierda, podríamos
+          sacarla un poco y agrandarlo algo». Estaba a 16 px del borde y en 20 px de
+          cuerpo, que en una barra de 64 px de alto se queda pequeño.
+
+          ⭐ Se agranda y se separa, pero NO se sube la altura de la barra: eso habría
+          obligado a tocar `ALTURA_BARRA` y, sobre todo, una cabecera fija que ocupa
+          más roba pantalla en móvil, que es donde menos sobra.
+        */}
+        <Link href="/" className="text-2xl font-bold tracking-tight text-primary">
           Valatino
         </Link>
 
