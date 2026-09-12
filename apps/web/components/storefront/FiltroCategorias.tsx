@@ -65,26 +65,34 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
    *
    * Dos tamaños, entonces, y **no uno intermedio que quede regular en los dos**:
    *
-   *   · hasta 640 px → `text-xs` con `px-3 py-1.5`  (~395 px la tira: se desliza)
-   *   · de 640 en adelante → `text-sm` con `px-4 py-2`  (~470 px: cabe centrada
-   *     de sobra en 640, así que el salto nunca provoca desbordamiento)
+   *   · hasta 640 px → `text-sm` con `px-4 py-2`  (~470 px la tira)
+   *   · de 640 en adelante → `text-base` con `px-5 py-2.5`  (~552 px: cabe
+   *     centrada en 640, así que el salto nunca provoca desbordamiento)
    *
    * ⚠️ El breakpoint es `sm` (640 px) y no `md` a propósito: a 640 ya hay espacio
    * para la versión grande, y esperar a 768 dejaría las tablets pequeñas con el
    * tamaño de móvil sin necesitarlo.
+   *
+   * ⚠️⚠️ ESTOS SON LOS SEGUNDOS TAMAÑOS, y lo que costó subirlos queda dicho: con el
+   * primer intento (`text-xs` / `text-sm`) Jonathan dijo que los chips «quedan como
+   * perdidos en pc y en móvil». **El precio de subirlos lo paga el móvil**: antes la
+   * tira cabía entera en pantallas de 414 px y ahora se desliza también ahí. Se acepta
+   * a sabiendas —la fila está hecha para deslizarse y un chip que no se ve no sirve de
+   * nada—, pero si algún día alguien los vuelve a encoger «para que quepan», que sepa
+   * que ese camino ya se anduvo y se volvió.
    */
   const chip = (texto: string, href: string, activo: boolean) =>
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background sm:px-4 sm:py-2 sm:text-sm"
+        className="inline-flex items-center whitespace-nowrap rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted/70 sm:px-4 sm:py-2 sm:text-sm"
+        className="inline-flex items-center whitespace-nowrap rounded-lg bg-muted px-4 py-2 text-sm text-foreground transition-colors hover:bg-muted/70 sm:px-5 sm:py-2.5 sm:text-base"
       >
         {texto}
       </Link>
@@ -118,7 +126,7 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
      * categorías fuera de la vista, y esa es justo la pista que necesita quien mira.
      */
     <nav aria-label="Filtrar por categoría" className="overflow-x-auto">
-      <ul className="mx-auto flex w-max gap-2 px-4 pb-2 sm:gap-2.5">
+      <ul className="mx-auto flex w-max gap-2 px-4 pb-2 sm:gap-3">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
         <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
