@@ -3,7 +3,7 @@ import {
   categoriaPorSlug,
   categoriasDe,
   descripcionDeCategoria,
-  introduccionDe,
+  textoEscritoDe,
   rutaDeCategoria,
   slugDeCategoria,
 } from "./categorias";
@@ -162,18 +162,18 @@ describe("lo que se cuenta de cada categoría", () => {
   /**
    * ⭐ Las cuatro del catálogo real (medido el 12/09: Dulces 9 · Bebidas 8 ·
    * Galletas 8 · Despensa 4) tienen texto propio. Si alguien añade una quinta, este
-   * test no falla —no puede saberlo— pero la página seguirá siendo válida sin
-   * entradilla, que es justo lo que fija el test de abajo.
+   * test no falla —no puede saberlo— pero su meta description saldrá generada en vez
+   * de escrita, que es justo lo que fija el test de abajo.
    */
-  it("las cuatro categorías reales tienen entradilla escrita", () => {
+  it("las cuatro categorías reales tienen texto escrito", () => {
     for (const slug of ["dulces", "bebidas", "galletas", "despensa"]) {
-      expect(introduccionDe(slug)).toBeTruthy();
+      expect(textoEscritoDe(slug)).toBeTruthy();
     }
   });
 
   /** Textos escritos a mano: si dos coincidieran, uno de los dos sería relleno. */
   it("y cada una dice algo distinto", () => {
-    const textos = ["dulces", "bebidas", "galletas", "despensa"].map(introduccionDe);
+    const textos = ["dulces", "bebidas", "galletas", "despensa"].map(textoEscritoDe);
 
     expect(new Set(textos).size).toBe(4);
   });
@@ -186,19 +186,19 @@ describe("lo que se cuenta de cada categoría", () => {
    * que `descripcionPropia` en `lib/seo/metadatos`.
    */
   it("una categoría sin texto escrito NO recibe uno de relleno", () => {
-    expect(introduccionDe("conservas")).toBeUndefined();
+    expect(textoEscritoDe("conservas")).toBeUndefined();
   });
 
   /**
    * ⚠️ La meta description sí se genera cuando falta, y no se contradice con lo de
-   * arriba: una página sin meta description no tiene nada que enseñar en los
-   * resultados de Google, mientras que una sin entradilla se lee perfectamente. Y lo
-   * generado lleva el nombre y el recuento, que es información, no relleno.
+   * arriba: **una página sin meta description no tiene nada que enseñar en los
+   * resultados de Google**, así que callarse ahí cuesta algo. Y lo generado lleva el
+   * nombre y el recuento, que es información, no relleno.
    */
-  it("la meta description usa la entradilla si la hay", () => {
+  it("la meta description usa el texto escrito si lo hay", () => {
     const cat = { nombre: "Dulces", slug: "dulces", productos: [producto(1)] };
 
-    expect(descripcionDeCategoria(cat)).toBe(introduccionDe("dulces"));
+    expect(descripcionDeCategoria(cat)).toBe(textoEscritoDe("dulces"));
   });
 
   it("y si no la hay, dice qué categoría es y cuántos productos tiene", () => {

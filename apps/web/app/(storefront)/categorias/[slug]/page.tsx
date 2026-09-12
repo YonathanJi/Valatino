@@ -3,8 +3,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ListaProductos } from "@components/storefront/ListaProductos";
 import { FiltroCategorias } from "@components/storefront/FiltroCategorias";
-import { agruparPorVariante, varianteVisible } from "@lib/productos/variantes";
-import { rutaDeProducto } from "@lib/seo/metadatos";
 import { JsonLd } from "@components/seo/JsonLd";
 import { listaDeCategoria, migasDeCategoria } from "@lib/seo/datos-estructurados";
 import { ogDelSitio } from "@lib/seo/metadatos";
@@ -13,7 +11,6 @@ import {
   categoriaPorSlug,
   categoriasDe,
   descripcionDeCategoria,
-  introduccionDe,
   nombreProbableDe,
   rutaDeCategoria,
 } from "@lib/productos/categorias";
@@ -162,7 +159,6 @@ export default async function CategoriaPage({ params }: Props) {
     );
   }
 
-  const entradilla = introduccionDe(categoria.slug);
 
   return (
     <main className="max-w-7xl mx-auto px-4 py-12">
@@ -210,14 +206,6 @@ export default async function CategoriaPage({ params }: Props) {
         */}
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{categoria.nombre}</h1>
 
-        {/*
-          Sin entradilla si no hay una escrita: ver `introduccionDe`. Una categoría
-          nueva se pinta con su título y su listado, que es una página perfectamente
-          válida — y mejor que un párrafo de relleno igual al de las otras tres.
-        */}
-        {entradilla && (
-          <p className="mt-3 text-lg text-muted-foreground max-w-2xl">{entradilla}</p>
-        )}
 
         <p className="mt-2 text-sm text-muted-foreground">
           {categoria.productos.length}{" "}
@@ -228,40 +216,26 @@ export default async function CategoriaPage({ params }: Props) {
       <ListaProductos productos={categoria.productos} />
 
       {/*
-        ⚠️⚠️ EL BLOQUE QUE HACE QUE ESTA PÁGINA SIRVA PARA LO QUE VINO A SERVIR, y sin
-        él casi no servía. Se vio midiendo: `/categorias/dulces` enlazaba a **5 fichas
-        de las 9** que tiene la categoría, porque `ListaProductos` agrupa las
-        presentaciones de una familia en UNA tarjeta con selector. Para el cliente eso
-        está bien —nadie quiere ver cuatro Jugo Hit seguidos—, pero el enlace solo
-        apunta a la presentación representante.
+        ⚠️⚠️ AQUÍ HUBO UN BLOQUE «TODAS LAS PRESENTACIONES» CON UN ENLACE POR FICHA, Y
+        SE QUITÓ EL 12/09 A PETICIÓN DE JONATHAN. Queda escrito por qué estuvo y por
+        qué se puede quitar, para que nadie lo reponga ni lo eche de menos:
 
-        Y las que se quedaban fuera son **justo las que Google no rastrea**:
-        `nucita-caja-12`, `bon-bon-bum-939`, `sparkies-caja-24`… O sea que la página
-        creada para dar caminos internos a las fichas huérfanas se los daba a la mitad.
+        Estaba porque `ListaProductos` agrupa las presentaciones de una familia en UNA
+        tarjeta, así que la rejilla solo enlaza a la representante: esta categoría
+        muestra 5 tarjetas para 9 fichas. Las 12 que quedan escondidas en todo el
+        catálogo son, además, justo las que Google no rastrea.
 
-        ⭐ Aquí van todas, con su presentación en el texto del enlace. Sirve a los dos:
-        al rastreador le da el camino que le faltaba, y a quien busca «la caja de 24»
-        le deja llegar sin pasar por el selector.
+        ⭐ Se puede quitar porque **ninguna se queda huérfana**: la ficha de cada
+        familia enlaza a todas sus hermanas con `<Link>` de verdad (el selector de
+        presentaciones), y eso está comprobado en producción —`/productos/nucita`
+        enlaza a `nucita-caja-12`, y la de Mora a lulo, mango y tropical—. La cadena
+        queda portada → categoría → ficha → hermana: un salto más, no un callejón.
+
+        ⚠️ Lo que NO se puede hacer si algún día hace falta reforzarlo: esconder los
+        enlaces con CSS para que los vea el rastreador y no el cliente. Eso es
+        exactamente lo que Google llama enlaces ocultos y lo penaliza. O están a la
+        vista, o no están.
       */}
-      {agruparPorVariante(categoria.productos).length < categoria.productos.length && (
-        <section className="mt-12 border-t pt-8">
-          <h2 className="text-lg font-semibold mb-4">Todas las presentaciones</h2>
-          <ul className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-            {categoria.productos.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={rutaDeProducto(p)}
-                  className="text-sm text-muted-foreground hover:text-primary transition-colors"
-                >
-                  {p.variante
-                    ? `${p.familia ?? p.nombre} — ${varianteVisible(p.variante)}`
-                    : p.nombre}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
     </main>
   );

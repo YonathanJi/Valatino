@@ -124,7 +124,9 @@ export function categoriaPorSlug(productos: Producto[], slug: string): Categoria
 }
 
 /**
- * La prosa de cada categoría, escrita a mano.
+ * La prosa de cada categoría, escrita a mano. **Desde el 12/09 no se pinta en la
+ * página**: es lo que va a la `<meta name="description">`, o sea el párrafo que Google
+ * enseña en los resultados. Ver `textoEscritoDe`.
  *
  * ⚠️⚠️ SE ESCRIBE UNA POR UNA Y MENCIONA PRODUCTOS DE VERDAD, que es justo lo que
  * pedía la auditoría: «evitar párrafos genéricos repetidos». Un texto que sirva igual
@@ -135,7 +137,7 @@ export function categoriaPorSlug(productos: Producto[], slug: string): Categoria
  * catálogo**: si mañana se deja de vender Bon Bon Bum, este párrafo miente. Al
  * retirar una familia entera, mirar aquí.
  */
-const INTRODUCCIONES: Record<string, string> = {
+const TEXTOS: Record<string, string> = {
   dulces:
     "Chocolatinas, bombones y caramelos colombianos de los de siempre: Nucita, Bon Bon Bum, " +
     "Sparkies y Quipitos Pops. Casi todos se pueden pedir sueltos o por caja para compartir.",
@@ -151,29 +153,38 @@ const INTRODUCCIONES: Record<string, string> = {
 };
 
 /**
- * La entradilla de una categoría, si tiene una escrita.
+ * El texto escrito a mano de una categoría, si lo tiene.
  *
- * ⭐ Devuelve `undefined` en vez de un texto de relleno, y es la misma regla que
- * `descripcionPropia` en `lib/seo/metadatos`: una categoría nueva sin prosa se pinta
- * **sin entradilla**, con su título y su listado, que es una página perfectamente
- * válida. Inventarle un párrafo genérico sería peor que no poner nada — y hay un test
- * que lo fija, para que nadie lo «arregle» con un texto por defecto.
+ * ⚠️⚠️ SE LLAMABA `introduccionDe` Y SE PINTABA BAJO EL TÍTULO. Jonathan lo quitó de
+ * la pantalla el 12/09 —«quita el texto de cada categoría, no me gusta»— y el nombre
+ * se cambió con él: un `introduccionDe` que ya no introduce nada en ninguna página
+ * sería un nombre mintiendo, que es la piedra con la que este proyecto lleva
+ * tropezando.
+ *
+ * ⭐ El texto **no se borró**, se quedó donde de verdad sirve: es lo que
+ * `descripcionDeCategoria` pone en la `<meta name="description">`, o sea el párrafo
+ * que Google enseña bajo el título en los resultados. Ahí no molesta a nadie y sigue
+ * siendo mejor que un recuento automático. Si algún día se vuelve a querer en
+ * pantalla, está escrito y listo.
+ *
+ * ⭐ Devuelve `undefined` en vez de un texto de relleno, que es la misma regla que
+ * `descripcionPropia` en `lib/seo/metadatos`. Hay un test que lo fija, para que nadie
+ * lo «arregle» con un párrafo por defecto.
  */
-export function introduccionDe(slug: string): string | undefined {
-  return INTRODUCCIONES[slug];
+export function textoEscritoDe(slug: string): string | undefined {
+  return TEXTOS[slug];
 }
 
 /**
  * Lo que se le cuenta al buscador de una categoría, en la meta description.
  *
- * ⚠️ Aquí SÍ se genera texto cuando no hay entradilla, y no se contradice con la nota
- * de arriba: una página sin meta description no tiene nada que enseñar en los
- * resultados, mientras que una página sin entradilla se lee perfectamente. Y lo
- * generado **no es genérico**: lleva el nombre de la categoría y cuántos artículos
- * tiene, que es información y no relleno.
+ * ⚠️ Aquí SÍ se genera texto cuando no hay uno escrito, y no se contradice con la
+ * nota de arriba: **una página sin meta description no tiene nada que enseñar en los
+ * resultados de Google**, así que callarse cuesta algo. Y lo generado no es genérico:
+ * lleva el nombre de la categoría y cuántos artículos tiene, que es información.
  */
 export function descripcionDeCategoria(categoria: Categoria): string {
-  const escrita = introduccionDe(categoria.slug);
+  const escrita = textoEscritoDe(categoria.slug);
   if (escrita) return escrita;
 
   /**
