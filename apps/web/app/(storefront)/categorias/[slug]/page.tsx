@@ -4,7 +4,10 @@ import { notFound } from "next/navigation";
 import { ListaProductos } from "@components/storefront/ListaProductos";
 import { FiltroCategorias } from "@components/storefront/FiltroCategorias";
 import { JsonLd } from "@components/seo/JsonLd";
-import { listaDeCategoria, migasDeCategoria } from "@lib/seo/datos-estructurados";
+import {
+  listaDeCategoria,
+  migasDeCategoria,
+} from "@lib/seo/datos-estructurados";
 import { ogDelSitio } from "@lib/seo/metadatos";
 import { pedirCatalogo, PLAZO_PAGINA_MS } from "@lib/productos/catalogo";
 import {
@@ -70,7 +73,9 @@ interface Props {
 export async function generateStaticParams() {
   const catalogo = await pedirCatalogo();
   if (!catalogo) {
-    console.error("[categorias] Sin catálogo en el build: se generarán bajo demanda.");
+    console.error(
+      "[categorias] Sin catálogo en el build: se generarán bajo demanda.",
+    );
     return [];
   }
   return categoriasDe(catalogo.productos).map((c) => ({ slug: c.slug }));
@@ -120,7 +125,9 @@ export default async function CategoriaPage({ params }: Props) {
    * son correctos, y `revalidate` la arregla sola en cinco minutos. Una página
    * degradada durante un rato es barata; un despliegue caído, no.
    */
-  const categoria = catalogo ? categoriaPorSlug(catalogo.productos, slug) : null;
+  const categoria = catalogo
+    ? categoriaPorSlug(catalogo.productos, slug)
+    : null;
 
   // Preguntamos y esta categoría NO existe: eso sí es un 404 de verdad.
   if (catalogo && !categoria) notFound();
@@ -136,7 +143,10 @@ export default async function CategoriaPage({ params }: Props) {
   if (!categoria) {
     return (
       <main className="max-w-7xl mx-auto px-4 py-12">
-        <nav aria-label="Migas de pan" className="mb-6 text-sm text-muted-foreground">
+        <nav
+          aria-label="Migas de pan"
+          className="mb-6 text-sm text-muted-foreground"
+        >
           <Link href="/" className="hover:text-foreground transition-colors">
             Inicio
           </Link>
@@ -149,73 +159,77 @@ export default async function CategoriaPage({ params }: Props) {
           {nombreProbableDe(slug)}
         </h1>
         <p className="mt-6 text-muted-foreground">
-          No hemos podido cargar los productos de esta categoría ahora mismo. Vuelve a
-          intentarlo en unos segundos.
+          No hemos podido cargar los productos de esta categoría ahora mismo.
+          Vuelve a intentarlo en unos segundos.
         </p>
-        <Link href="/" className="mt-4 inline-block text-sm hover:text-primary transition-colors">
+        <Link
+          href="/"
+          className="mt-4 inline-block text-sm hover:text-primary transition-colors"
+        >
           ← Ver todo el catálogo
         </Link>
       </main>
     );
   }
 
-
   return (
-    <main className="max-w-7xl mx-auto px-4 py-12">
+    <main>
       <JsonLd
         fichas={[
           migasDeCategoria(categoria.nombre, categoria.slug),
-          listaDeCategoria(categoria.nombre, categoria.slug, categoria.productos),
+          listaDeCategoria(
+            categoria.nombre,
+            categoria.slug,
+            categoria.productos,
+          ),
         ]}
       />
 
       {/*
-        Las migas visibles, que son las mismas que el JSON-LD declara. Van en un <nav>
-        con su `aria-label` porque son navegación, no decoración.
+        ⚠️ El mismo filtro que la portada y en el mismo sitio —lo primero, pegado a la
+        cabecera—, con esta categoría marcada. Que sea el mismo componente en el mismo
+        lugar es lo que hace que pulsar un chip se sienta como filtrar y no como saltar
+        a otra página.
       */}
-      {/*
-        Las migas visibles, que son las mismas que el JSON-LD declara. Se quedan
-        aunque esté el filtro: dicen DÓNDE estás, y el filtro dice a dónde puedes ir.
-      */}
-      <nav aria-label="Migas de pan" className="mb-4 text-sm text-muted-foreground">
-        <Link href="/" className="hover:text-foreground transition-colors">
-          Inicio
-        </Link>
-        <span className="mx-2" aria-hidden="true">
-          ›
-        </span>
-        <span className="text-foreground">{categoria.nombre}</span>
-      </nav>
+      <FiltroCategorias activa={categoria.slug} />
 
-      {/*
-        ⚠️ El mismo filtro que la portada, con esta categoría marcada. Que sea el
-        mismo componente y esté en el mismo sitio es lo que hace que pulsar un chip se
-        sienta como filtrar y no como saltar a otra página.
-        ⭐ Va con `-mx-4` y sin `pt-8` porque aquí ya hay margen: el componente trae su
-        propio contenedor para la portada, y aquí está dentro de uno.
-      */}
-      <div className="-mx-4 mb-8">
-        <FiltroCategorias activa={categoria.slug} />
-      </div>
-
-      <header className="mb-10">
+      <div className="max-w-7xl mx-auto px-4 py-12">
         {/*
+          Las migas visibles, que son las mismas que el JSON-LD declara. Se quedan
+          aunque esté el filtro: dicen DÓNDE estás, y el filtro dice a dónde ir.
+        */}
+        <nav
+          aria-label="Migas de pan"
+          className="mb-4 text-sm text-muted-foreground"
+        >
+          <Link href="/" className="hover:text-foreground transition-colors">
+            Inicio
+          </Link>
+          <span className="mx-2" aria-hidden="true">
+            ›
+          </span>
+          <span className="text-foreground">{categoria.nombre}</span>
+        </nav>
+
+        <header className="mb-10">
+          {/*
           ⚠️ El H1 es el NOMBRE DE LA CATEGORÍA y nada más. La tentación es escribir
           «Compra Dulces colombianos online en España»; eso es escribir para el robot,
           y Google lleva quince años penalizándolo.
         */}
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{categoria.nombre}</h1>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            {categoria.nombre}
+          </h1>
 
+          <p className="mt-2 text-sm text-muted-foreground">
+            {categoria.productos.length}{" "}
+            {categoria.productos.length === 1 ? "producto" : "productos"}
+          </p>
+        </header>
 
-        <p className="mt-2 text-sm text-muted-foreground">
-          {categoria.productos.length}{" "}
-          {categoria.productos.length === 1 ? "producto" : "productos"}
-        </p>
-      </header>
+        <ListaProductos productos={categoria.productos} />
 
-      <ListaProductos productos={categoria.productos} />
-
-      {/*
+        {/*
         ⚠️⚠️ AQUÍ HUBO UN BLOQUE «TODAS LAS PRESENTACIONES» CON UN ENLACE POR FICHA, Y
         SE QUITÓ EL 12/09 A PETICIÓN DE JONATHAN. Queda escrito por qué estuvo y por
         qué se puede quitar, para que nadie lo reponga ni lo eche de menos:
@@ -236,7 +250,7 @@ export default async function CategoriaPage({ params }: Props) {
         exactamente lo que Google llama enlaces ocultos y lo penaliza. O están a la
         vista, o no están.
       */}
-
+      </div>
     </main>
   );
 }

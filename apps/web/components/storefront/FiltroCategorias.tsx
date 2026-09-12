@@ -38,41 +38,53 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
   const categorias = categoriasDe(catalogo.productos);
   if (categorias.length === 0) return null;
 
-  const total = categorias.reduce((n, c) => n + c.productos.length, 0);
-
   /**
    * ⚠️ El chip activo se pinta como `<span>` y NO como enlace, igual que el selector
    * de la ficha: un enlace a la página en la que ya estás no lleva a ninguna parte, y
    * un lector de pantalla lo anuncia como algo que se puede pulsar. `aria-current`
    * es lo que dice cuál está puesto.
+   *
+   * ⚠️⚠️ EL ESTILO CAMBIÓ EL 12/09 CON UN EJEMPLO DELANTE: Jonathan pasó una captura
+   * de New Balance —chips de fondo gris suave, sin borde, pegados bajo la cabecera— y
+   * dijo «así me gustaría». Antes eran píldoras con borde fino debajo del hero, y de
+   * paso llevaban el número de productos, que en el ejemplo no está.
+   *
+   * ⭐ El gris sale del token `--muted` de la tienda (`0 0% 96 %`), que resulta ser
+   * casi exactamente el del ejemplo. Y el activo va en negro pleno (`--foreground`)
+   * en vez de en gris, porque en el ejemplo **no hay ninguno activo** —son enlaces de
+   * navegación, no un filtro— y aquí sí hace falta ver cuál está puesto.
    */
-  const chip = (texto: string, cuantos: number, href: string, activo: boolean) =>
+  const chip = (texto: string, href: string, activo: boolean) =>
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center gap-2 rounded-full border-2 border-primary bg-primary/5 px-4 py-1.5 text-sm font-medium"
+        className="inline-flex items-center rounded-lg bg-foreground px-5 py-2.5 text-sm font-medium text-background"
       >
         {texto}
-        <span className="text-xs text-muted-foreground">{cuantos}</span>
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm hover:border-primary hover:text-primary transition-colors"
+        className="inline-flex items-center rounded-lg bg-muted px-5 py-2.5 text-sm text-foreground hover:bg-muted/70 transition-colors"
       >
         {texto}
-        <span className="text-xs text-muted-foreground">{cuantos}</span>
       </Link>
     );
 
   return (
-    <nav aria-label="Filtrar por categoría" className="max-w-7xl mx-auto px-4 pt-8">
-      <ul className="flex flex-wrap gap-2">
+    /**
+     * ⚠️ Va pegado arriba —lo primero de la página, antes del hero— porque es donde
+     * lo puso el ejemplo y donde se busca un filtro. Y de paso conviene: por debajo
+     * son enlaces internos hacia las fichas que Google no rastrea, y un enlace al
+     * principio del HTML pesa más que uno al final.
+     */
+    <nav aria-label="Filtrar por categoría" className="border-b">
+      <ul className="max-w-7xl mx-auto flex flex-wrap gap-2 px-4 py-3">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
-        <li>{chip("Todas", total, "/", !activa)}</li>
+        <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
           <li key={c.slug}>
-            {chip(c.nombre, c.productos.length, rutaDeCategoria(c.slug), activa === c.slug)}
+            {chip(c.nombre, rutaDeCategoria(c.slug), activa === c.slug)}
           </li>
         ))}
       </ul>

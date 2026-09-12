@@ -5,7 +5,8 @@ import { Skeleton } from "@components/ui/Skeleton";
 
 export const metadata = {
   title: "Catálogo — Productos Latinoamericanos",
-  description: "Descubre los mejores productos latinoamericanos enviados a toda España.",
+  description:
+    "Descubre los mejores productos latinoamericanos enviados a toda España.",
   /**
    * El canonical va aquí, en la portada, y NO en el layout raíz: desde el layout
    * lo heredarían `/carrito`, `/checkout`, `/login` y las dos legales, y las cinco
@@ -17,27 +18,31 @@ export const metadata = {
 export default function StorefrontPage() {
   return (
     <main className="min-h-screen bg-background">
+      {/*
+        ⚠️⚠️ EL FILTRO VA LO PRIMERO, ANTES DEL HERO, y eso lo decidió un ejemplo:
+        Jonathan pasó el 12/09 una captura de New Balance con los chips pegados bajo
+        la cabecera y dijo «así me gustaría». Antes estaban entre el hero y el
+        catálogo.
+
+        ⭐ Y coincide con lo que ya convenía: por debajo son enlaces internos hacia las
+        fichas que Google no rastrea, y un enlace al principio del HTML pesa más que
+        uno al final. En la portada no hay ninguna activa, así que el chip «Todas»
+        sale marcado — que es «sin filtro».
+      */}
+      <Suspense fallback={null}>
+        <FiltroCategorias />
+      </Suspense>
+
       {/* Hero */}
       <section className="py-16 px-4 text-center bg-gradient-to-b from-primary/5 to-background">
         <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
           Sabores de <span className="text-primary">Latinoamérica</span>
         </h1>
         <p className="mt-4 text-lg text-muted-foreground max-w-xl mx-auto">
-          Productos originales colombianos, venezolanos y más, enviados a toda España.
+          Productos originales colombianos, venezolanos y más, enviados a toda
+          España.
         </p>
       </section>
-
-      {/*
-        El filtro por categoría, entre el hero y el catálogo.
-        ⚠️ Va AQUÍ ARRIBA a propósito y no en el pie: por debajo son enlaces internos
-        hacia las fichas que Google no rastrea (13 de 34 el 12/09), y un enlace al
-        principio del HTML pesa más que uno al final. Para el cliente es además donde
-        se espera encontrar un filtro. En la portada no hay ninguna activa: el chip
-        «Todas» sale marcado, que es «sin filtro».
-      */}
-      <Suspense fallback={null}>
-        <FiltroCategorias />
-      </Suspense>
 
       {/* Catálogo */}
       <section className="max-w-7xl mx-auto px-4 py-12">
