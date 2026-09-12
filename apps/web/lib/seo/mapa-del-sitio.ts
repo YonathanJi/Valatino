@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import type { Producto } from "@valatino/types";
-import { API_URL } from "@lib/api/url";
+import { pedirCatalogo, type Opciones } from "@lib/productos/catalogo";
+import { categoriasDe, rutaDeCategoria } from "@lib/productos/categorias";
 import { SITIO, rutaDeProducto } from "@lib/seo/metadatos";
 
 /**
@@ -51,60 +52,15 @@ import { SITIO, rutaDeProducto } from "@lib/seo/metadatos";
  *      log, y `revalidate` es de 5 minutos y no de una hora.
  */
 
-/**
- * ⚠️⚠️ EL PRESUPUESTO **TOTAL** PARA CONSEGUIR EL CATÁLOGO, REINTENTOS INCLUIDOS. Y
- * es un plazo y no «N intentos de M segundos» por una medición que rompió el diseño
- * anterior:
- *
- * El 28/08 se midió un arranque en frío de la API de **42,5 s** (`/health`, que no
- * toca la base; caliente responde en 0,3–0,7 s). Lo que estaba escrito en ESTADO.md
- * eran **8–16 s**, y con ese número se dimensionó la primera versión: 2 intentos de
- * 15 s + 5 s = 35 s de techo. **Un arranque de 42 s no cabía**, así que el mapa habría
- * vuelto a salir corto.
- *
- * ⭐ Contar el tiempo en un PLAZO en vez de en intentos hace que el techo sea un
- * número que se puede razonar contra un límite real, en vez de una multiplicación que
- * hay que recalcular cada vez que se toca un intento. Los 50 s se eligen para caber
- * en el **límite de 60 s de generación estática de Next**, que es el que manda en el
- * build — y el build es donde se cuece el mapa que se despliega.
- */
-export const PLAZO_MS = 50_000;
 
-/**
- * Lo máximo que se espera en UN intento suelto.
- *
- * ⚠️ Tiene que dejar hueco para un segundo intento dentro del plazo, y hay un test
- * que lo comprueba. El motivo son los DOS modos de fallo de Render, que piden cosas
- * distintas:
- *
- *   · **Render RETIENE la petición** mientras arranca → hace falta esperar mucho, y un
- *     intento largo lo resuelve solo.
- *   · **Render contesta un 502/503 rápido** mientras arranca → esperar no sirve de
- *     nada, hace falta REINTENTAR.
- *
- * Un intento largo con reintentos cubre los dos: si contesta rápido y mal, el intento
- * termina enseguida y queda plazo de sobra para volver a probar.
- */
-export const CORTE_MAX_MS = 30_000;
 
-/** Cuánto se deja pasar entre intentos, para que la API acabe de arrancar. */
-export const ESPERA_MS = 3_000;
 
-/**
- * Cuántos productos por página.
- *
- * ⚠️⚠️ SON 50 PORQUE ES EL TOPE REAL DE LA API, no una preferencia: pedir más es
- * pedir algo que no va a llegar, y el fallo #2 de la cabecera fue exactamente eso.
- * Si algún día sube el tope de `productos.service.ts`, este número puede subir con
- * él — pero pedir de más nunca sirve de nada.
- */
-export const POR_PAGINA = 50;
 
-/**
- * Tope de páginas, para que un `total` disparatado no deje esto girando.
- * 20 × 50 = 1000 productos, veinte veces el catálogo de hoy.
- */
-export const PAGINAS_MAX = 20;
+
+
+
+
+
 
 /**
  * Cada cuánto se regenera el mapa.
@@ -191,127 +147,7 @@ export function editadaLaPortada(productos: Producto[], editada: string): Date {
   return masReciente;
 }
 
-const dormir = (ms: number) => new Promise((listo) => setTimeout(listo, ms));
 
-/**
- * Lo que se puede ajustar al pedir el mapa.
- *
- * ⚠️ Existe **solo para los tests**: en producción nadie pasa nada y valen `ESPERA_MS`
- * y `PLAZO_MS`. Sin esto, el test de «se rinde cuando se agota el plazo» tardaría
- * cincuenta segundos de reloj. Lo que se prueba es que reintenta y que el plazo lo
- * acota, no cuántos milisegundos duerme.
- */
-export interface Opciones {
-  esperaMs?: number;
-  plazoMs?: number;
-}
-
-/**
- * El catálogo tal y como lo cuenta la API: lo que llegó, y cuántos dice que hay.
- *
- * ⭐ `total` es lo que permite saber si la respuesta venía completa. Sin él, cincuenta
- * productos y «todo el catálogo» son indistinguibles — que es el fallo #2.
- */
-export interface Catalogo {
-  productos: Producto[];
-  /** `null` si la API no lo dijo. No es cero: es «no lo sé». */
-  total: number | null;
-}
-
-/**
- * Una página del catálogo.
- *
- * ⚠️⚠️ DEVUELVE `null` CUANDO NO SE PUDO PREGUNTAR Y UNA LISTA VACÍA CUANDO LA API
- * DIJO QUE NO HAY NADA. Confundir los dos es la avería que trajo este fichero, y
- * `!res.ok` cuenta como «no se pudo»: Render responde un 502/503 rápido mientras
- * arranca, y leerlo como «el catálogo está vacío» es creerse una respuesta que nadie
- * ha dado.
- */
-async function unaPagina(pagina: number, corteMs: number): Promise<Catalogo | null> {
-  try {
-    const res = await fetch(`${API_URL}/productos?limit=${POR_PAGINA}&page=${pagina}`, {
-      next: { revalidate: REVALIDAR_S },
-      signal: AbortSignal.timeout(corteMs),
-    });
-    if (!res.ok) return null;
-
-    const cuerpo = (await res.json()) as { data?: Producto[]; total?: number } | Producto[];
-
-    // Una API que devuelva el array pelado no dice cuántos hay, y eso se admite.
-    if (Array.isArray(cuerpo)) return { productos: cuerpo, total: null };
-
-    // Un 200 con un cuerpo que no trae lista tampoco es una respuesta.
-    if (!Array.isArray(cuerpo.data)) return null;
-
-    return {
-      productos: cuerpo.data,
-      total: typeof cuerpo.total === "number" ? cuerpo.total : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** Todas las páginas, hasta juntar el `total` que la propia API declaró. */
-async function todoElCatalogo(corteMs: number): Promise<Catalogo | null> {
-  const primera = await unaPagina(1, corteMs);
-  if (primera === null) return null;
-
-  const productos = [...primera.productos];
-  const total = primera.total;
-
-  // Sin `total` no hay forma de saber si falta algo: se devuelve lo que vino.
-  if (total === null) return { productos, total };
-
-  for (let pagina = 2; productos.length < total && pagina <= PAGINAS_MAX; pagina++) {
-    const siguiente = await unaPagina(pagina, corteMs);
-    /**
-     * ⚠️ Si una página intermedia falla NO se tira lo ya traído —cincuenta fichas
-     * valen más que ninguna— pero tampoco se disimula: se corta aquí y quien avisa
-     * es `mapaDelSitio`, comparando lo reunido contra el `total`.
-     */
-    if (siguiente === null || siguiente.productos.length === 0) break;
-    productos.push(...siguiente.productos);
-  }
-
-  return { productos, total };
-}
-
-/**
- * El catálogo, reintentando **hasta agotar el plazo**. `null` si no se consiguió.
- *
- * ⭐ El plazo manda, no un número de intentos: si Render contesta rápido y mal, se
- * reintenta muchas veces; si retiene la petición, un intento largo se la lleva. Ver
- * la nota de `CORTE_MAX_MS` para los dos modos de fallo.
- */
-export async function pedirCatalogo(opciones: Opciones = {}): Promise<Catalogo | null> {
-  const espera = opciones.esperaMs ?? ESPERA_MS;
-  const limite = Date.now() + (opciones.plazoMs ?? PLAZO_MS);
-  let intentos = 0;
-
-  while (Date.now() < limite) {
-    intentos++;
-    const catalogo = await todoElCatalogo(Math.min(CORTE_MAX_MS, limite - Date.now()));
-    if (catalogo !== null) return catalogo;
-
-    // Si no queda plazo para la espera Y otro intento, no se insiste en balde.
-    if (limite - Date.now() <= espera) break;
-    await dormir(espera);
-  }
-
-  /**
-   * ⚠️⚠️ ESTE GRITO ES LA MITAD DEL ARREGLO, y dice **cuántos intentos** a propósito:
-   * «1 intento» significa que la API retuvo la petición hasta el corte, y «14» que
-   * contestaba rápido y mal. Son dos averías distintas y el número las separa sin
-   * tener que ir a mirar nada.
-   */
-  console.error(
-    `[sitemap] La API de ${API_URL} no dio el catálogo en ${Math.round(
-      (opciones.plazoMs ?? PLAZO_MS) / 1000,
-    )} s (${intentos} intento(s)).`,
-  );
-  return null;
-}
 
 export async function mapaDelSitio(opciones: Opciones = {}): Promise<MetadataRoute.Sitemap> {
   const catalogo = await pedirCatalogo(opciones);
@@ -351,8 +187,30 @@ export async function mapaDelSitio(opciones: Opciones = {}): Promise<MetadataRou
     );
   }
 
+  /**
+   * Las categorías, que salen del propio catálogo y no de una lista escrita.
+   *
+   * ⭐ Se deducen de los productos, así que una categoría nueva entra en el mapa
+   * **sola**, el mismo día que se le pone a un producto. Si estuvieran escritas aquí,
+   * habría que acordarse — y nadie se acuerda.
+   *
+   * ⚠️ Su `lastmod` es el del producto más reciente que contienen, por lo mismo que
+   * la portada: una página que lista cosas cambia cuando cambian las cosas que lista.
+   * Sin esto habría que inventar una fecha, y la hora de generación es justo lo que
+   * se quitó de las fijas el 11/09.
+   */
+  const categorias: MetadataRoute.Sitemap = categoriasDe(catalogo.productos).map((c) => ({
+    url: `${SITIO}${rutaDeCategoria(c.slug)}`,
+    lastModified: editadaLaPortada(c.productos, FIJAS[0]!.editada),
+    changeFrequency: "weekly" as const,
+    // Por debajo de la portada (1) y por encima de las fichas (0,8): una categoría
+    // es la puerta a varias, no un destino final.
+    priority: 0.9,
+  }));
+
   return [
     ...fijas,
+    ...categorias,
     ...catalogo.productos
       // Solo lo que un cliente puede comprar. Un producto desactivado sigue
       // respondiendo su ficha, pero ofrecerlo al buscador es invitar a una visita

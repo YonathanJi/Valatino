@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { ProductoGrid } from "@components/storefront/ProductoGrid";
+import { EnlacesCategorias } from "@components/storefront/EnlacesCategorias";
 import { Skeleton } from "@components/ui/Skeleton";
 
 export const metadata = {
@@ -25,6 +26,16 @@ export default function StorefrontPage() {
           Productos originales colombianos, venezolanos y más, enviados a toda España.
         </p>
       </section>
+
+      {/*
+        Las categorías, entre el hero y el catálogo.
+        ⚠️ Van AQUÍ ARRIBA a propósito y no en el pie: son enlaces internos hacia las
+        fichas que Google no rastrea (13 de 34 el 12/09), y un enlace al principio del
+        HTML pesa más que uno al final. Para el cliente es además donde se busca.
+      */}
+      <Suspense fallback={null}>
+        <EnlacesCategorias />
+      </Suspense>
 
       {/* Catálogo */}
       <section className="max-w-7xl mx-auto px-4 py-12">

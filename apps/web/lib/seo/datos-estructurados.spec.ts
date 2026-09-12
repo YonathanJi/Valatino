@@ -3,6 +3,8 @@ import {
   comercio,
   comercioConIdentidad,
   migasDeProducto,
+  migasDeCategoria,
+  listaDeCategoria,
   productoJsonLd,
   sitioWeb,
 } from "./datos-estructurados";
@@ -203,16 +205,98 @@ describe("la ficha de un producto", () => {
     expect(String(productoJsonLd(PRODUCTO).image)).toMatch(/^https:\/\//);
   });
 
-  it("las migas van de la portada al producto, sin niveles inventados", () => {
+  /**
+   * ⚠️⚠️ ERAN DOS NIVELES HASTA EL 12/09, y el motivo estaba escrito: no había página
+   * de categoría, e inventar un nivel que no existe da un enlace roto en el resultado
+   * de búsqueda. Ahora existe, así que el nivel entra.
+   */
+  it("las migas van de la portada a la categoría y de ahí al producto", () => {
     const migas = migasDeProducto(PRODUCTO).itemListElement as Array<Record<string, unknown>>;
 
-    expect(migas).toHaveLength(2);
+    expect(migas).toHaveLength(3);
     expect(migas[0]).toMatchObject({ position: 1, item: "https://valatino.es" });
     expect(migas[1]).toMatchObject({
       position: 2,
+      name: "Dulces",
+      item: "https://valatino.es/categorias/dulces",
+    });
+    expect(migas[2]).toMatchObject({
+      position: 3,
       name: "Nucita",
       item: "https://valatino.es/productos/nucita",
     });
+  });
+
+  /**
+   * ⚠️⚠️ Y LA RAZÓN DE FONDO NO HA CAMBIADO: una miga que apunta a una URL que no
+   * responde es peor que una miga de menos. Un producto sin categoría —o con una
+   * cuyo nombre no da slug— se cae al rastro de dos niveles en vez de enlazar a
+   * `/categorias/`, que sería un 404 dentro del resultado de Google.
+   */
+  it("sin categoría se queda en dos niveles, sin inventar el enlace", () => {
+    const huerfano = { ...PRODUCTO, categoria: null } as unknown as typeof PRODUCTO;
+    const migas = migasDeProducto(huerfano).itemListElement as Array<Record<string, unknown>>;
+
+    expect(migas).toHaveLength(2);
+    expect(migas[1]).toMatchObject({ position: 2, name: "Nucita" });
+    expect(JSON.stringify(migas)).not.toContain("/categorias/");
+  });
+
+  it("y tampoco la inventa si la categoría no puede tener URL", () => {
+    const raro = { ...PRODUCTO, categoria: "!!!" } as unknown as typeof PRODUCTO;
+    const migas = migasDeProducto(raro).itemListElement as Array<Record<string, unknown>>;
+
+    expect(migas).toHaveLength(2);
+    expect(JSON.stringify(migas)).not.toContain("/categorias/");
+  });
+});
+
+describe("una página de categoría", () => {
+  it("sus migas van de la portada a la categoría", () => {
+    const migas = migasDeCategoria("Dulces", "dulces").itemListElement as Array<
+      Record<string, unknown>
+    >;
+
+    expect(migas).toHaveLength(2);
+    expect(migas[1]).toMatchObject({
+      position: 2,
+      name: "Dulces",
+      item: "https://valatino.es/categorias/dulces",
+    });
+  });
+
+  it("se declara como CollectionPage colgada del sitio", () => {
+    const f = listaDeCategoria("Dulces", "dulces", [PRODUCTO]);
+
+    expect(f["@type"]).toBe("CollectionPage");
+    expect(f.url).toBe("https://valatino.es/categorias/dulces");
+    expect(f.isPartOf).toMatchObject({ "@id": "https://valatino.es/#sitio" });
+  });
+
+  it("lista sus productos en orden, con URL absoluta", () => {
+    const lista = listaDeCategoria("Dulces", "dulces", [
+      PRODUCTO,
+      { ...PRODUCTO, id: "otro", slug: "sparkies", nombre: "Sparkies" },
+    ]).mainEntity as Record<string, unknown>;
+
+    expect(lista.numberOfItems).toBe(2);
+    const items = lista.itemListElement as Array<Record<string, unknown>>;
+    expect(items[0]).toMatchObject({ position: 1, url: "https://valatino.es/productos/nucita" });
+    expect(items[1]).toMatchObject({ position: 2, url: "https://valatino.es/productos/sparkies" });
+  });
+
+  /**
+   * ⚠️⚠️ NO SE COPIAN LOS PRECIOS NI EL STOCK. Cada ficha ya publica su `Product` con
+   * los suyos; repetirlos aquí sería el mismo dato en dos sitios, y el día que
+   * discreparan Google retira los resultados enriquecidos **del sitio entero**. Lo
+   * que esta página aporta es el orden y la pertenencia, no otra copia del catálogo.
+   */
+  it("no repite precios ni disponibilidad: eso lo dice cada ficha", () => {
+    const texto = JSON.stringify(listaDeCategoria("Dulces", "dulces", [PRODUCTO]));
+
+    expect(texto).not.toContain("price");
+    expect(texto).not.toContain("availability");
+    expect(texto).not.toContain("Offer");
   });
 });
 

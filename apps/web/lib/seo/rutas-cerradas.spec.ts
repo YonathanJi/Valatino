@@ -86,6 +86,13 @@ const INDEXABLES = [
   "/aviso-legal",
   "/politica-privacidad",
   "/productos/[slug]",
+  /**
+   * ⭐ Añadida el 12/09, y la guarda de abajo hizo justo su trabajo: la ruta nueva
+   * rompió este fichero **el día que se creó**, obligando a decidir si iba al índice
+   * o no, en vez de que la decisión se quedara sin tomar. Va al índice a propósito —
+   * es toda la razón de existir de las categorías.
+   */
+  "/categorias/[slug]",
 ];
 
 /**

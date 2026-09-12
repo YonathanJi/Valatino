@@ -1,5 +1,6 @@
 import type { IdentidadPublica, Producto } from "@valatino/types";
 import { miniaturaDe } from "@lib/productos/variantes";
+import { rutaDeCategoria, slugDeCategoria } from "@lib/productos/categorias";
 import {
   SITIO,
   SITIO_NOMBRE,
@@ -198,13 +199,62 @@ export function productoJsonLd(p: Producto): JsonLd {
 }
 
 /**
- * El rastro de migas de una ficha: portada → producto.
+ * El rastro de migas de una ficha: portada → categoría → producto.
  *
- * Es lo que hace que en los resultados salga «valatino.es › Nucita» en vez de la URL
- * pelada. No hay página de categoría todavía, así que son dos niveles y no tres —
- * inventar uno que no existe daría un enlace roto en el resultado.
+ * Es lo que hace que en los resultados salga «valatino.es › Dulces › Nucita» en vez
+ * de la URL pelada.
+ *
+ * ⚠️⚠️ HASTA EL 12/09 ERAN DOS NIVELES, y el motivo estaba escrito aquí: «no hay
+ * página de categoría todavía, e inventar un nivel que no existe daría un enlace roto
+ * en el resultado». Ahora existe, así que el nivel se añade — pero **solo cuando el
+ * producto tiene categoría**, porque la razón de fondo no ha cambiado: una miga que
+ * apunta a una URL que no responde es peor que una miga de menos.
+ *
+ * ⭐ Y aquí las migas hacen algo más que decorar el resultado de búsqueda: le dicen a
+ * Google que esta ficha **cuelga de** esa categoría. Con 13 fichas sin rastrear por
+ * falta de caminos internos (medido el 12/09 en Search Console), cada señal de
+ * parentesco cuenta.
  */
 export function migasDeProducto(p: Producto): JsonLd {
+  const ruta = `${SITIO}/productos/${p.slug ?? p.id}`;
+  const categoria = p.categoria?.trim();
+  const slug = categoria ? slugDeCategoria(categoria) : "";
+
+  /**
+   * ⚠️ `slug` vacío significa que el nombre de la categoría no da una URL posible
+   * (ver `slugDeCategoria`). Sin URL no hay miga: se cae al rastro de dos niveles,
+   * que es correcto aunque diga menos.
+   */
+  const niveles: JsonLd[] = [{ "@type": "ListItem", position: 1, name: "Inicio", item: SITIO }];
+
+  if (categoria && slug) {
+    niveles.push({
+      "@type": "ListItem",
+      position: 2,
+      name: categoria,
+      item: `${SITIO}${rutaDeCategoria(slug)}`,
+    });
+  }
+
+  niveles.push({
+    "@type": "ListItem",
+    position: niveles.length + 1,
+    name: p.nombre,
+    item: ruta,
+  });
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: niveles,
+  };
+}
+
+/**
+ * El rastro de una página de categoría: portada → categoría. Dos niveles, y aquí sí
+ * son dos de verdad: la categoría cuelga directamente de la portada.
+ */
+export function migasDeCategoria(nombre: string, slug: string): JsonLd {
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -213,9 +263,42 @@ export function migasDeProducto(p: Producto): JsonLd {
       {
         "@type": "ListItem",
         position: 2,
-        name: p.nombre,
-        item: `${SITIO}/productos/${p.slug ?? p.id}`,
+        name: nombre,
+        item: `${SITIO}${rutaDeCategoria(slug)}`,
       },
     ],
+  };
+}
+
+/**
+ * Una página de categoría como lista de productos.
+ *
+ * ⚠️ `ItemListElement` lleva **solo las URLs**, no una copia de cada producto. Cada
+ * ficha ya publica su propio `Product` con su precio y su disponibilidad; repetirlos
+ * aquí sería el mismo dato en dos sitios, y el día que discreparan Google retira los
+ * resultados enriquecidos del sitio entero. Lo que esto declara es el **orden y la
+ * pertenencia**, que es justo lo que la página aporta.
+ */
+export function listaDeCategoria(
+  nombre: string,
+  slug: string,
+  productos: Array<Pick<Producto, "id" | "slug" | "nombre">>,
+): JsonLd {
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: nombre,
+    url: `${SITIO}${rutaDeCategoria(slug)}`,
+    isPartOf: { "@id": `${SITIO}/#sitio` },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: productos.length,
+      itemListElement: productos.map((p, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: p.nombre,
+        url: `${SITIO}/productos/${p.slug ?? p.id}`,
+      })),
+    },
   };
 }

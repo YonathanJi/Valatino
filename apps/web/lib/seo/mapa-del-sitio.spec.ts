@@ -2,16 +2,17 @@ import type { Producto } from "@valatino/types";
 import robots from "../../app/robots";
 import { revalidate as REVALIDATE_DE_LA_RUTA } from "../../app/sitemap";
 import { SITIO } from "./metadatos";
-import {
-  CORTE_MAX_MS,
-  ESPERA_MS,
-  PLAZO_MS,
-  POR_PAGINA,
-  REVALIDAR_S,
-  FIJAS as FIJAS_DECLARADAS,
-  mapaDelSitio,
-} from "./mapa-del-sitio";
+import { REVALIDAR_S, FIJAS as FIJAS_DECLARADAS, mapaDelSitio } from "./mapa-del-sitio";
+/**
+ * ⚠️ Estas cuatro se mudaron a `lib/productos/catalogo.ts` el 12/09, cuando las
+ * páginas de categoría empezaron a necesitar el catálogo: pedirlo no es una tarea de
+ * SEO. Los tests que las usan —el presupuesto del arranque en frío, la paginación,
+ * los reintentos— se quedan aquí a propósito, porque lo que comprueban es que **el
+ * mapa** sobrevive a una API dormida, que es el fallo que se midió el 27/08.
+ */
+import { CORTE_MAX_MS, ESPERA_MS, PLAZO_MS, POR_PAGINA } from "@lib/productos/catalogo";
 import { RUTAS_CERRADAS, RUTAS_SIN_RASTREAR, fueraDelIndice } from "./rutas-cerradas";
+import { categoriasDe } from "@lib/productos/categorias";
 
 /**
  * ⚠️⚠️ POR QUÉ ESTE FICHERO EXISTE, Y POR QUÉ LLEGÓ TARDE.
@@ -93,6 +94,19 @@ const FIJAS = FIJAS_DECLARADAS.length;
  */
 const RAPIDO = { esperaMs: 0, plazoMs: 150 };
 
+/**
+ * Cuántas entradas de CATEGORÍA añade el mapa en estos tests.
+ *
+ * ⚠️ Desde el 12/09 el mapa lleva **fijas + categorías + fichas**, y aquí se cuenta el
+ * total, que es justo lo que cazó el fallo del 27/08 —servía 5 URLs en vez de 34—.
+ *
+ * Es 1 porque `producto()` pone `categoria: "Dulces"` a todos: un catálogo de prueba
+ * con productos, sea cual sea su número, produce una sola categoría. El test de abajo
+ * lo comprueba en vez de darlo por supuesto, para que el día que alguien reparta los
+ * productos de prueba entre categorías esto se entere.
+ */
+const CATEGORIAS = 1;
+
 let gritos: jest.SpyInstance;
 
 beforeEach(() => {
@@ -114,7 +128,7 @@ describe("el mapa con la API respondiendo", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 2);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 2);
     expect(urls(mapa)).toContain("https://valatino.es");
     expect(urls(mapa)).toContain("https://valatino.es/productos/producto-1");
     expect(gritos).not.toHaveBeenCalled();
@@ -135,7 +149,7 @@ describe("el mapa con la API respondiendo", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 1);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 1);
     expect(urls(mapa)).not.toContain("https://valatino.es/productos/producto-2");
   });
 
@@ -166,7 +180,7 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 2);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 2);
     expect(urls(mapa)).toContain("https://valatino.es/productos/producto-1");
     expect(falso).toHaveBeenCalledTimes(2);
   });
@@ -187,7 +201,7 @@ describe("⭐⭐ la API dormida — el fallo medido el 27/08", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 1);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 1);
   });
 
   /**
@@ -314,7 +328,7 @@ describe("⭐ el catálogo que no cabe en una página", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 3);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 3);
     expect(String(falso.mock.calls[0][0])).toContain("page=1");
     expect(String(falso.mock.calls[1][0])).toContain("page=2");
     expect(gritos).not.toHaveBeenCalled();
@@ -329,7 +343,7 @@ describe("⭐ el catálogo que no cabe en una página", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 2);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 2);
     expect(dichos()).toMatch(/INCOMPLETO/);
     expect(dichos()).toMatch(/2 de 3/);
   });
@@ -339,7 +353,7 @@ describe("⭐ el catálogo que no cabe en una página", () => {
 
     const mapa = await mapaDelSitio(RAPIDO);
 
-    expect(mapa).toHaveLength(FIJAS + 2);
+    expect(mapa).toHaveLength(FIJAS + CATEGORIAS + 2);
     expect(falso).toHaveBeenCalledTimes(1);
     expect(gritos).not.toHaveBeenCalled();
   });
@@ -564,6 +578,107 @@ describe("⭐⭐ el lastmod de las fijas — el fallo del 09/09", () => {
     for (const entrada of mapa) {
       if (!entrada.lastModified) continue;
       expect(new Date(String(entrada.lastModified)).getTime()).toBeLessThan(manana);
+    }
+  });
+});
+
+// ── Las categorías en el mapa ────────────────────────────────────────────────
+
+/**
+ * ⭐ Las categorías entran en el mapa desde el 12/09, y el motivo está medido: de las
+ * 34 URLs, Google tenía **21 indexadas y 13 sin rastrear siquiera**. Las categorías
+ * son caminos internos cortos hacia esas fichas, y anunciarlas en el mapa es la otra
+ * mitad — le dice a Google que existen sin esperar a que las descubra navegando.
+ */
+describe("⭐ las categorías en el mapa", () => {
+  /**
+   * ⚠️ Comprueba la suposición sobre la que descansan las once aserciones de arriba:
+   * que el `producto()` de prueba pone a todos la misma categoría. Si alguien los
+   * repartiera, los totales cambiarían y este test lo dice antes de que once fallos
+   * confusos manden a buscar la causa a otra parte.
+   */
+  it("el catálogo de prueba produce exactamente las categorías que se cuentan", () => {
+    expect(categoriasDe([producto(1), producto(2), producto(3)])).toHaveLength(CATEGORIAS);
+  });
+
+  it("anuncia una URL por categoría", async () => {
+    servir(
+      pagina(
+        [
+          producto(1, { categoria: "Dulces" }),
+          producto(2, { categoria: "Bebidas" }),
+          producto(3, { categoria: "Dulces" }),
+        ],
+        3,
+      ),
+    );
+
+    const rutas = urls(await mapaDelSitio(RAPIDO));
+
+    expect(rutas).toContain("https://valatino.es/categorias/dulces");
+    expect(rutas).toContain("https://valatino.es/categorias/bebidas");
+    expect(rutas.filter((r) => r.includes("/categorias/"))).toHaveLength(2);
+  });
+
+  /** Una categoría que solo tiene desactivados no le sirve a nadie. */
+  it("no anuncia categorías cuyos productos están todos desactivados", async () => {
+    servir(
+      pagina(
+        [producto(1, { categoria: "Dulces" }), producto(2, { categoria: "Fantasma", activo: false })],
+        2,
+      ),
+    );
+
+    const rutas = urls(await mapaDelSitio(RAPIDO));
+
+    expect(rutas).toContain("https://valatino.es/categorias/dulces");
+    expect(rutas).not.toContain("https://valatino.es/categorias/fantasma");
+  });
+
+  /**
+   * ⚠️ Misma regla que las fijas y las fichas: la fecha tiene que ser la de un cambio
+   * real. Una categoría cambia cuando cambia lo que lista, así que hereda el
+   * `updated_at` más reciente de sus productos — nunca la hora de generar el XML.
+   */
+  it("su lastmod es el del producto más reciente que contiene", async () => {
+    servir(
+      pagina(
+        [
+          producto(1, { categoria: "Dulces", updated_at: "2026-09-01T10:00:00Z" }),
+          producto(2, { categoria: "Dulces", updated_at: "2026-09-05T10:00:00Z" }),
+        ],
+        2,
+      ),
+    );
+
+    const mapa = await mapaDelSitio(RAPIDO);
+    const cat = mapa.find((e) => String(e.url).includes("/categorias/dulces"));
+
+    expect(new Date(String(cat?.lastModified)).toISOString()).toBe("2026-09-05T10:00:00.000Z");
+  });
+
+  /**
+   * ⚠️⚠️ Y con la API caída NO puede inventarse categorías: sin catálogo no se sabe
+   * cuáles hay. El mapa sale con las fijas y nada más, que es lo que ya hacía.
+   */
+  it("con la API caída no anuncia ninguna categoría", async () => {
+    servir({ ok: false });
+
+    const rutas = urls(await mapaDelSitio(RAPIDO));
+
+    expect(rutas.some((r) => r.includes("/categorias/"))).toBe(false);
+  });
+
+  /** El mapa no puede prometer lo que `robots.txt` prohíbe, ni al revés. */
+  it("las categorías no están cerradas al rastreo", async () => {
+    servir(pagina([producto(1)], 1));
+
+    const rutas = urls(await mapaDelSitio(RAPIDO)).map((u) => u.replace(SITIO, ""));
+    const categorias = rutas.filter((r) => r.startsWith("/categorias/"));
+
+    expect(categorias.length).toBeGreaterThan(0);
+    for (const c of categorias) {
+      expect(RUTAS_CERRADAS.some((cerrada) => c.startsWith(cerrada.ruta))).toBe(false);
     }
   });
 });
