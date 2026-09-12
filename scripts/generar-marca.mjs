@@ -379,8 +379,42 @@ const web = path.join(raiz, "apps/web");
  *                             los datos estructurados (Google pide 112 mínimo).
  *                             Van en `public/` porque los referencia una URL.
  */
+/**
+ * ⭐⭐ LA GEOMETRÍA, TAMBIÉN COMO MÓDULO, y esta salida es la que evita el fallo
+ * clásico de este proyecto. Desde el 12/09 la cabecera pinta el nombre de la tienda
+ * empezando por la marca —«V» dibujada, «alatino» en texto—, así que necesita los
+ * mismos dos `path` que el favicon.
+ *
+ * Copiarlos al componente habría sido **el mismo dato en dos sitios**: el día que el
+ * logo cambie, el favicon cambiaría y la cabecera seguiría con la V vieja durante
+ * meses, hasta que alguien las mirara juntas. Emitiéndolos, `node
+ * scripts/generar-marca.mjs` los actualiza a la vez.
+ *
+ * ⚠️ El `viewBox` va ceñido a la caja real de la marca y no a `0 0 100 100`: aquí no
+ * hay cuadro ni margen —eso es cosa del icono—, es una letra que tiene que poder
+ * alinearse con las de al lado.
+ */
+const cajaMarca = caja(MARCA);
+const modulo = `/**
+ * GENERADO POR \`scripts/generar-marca.mjs\` — no editar a mano.
+ *
+ * La geometría de la marca, para quien tenga que dibujarla en JSX. Los mismos dos
+ * trazos que el favicon: si el logo cambia, se regenera y cambian los dos a la vez.
+ */
+export const MARCA_VIEWBOX = "${cajaMarca[0]} ${cajaMarca[1]} ${(cajaMarca[2] - cajaMarca[0]).toFixed(2)} ${(cajaMarca[3] - cajaMarca[1]).toFixed(2)}";
+
+/** Proporción ancho/alto, para reservarle el hueco exacto junto al texto. */
+export const MARCA_PROPORCION = ${((cajaMarca[2] - cajaMarca[0]) / (cajaMarca[3] - cajaMarca[1])).toFixed(4)};
+
+export const MARCA_TRAZOS = [
+  "${ruta(V)}",
+  "${ruta(BARRA)}",
+] as const;
+`;
+
 const salidas = [
   ["app/icon.svg", Buffer.from(svg, "utf8")],
+  ["lib/marca/trazos.generado.ts", Buffer.from(modulo, "utf8")],
   ["app/favicon.ico", ico([48, 32, 16])],
   ["app/apple-icon.png", png(180, MARCA_ICONO, 0)],
   ["public/icono-192.png", png(192, MARCA_ICONO, 0)],

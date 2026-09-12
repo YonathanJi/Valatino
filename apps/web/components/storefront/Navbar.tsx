@@ -7,6 +7,7 @@ import { Heart, ShoppingCart, User, LogOut, Package, Settings, LayoutDashboard }
 import { createSupabaseBrowserClient } from "@lib/supabase/client";
 import { obtenerRol, esRolStaff } from "@lib/auth/rol";
 import { useBarraOculta } from "@lib/hooks/useBarraOculta";
+import { NombreDeLaTienda } from "./NombreDeLaTienda";
 import { useCarrito } from "@lib/hooks/useCarrito";
 import { useFavoritos } from "@lib/hooks/useFavoritos";
 import { debeRevelar } from "@lib/ui/barra-al-scroll";
@@ -132,17 +133,27 @@ export function Navbar() {
       */}
       <nav className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
         {/*
-          El nombre de la tienda, que es su logotipo mientras no haya uno dibujado.
-          Lo pidió Jonathan el 12/09: «lo veo muy arriba a la izquierda, podríamos
-          sacarla un poco y agrandarlo algo». Estaba a 16 px del borde y en 20 px de
-          cuerpo, que en una barra de 64 px de alto se queda pequeño.
+          El nombre de la tienda, con la V del favicon haciendo de inicial.
 
-          ⭐ Se agranda y se separa, pero NO se sube la altura de la barra: eso habría
-          obligado a tocar `ALTURA_BARRA` y, sobre todo, una cabecera fija que ocupa
-          más roba pantalla en móvil, que es donde menos sobra.
+          Empezó siendo «lo veo muy arriba a la izquierda, podríamos sacarla un poco y
+          agrandarlo algo» (Jonathan, 12/09) y acabó mejor: combinó eso con la idea de
+          poner el logo al lado, y salió que **el logo SEA la primera letra**. Así la
+          cabecera y la pestaña enseñan la misma marca, que es lo que hace que se
+          reconozca.
+
+          ⚠️ El `aria-label` está aquí y no dentro: lo que un lector de pantalla debe
+          anunciar es «Valatino», no «imagen» y luego «alatino».
+
+          ⭐ Se agranda y se separa del borde, pero NO se sube la altura de la barra:
+          eso habría obligado a tocar `ALTURA_BARRA` y, sobre todo, una cabecera fija
+          que ocupa más roba pantalla en móvil, que es donde menos sobra.
         */}
-        <Link href="/" className="text-2xl font-bold tracking-tight text-primary">
-          Valatino
+        <Link
+          href="/"
+          aria-label="Valatino"
+          className="text-2xl font-bold tracking-tight text-primary"
+        >
+          <NombreDeLaTienda />
         </Link>
 
         <div className="flex items-center gap-3">
