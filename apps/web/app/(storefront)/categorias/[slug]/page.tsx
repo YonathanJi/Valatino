@@ -185,14 +185,6 @@ export default async function CategoriaPage({ params }: Props) {
         ]}
       />
 
-      {/*
-        ⚠️ El mismo filtro que la portada y en el mismo sitio —lo primero, pegado a la
-        cabecera—, con esta categoría marcada. Que sea el mismo componente en el mismo
-        lugar es lo que hace que pulsar un chip se sienta como filtrar y no como saltar
-        a otra página.
-      */}
-      <FiltroCategorias activa={categoria.slug} />
-
       <div className="max-w-7xl mx-auto px-4 py-12">
         {/*
           Las migas visibles, que son las mismas que el JSON-LD declara. Se quedan
@@ -226,6 +218,16 @@ export default async function CategoriaPage({ params }: Props) {
             {categoria.productos.length === 1 ? "producto" : "productos"}
           </p>
         </header>
+
+        {/*
+          ⚠️ El mismo filtro que la portada y en el mismo sitio relativo: debajo del
+          título de lo que se está listando y encima de la rejilla. Que esté en el
+          mismo lugar en las dos es lo que hace que pulsar un chip se sienta como
+          filtrar y no como saltar a otra página.
+        */}
+        <div className="mb-8">
+          <FiltroCategorias activa={categoria.slug} />
+        </div>
 
         <ListaProductos productos={categoria.productos} />
 

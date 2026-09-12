@@ -53,19 +53,23 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
    * casi exactamente el del ejemplo. Y el activo va en negro pleno (`--foreground`)
    * en vez de en gris, porque en el ejemplo **no hay ninguno activo** —son enlaces de
    * navegación, no un filtro— y aquí sí hace falta ver cuál está puesto.
+   *
+   * ⚠️ `whitespace-nowrap` es lo que impide que «Vuelta al cole» se parta en dos
+   * líneas y descuadre la altura de toda la fila. Con una sola fila (ver abajo) es
+   * imprescindible, no cosmético.
    */
   const chip = (texto: string, href: string, activo: boolean) =>
     activo ? (
       <span
         aria-current="page"
-        className="inline-flex items-center rounded-lg bg-foreground px-5 py-2.5 text-sm font-medium text-background"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background"
       >
         {texto}
       </span>
     ) : (
       <Link
         href={href}
-        className="inline-flex items-center rounded-lg bg-muted px-5 py-2.5 text-sm text-foreground hover:bg-muted/70 transition-colors"
+        className="inline-flex items-center whitespace-nowrap rounded-md bg-muted px-3 py-1.5 text-xs text-foreground hover:bg-muted/70 transition-colors"
       >
         {texto}
       </Link>
@@ -73,19 +77,37 @@ export async function FiltroCategorias({ activa }: { activa?: string }) {
 
   return (
     /**
-     * ⚠️ Va pegado arriba —lo primero de la página, antes del hero— porque es donde
-     * lo puso el ejemplo y donde se busca un filtro. Y de paso conviene: por debajo
-     * son enlaces internos hacia las fichas que Google no rastrea, y un enlace al
-     * principio del HTML pesa más que uno al final.
+     * ── UNA SOLA FILA, CENTRADA, EN CUALQUIER PANTALLA ──
+     *
+     * Lo pidió Jonathan el 12/09: «centradas, más pequeñas, que quede solo una fila,
+     * ten en cuenta los diferentes dispositivos».
+     *
+     * ⚠️⚠️ «UNA FILA» Y «MÓVIL» NO SE ARREGLAN SOLO ACHICANDO. Con los cinco nombres
+     * de hoy —Todas, Bebidas, Despensa, Dulces, Galletas— hacen falta unos 345 px y
+     * un móvil de 375 px deja 343 útiles: **no caben por dos píxeles**. Y aunque se
+     * forzara, la quinta categoría que Jonathan añada lo rompe otra vez. Encoger más
+     * tampoco vale: por debajo de 12 px el texto deja de leerse y el chip deja de
+     * poder tocarse con el dedo.
+     *
+     * ⭐ Por eso la fila **se desliza** cuando no cabe (`overflow-x-auto` sin
+     * `flex-wrap`) y **se centra** cuando sí (`mx-auto` sobre un `w-max`). Es una
+     * sola regla que resuelve los dos casos sin `media queries` ni contar píxeles: en
+     * escritorio se ve centrada y quieta; en móvil se arrastra con el dedo, que es el
+     * gesto que ya espera cualquiera en una tira de categorías.
+     *
+     * ⚠️ El `w-max` es lo que hace que funcione. Sin él, el `<ul>` ocuparía el ancho
+     * del contenedor y `mx-auto` no tendría nada que centrar; con él toma el ancho de
+     * su contenido, así que sobra espacio (se centra) o no sobra (se desplaza).
+     *
+     * ⚠️ Y no se esconde la barra de desplazamiento: cuando aparece es porque hay más
+     * categorías fuera de la vista, y esa es justo la pista que necesita quien mira.
      */
-    <nav aria-label="Filtrar por categoría" className="border-b">
-      <ul className="max-w-7xl mx-auto flex flex-wrap gap-2 px-4 py-3">
+    <nav aria-label="Filtrar por categoría" className="overflow-x-auto">
+      <ul className="mx-auto flex w-max gap-2 px-4 pb-2">
         {/* «Todas» es quitar el filtro, así que lleva a la portada. */}
         <li>{chip("Todas", "/", !activa)}</li>
         {categorias.map((c) => (
-          <li key={c.slug}>
-            {chip(c.nombre, rutaDeCategoria(c.slug), activa === c.slug)}
-          </li>
+          <li key={c.slug}>{chip(c.nombre, rutaDeCategoria(c.slug), activa === c.slug)}</li>
         ))}
       </ul>
     </nav>

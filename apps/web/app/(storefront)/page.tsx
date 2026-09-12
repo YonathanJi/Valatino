@@ -18,21 +18,6 @@ export const metadata = {
 export default function StorefrontPage() {
   return (
     <main className="min-h-screen bg-background">
-      {/*
-        ⚠️⚠️ EL FILTRO VA LO PRIMERO, ANTES DEL HERO, y eso lo decidió un ejemplo:
-        Jonathan pasó el 12/09 una captura de New Balance con los chips pegados bajo
-        la cabecera y dijo «así me gustaría». Antes estaban entre el hero y el
-        catálogo.
-
-        ⭐ Y coincide con lo que ya convenía: por debajo son enlaces internos hacia las
-        fichas que Google no rastrea, y un enlace al principio del HTML pesa más que
-        uno al final. En la portada no hay ninguna activa, así que el chip «Todas»
-        sale marcado — que es «sin filtro».
-      */}
-      <Suspense fallback={null}>
-        <FiltroCategorias />
-      </Suspense>
-
       {/* Hero */}
       <section className="py-16 px-4 text-center bg-gradient-to-b from-primary/5 to-background">
         <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
@@ -46,7 +31,22 @@ export default function StorefrontPage() {
 
       {/* Catálogo */}
       <section className="max-w-7xl mx-auto px-4 py-12">
-        <h2 className="text-2xl font-semibold mb-8">Todos los productos</h2>
+        <h2 className="text-2xl font-semibold">Todos los productos</h2>
+
+        {/*
+          ⚠️ El filtro va justo DEBAJO del título de la sección, y ha estado en tres
+          sitios en un día: entre el hero y el catálogo, luego pegado a la cabecera
+          —siguiendo una captura de New Balance— y por fin aquí, que es donde lo quiso
+          Jonathan al verlo. Se queda escrito porque el sitio no es indiferente: por
+          debajo son los enlaces internos hacia las fichas que Google no rastrea, y
+          aquí siguen estando **antes** de la rejilla en el HTML, que es lo que
+          importaba de tenerlos arriba.
+        */}
+        <div className="mb-8 mt-4">
+          <Suspense fallback={null}>
+            <FiltroCategorias />
+          </Suspense>
+        </div>
         <Suspense fallback={<CatalogoSkeleton />}>
           <ProductoGrid />
         </Suspense>
