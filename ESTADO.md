@@ -1,6 +1,8 @@
 # Estado del proyecto Valatino — Sesión de trabajo
 
-**Última actualización**: 2026-09-12, cierre de noche (**el P1 de la auditoría queda entero** y las **categorías indexables** en pie. Search Console dio los datos: 21 de 34 páginas indexadas, 13 que Google **no ha rastreado nunca**, y demanda real de «nucita», «ducales» y «galletas festival» en posición 52. Las categorías son el puente de enlaces que faltaba: portada → 4 categorías → **29 de 29 fichas**. ⚠️ Y el arranque en frío de la API son **100 s**, no 42,5: con el plan Free, un despliegue con la API dormida sale degradado o falla. **Por la tarde y la noche**: el favicon que Google no actualizaba, el nombre de la tienda empezando por la V de la marca, **los productos destacados** a lo ancho en el móvil, y **tres arreglos en cadena** donde cada uno destapó el siguiente)
+**Última actualización**: 2026-09-17 (⭐ **LAS CATEGORÍAS FUNCIONARON: Jonathan confirma que Google ya rastreó e indexó las páginas que faltaban.** El puente de enlaces del 12/09 era el diagnóstico correcto. Y con visitas reales llegando del buscador, el arranque en frío de Render pasa de molestia a problema: se montó una **ventana que despierta la API de 06:00 a 23:59** con `pg_cron`, verificada corriendo sola. Ver «Sesión 2026-09-17» justo abajo)
+
+**Anterior**: 2026-09-12, cierre de noche (**el P1 de la auditoría queda entero** y las **categorías indexables** en pie. Search Console dio los datos: 21 de 34 páginas indexadas, 13 que Google **no ha rastreado nunca**, y demanda real de «nucita», «ducales» y «galletas festival» en posición 52. Las categorías son el puente de enlaces que faltaba: portada → 4 categorías → **29 de 29 fichas**. ⚠️ Y el arranque en frío de la API son **100 s**, no 42,5: con el plan Free, un despliegue con la API dormida sale degradado o falla. **Por la tarde y la noche**: el favicon que Google no actualizaba, el nombre de la tienda empezando por la V de la marca, **los productos destacados** a lo ancho en el móvil, y **tres arreglos en cadena** donde cada uno destapó el siguiente)
 
 ---
 
@@ -48,7 +50,53 @@
 
 ⚠️⚠️ **LA REGLA DE ORDEN, que es donde esto se podía romper**: `NEXT_PUBLIC_API_URL` se cambia **solo cuando `https://api.valatino.es/health` ya responde 200 con certificado válido**. Cambiarlo antes deja la tienda viva llamando a un host que no resuelve — carrito y checkout caídos. Es el mismo problema de ventana de despliegue del 2026-07-27, agravado porque Vercel **congela el valor en el build**: no basta con guardar la variable, hay que redesplegar. Y para comprobar que surtió efecto **no sirve mirar el HTML**: hay que buscar el dominio en los chunks de `/_next/static/`.
 
-### 🔜 Al volver, empezar por aquí — cierre del 2026-09-12
+### 🔜 Al volver, empezar por aquí — Sesión 2026-09-17
+
+#### ⭐⭐ LAS CATEGORÍAS FUNCIONARON
+
+Jonathan confirmó que **Google ya rastreó e indexó las páginas que el 12/09 llevaban «Descubierta: actualmente sin indexar» y último rastreo N/D**.
+
+⭐ Eso **cierra el diagnóstico del 12/09 y lo da por bueno**: lo que faltaba eran enlaces internos, no `canonical` ni `noindex` — que ya se habían comprobado bien antes de echarles la culpa. El puente portada → 4 categorías → 29 de 29 fichas era el mecanismo que Google necesitaba. La cadena entera, de la hipótesis al resultado, salió como se escribió.
+
+⚠️ **De dónde sale el dato**: Search Console, que lo mira Jonathan. **No está medido desde aquí** —no hay acceso— así que queda anotado como lo que es: confirmado por él el 17/09, no comprobado por mí. Lo que sí está verificado desde aquí es lo de siempre: rutas a 200, `canonical` propios, sin `noindex` y presentes en el mapa.
+
+#### ⭐ LA VENTANA QUE DESPIERTA LA API (migración 087, `6004f28`)
+
+Con visitas reales llegando del buscador, el arranque en frío de Render deja de ser una molestia interna: **lo paga entero quien llega de Google**. Lo pidió Jonathan y eligió la hora.
+
+```
+ventana 06:00–23:59 Madrid · ping a /health cada 10 min
+18 h/día × 31 días = 558 h de 750     (margen 192 h)
+```
+
+**Verificado corriendo solo** el 17/09: pasadas automáticas a las 20:00, 20:10 y 20:20, las tres `succeeded` con HTTP **200** guardado en `net._http_response`. Y el ping manual previo despertó la instancia dormida en **25,4 s**.
+
+⚠️⚠️ **EL PRESUPUESTO ES LO QUE GOBIERNA ESTO, Y NO ES OPCIONAL.** Render da **750 h de instancia al mes POR WORKSPACE** y al agotarlas **suspende todos los servicios free hasta el mes siguiente** — o sea, tumbaría la API de la tienda. Un mes de 31 días tiene **744 h**, así que mantenerla despierta 24/7 dejaría **6 horas** de margen y el día que naciera un segundo servicio free caerían los dos. Por eso hay ventana y no un `*/10` a secas. **Hay una guarda en la migración que recalcula el gasto y se niega si alguien amplía la ventana.**
+
+**Las tres trampas que lleva esquivadas, cada una con su guarda:**
+
+- ⚠️⚠️ **El timeout por defecto de `pg_net` es de UN SEGUNDO.** Y el 12/09 se midió que **tres peticiones cortadas a los 70 s NO despertaron la instancia**; solo lo hizo una cuarta sin cortar, a los 100 s. Heredar el defecto habría dado **una tarea en verde cada 10 minutos con la API dormida**, que es peor que no tenerla. Van 120 s explícitos.
+- ⚠️ **`pg_cron` programa en UTC.** Un `*/10 6-23 * * *` se habría desplazado solo a las 07:00 medio año con el cambio de hora, sin que nadie tocara nada. La ventana se calcula en `Europe/Madrid` **dentro del SQL**, en una función que es fuente única: la usan el cron **y su guarda**.
+- ⚠️ **Con el servicio dormido, Render responde ÉL MISMO a `/robots.txt`** con un «disallow all»: devuelve 200 sin que la petición llegue a la aplicación. Un ping ahí vigilaría un dormido para siempre. Se pide `/health`, y que atraviesa está **medido** (32,5 s el 17/09: solo se tarda eso si se levanta el proceso).
+
+⭐ **Un fallo mío que se corrigió antes de aplicar, y es el de siempre**: la guarda del presupuesto **no podía saltar nunca**, porque estaba detrás de la que exige 18 h/día — si son 18, el gasto siempre da 558. Una comprobación inalcanzable no comprueba nada. Reordenadas, las dos son alcanzables: el presupuesto salta si alguien **amplía** la ventana, la intención si alguien la **mueve**. **Las cuatro guardas se vieron ROJAS con su mensaje correcto** antes de darlas por buenas.
+
+#### ⚠️ Lo que de esto NO se ha visto funcionar todavía
+
+Dos cosas, y las dos solo se observan cuando pasa el reloj. **Al volver, mirar `cron.job_run_details`**:
+
+1. **El corte de medianoche** — que de 00:00 a 05:59 no haya pasadas. La lógica está probada (la guarda recorre las 24 horas contra la función de verdad), pero verla callarse, no.
+2. **El despertar en frío de las 06:00** — el único ping del día que pega contra una instancia dormida, y el que justifica los 120 s. Todos los medidos el 17/09 pillaron la API ya caliente.
+
+#### El despliegue
+
+`6004f28` en producción a las 19:57. Web, ficha y categoría a 200. ⚠️ **El commit solo lleva el `.sql`**: la tarea ya estaba viva en la base de datos antes del push y no dependía de él. Se empujó con la API **caliente medida antes** (0,33 s), que es la regla operativa del 12/09 y aquí se cumplió.
+
+⭐ **Sigue en pie la alternativa honesta**: el plan **Starter de Render son 7 $/mes** y elimina el problema entero —no duerme, no hay cupo, no hay ventana, y el despliegue deja de depender de que la API esté viva—. La ventana gasta el 70 % del presupuesto gratis para imitar eso y deja la madrugada fría. Con el tráfico de hoy compensa; **el día que entren ventas de verdad, los 7 $ son la respuesta correcta**.
+
+---
+
+### Al volver, empezar por aquí — cierre del 2026-09-12
 
 Continuación de la auditoría. Dos commits: **el paso 2 del P1** (con lo que el P1 queda entero) y **las categorías indexables**, que eran el P2 más grande. Y por el camino, **Search Console dio los datos que cambian el diagnóstico** y un susto que resultó ser el plan Free de Render.
 
@@ -80,6 +128,8 @@ ducales             0 clics · 2 impresiones
 ⚠️ **9 clics, 80 impresiones, CTR 11,3 %, posición media 52,2.** Jonathan sospechó que los clics eran suyos y **tenía razón, y hay cómo demostrarlo**: un CTR del 11,3 % en posición 52 es entre cincuenta y cien veces lo normal (0,1–0,3 %). Esa mezcla solo sale si unas pocas impresiones están en posición 1 —la marca— y el resto en la página 9. Y 80 impresiones en 3 meses son **0,9 al día**.
 
 **2. Y el hallazgo serio: Google solo tiene indexadas 21 de las 34 páginas.**
+
+> ✅ **SUPERADO EL 17/09 — no leer lo de abajo como el estado de hoy.** Jonathan confirmó que Google **ya las rastreó y están indexadas**. Lo que sigue es el diagnóstico del 12/09, que se conserva porque explica **por qué** se hicieron las categorías y quedó demostrado que acertaba: eran los enlaces internos lo que faltaba, no el `canonical` ni el `noindex`. ⚠️ El dato de la indexación viene de Search Console, que **solo lo ve Jonathan**: no está medido desde aquí.
 
 Las 13 que faltan comparten estado —«Descubierta: actualmente sin indexar»— y **último rastreo N/D**. Ese N/D es lo que importa: **no las ha rechazado, es que no ha ido nunca**.
 
