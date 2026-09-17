@@ -44,7 +44,6 @@ export function CajaCodigo({
   // artículos: es lo que hace que el carrito entero se repinte de una vez y que no
   // haya dos sitios llamando a `/carrito`.
   const { aplicarCodigo, quitarCodigo } = useCarrito();
-  const [abierto, setAbierto] = useState(false);
   const [codigo, setCodigo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -66,7 +65,6 @@ export function CajaCodigo({
       return;
     }
     setCodigo("");
-    setAbierto(false);
   };
 
   const quitar = async () => {
@@ -114,46 +112,53 @@ export function CajaCodigo({
         </p>
       )}
 
-      {!abierto ? (
-        <button
-          type="button"
-          onClick={() => setAbierto(true)}
-          className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-        >
-          ¿Tienes un código de descuento?
-        </button>
-      ) : (
-        <div className="space-y-2">
-          <div className="flex gap-2">
-            <Input
-              value={codigo}
-              onChange={(e) => {
-                setCodigo(e.target.value);
-                setError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void aplicar();
-              }}
-              placeholder="Tu código"
-              className="font-mono uppercase"
-              // Da igual cómo lo escriba: la base compara en mayúsculas y sin
-              // espacios. El `uppercase` es solo visual.
-              autoComplete="off"
-              autoFocus
-              aria-label="Código de descuento"
-              aria-invalid={error !== null}
-            />
-            <Button onClick={() => void aplicar()} disabled={codigo.trim().length < 3 || enviando}>
-              {enviando ? "…" : "Aplicar"}
-            </Button>
-          </div>
-          {error && (
-            <p className="text-xs text-destructive" aria-live="polite">
-              {error}
-            </p>
-          )}
+      {/*
+        ⚠️ EL CAMPO ESTÁ SIEMPRE A LA VISTA, y antes era un enlace que había que pulsar
+        («¿Tienes un código de descuento?»). Lo pidió Jonathan el 17/09: quien trae un
+        código lo escribe sin buscar dónde, y quien no lo trae se encuentra una caja
+        vacía que no estorba.
+
+        ⚠️⚠️ Y POR ESO SE QUITÓ EL `autoFocus`, que NO es un descuido. Con el campo
+        detrás de un botón, enfocarlo al abrirlo era lo correcto: el cliente acababa de
+        pedirlo. Ahora se monta solo al cargar el carrito, así que el `autoFocus`
+        robaría el foco nada más entrar y arrastraría la página hasta el resumen —en el
+        móvil, además, levantando el teclado— a todo el mundo, incluido quien no tiene
+        ningún código. Un atributo correcto en un sitio y dañino en el de al lado.
+      */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <Input
+            value={codigo}
+            onChange={(e) => {
+              setCodigo(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void aplicar();
+            }}
+            placeholder="Código de descuento"
+            // ⚠️ `placeholder:normal-case` y `placeholder:font-sans` no son adorno: el
+            // `uppercase` y el `font-mono` de la caja se aplican TAMBIÉN al placeholder,
+            // así que sin esto la pista diría «CÓDIGO DE DESCUENTO» a gritos y en
+            // monoespaciada, pareciendo un valor escrito en vez de una sugerencia. Lo
+            // que se teclea sí va en mayúsculas y monoespaciada, que es lo que se quería.
+            className="font-mono uppercase placeholder:font-sans placeholder:normal-case"
+            // Da igual cómo lo escriba: la base compara en mayúsculas y sin
+            // espacios. El `uppercase` es solo visual.
+            autoComplete="off"
+            aria-label="Código de descuento"
+            aria-invalid={error !== null}
+          />
+          <Button onClick={() => void aplicar()} disabled={codigo.trim().length < 3 || enviando}>
+            {enviando ? "…" : "Aplicar"}
+          </Button>
         </div>
-      )}
+        {error && (
+          <p className="text-xs text-destructive" aria-live="polite">
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
