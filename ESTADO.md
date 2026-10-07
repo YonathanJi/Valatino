@@ -883,7 +883,10 @@ El corte que existía desde el 14/08 era `esNuevo = acumulado > totalReembolsado
 
 **Lo que se hizo**: el webhook apunta la transacción con **la misma llave que el panel** (el id del refund, no el del evento de Stripe). Las dos filas chocan, el segundo se lleva un 23505, `registrarTransaccion` devuelve `false` y se calla. **Lo decide la base al escribir, así que no hay ventana.** Y si nadie cogió la llave —devolución hecha en el panel de Stripe, o apunte del backoffice caído— el webhook la coge él: la red de seguridad sigue en pie.
 
-⚠️ La reentrega del mismo evento la sigue parando `eventoYaProcesado(event.id)`, independiente de esta llave, y `payload_raw` guarda el evento entero: no se pierde traza, solo cambia la llave.
+🔴 **CORREGIDO EL 2026-10-07: ESTE ARREGLO NO FUNCIONÓ NUNCA, Y LO DE ARRIBA ERA FALSO.** El webhook sacaba el id del refund de `charge.refunds.data[0]`, y **Stripe no manda ese campo** desde la API 2022-11-15. Medido: **0 de 14** `charge.refunded` en `transacciones_pago.payload_raw` lo llevaban, y pidiendo el cargo a Stripe con `2024-06-20` y con `2026-06-24.dahlia` (la versión con la que llegan los avisos de esta cuenta) tampoco viene. La llave caía **siempre** al `evt_…`, y como el `esNuevo` se había quitado, **cada devolución desde el panel mandaba dos correos — no en una carrera, todas**. No se vio porque desde el 26/08 no se había devuelto nada. El test pasaba porque su cargo de ejemplo traía una lista que Stripe no envía.
+**Ahora** el id se pide a Stripe (`StripeService.refundQueLoDisparo`): de las devoluciones del cargo, la que, sumando de la más vieja a la más nueva, deja lo devuelto en el `amount_refunded` del aviso. **Validado contra las 14 reales del sandbox: 14 de 14 dan la misma llave que apuntó el panel**, incluidas las 4 de Bizum (que son `py_…`/`pyr_…`, no `ch_`/`re_`). Los tests se vieron en rojo contra el controlador viejo (2 fallos) y contra «coger la más reciente» (6 fallos).
+
+⚠️ La reentrega del mismo evento la sigue parando `eventoYaProcesado(event.id)`, independiente de esta llave, y `payload_raw` guarda el cargo entero: no se pierde traza, solo cambia la llave.
 
 ⭐⭐ **Y AL VALIDAR EN ROJO APARECIÓ UN HUECO QUE NO SE BUSCABA**: la llave del webhook **no la vigilaba ningún test**. `eventoId: event.id` es lo que hay en los otros TRES sitios del mismo controlador, o sea exactamente lo que alguien «unifica» sin querer, y el spec de `ConfirmacionPedidoService` recibe el `eventoId` ya decidido, así que no puede verlo. De ahí `apps/api/src/pagos/webhooks.reembolso.spec.ts`.
 
@@ -3605,6 +3608,8 @@ La delegación del registro `.es` tardó **una hora larga** desde que se compró
 7. Legal antes de vender de verdad en España: aviso legal, política de privacidad y de cookies.
 
 ⚠️ Todo esto está con **claves de test de Stripe**, y así debe quedarse hasta que el dominio funcione de punta a punta. El paso a `live` es un paso aparte.
+
+⚠️ **Medido el 2026-10-07**: la cuenta de las claves de test es un **sandbox** (`acct_1TmwxTL…`, «Entorno de prueba de Valatino»), no el modo prueba de la cuenta real, así que la cuenta real tiene **sus propios** métodos de pago, webhooks y dominios de Apple Pay. Y el webhook de pruebas no fija versión: los avisos llegan con la de la cuenta, `2026-06-24.dahlia`, no con la `2024-06-20` del SDK.
 
 ---
 
