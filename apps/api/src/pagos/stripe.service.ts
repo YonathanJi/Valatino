@@ -96,6 +96,32 @@ export class StripeService {
     }
   }
 
+  /**
+   * El id de la devolución que disparó un `charge.refunded`: `re_…` con tarjeta,
+   * `pyr_…` con Bizum. Es la llave con la que el panel apunta la suya, y el
+   * webhook necesita la MISMA para que la unicidad de `evento_id` decida quién
+   * avisa al cliente.
+   *
+   * ⚠️⚠️ EL EVENTO NO LA TRAE. El cargo dejó de incluir `refunds` en la API
+   * 2022-11-15: medido el 2026-10-07, 0 de los 14 `charge.refunded` guardados en
+   * `transacciones_pago` lo llevaban, y pidiendo el cargo con 2024-06-20 y con
+   * 2026-06-24.dahlia (la de los webhooks de esta cuenta) tampoco viene.
+   *
+   * Devuelve null si no se puede averiguar. Nunca lanza: el webhook cae entonces
+   * al id del evento, que es peor llave pero apunta la devolución igual.
+   */
+  async refundQueLoDisparo(cargoId: string, acumuladoCents: number): Promise<string | null> {
+    try {
+      const lista = await this.stripe.refunds.list({ charge: cargoId, limit: 100 });
+      return refundQueCompletaElAcumulado(lista.data, acumuladoCents);
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo averiguar qué devolución disparó el aviso de ${cargoId}: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   constructEvent(rawBody: Buffer, signature: string): Stripe.Event {
     try {
       return this.stripe.webhooks.constructEvent(rawBody, signature, this.webhookSecret);
@@ -103,4 +129,35 @@ export class StripeService {
       throw new BadRequestException("Firma de webhook inválida");
     }
   }
+}
+
+/**
+ * De las devoluciones de un cargo, la que deja lo devuelto en `acumuladoCents`.
+ *
+ * `amount_refunded` del evento es el acumulado EN ESE INSTANTE, así que la que
+ * lo disparó es aquella en la que, sumando de la más vieja a la más nueva, la
+ * suma llega justo a ese número. No vale coger la más reciente: si el aviso se
+ * procesa tarde, puede haber otra posterior.
+ *
+ * Las fallidas y canceladas no cuentan porque Stripe las descuenta de
+ * `amount_refunded`. Si una falla DESPUÉS del evento, la suma ya no cuadra y se
+ * devuelve null: mejor no saberlo que apuntar la llave de otra devolución.
+ *
+ * Validado el 2026-10-07 contra las devoluciones reales del sandbox: 14 de 14
+ * dan la misma llave que apuntó el panel, incluidas las 4 de Bizum.
+ *
+ * @param refunds del más nuevo al más viejo, que es como los lista Stripe.
+ */
+export function refundQueCompletaElAcumulado(
+  refunds: ReadonlyArray<Pick<Stripe.Refund, "id" | "amount" | "status">>,
+  acumuladoCents: number,
+): string | null {
+  let suma = 0;
+  for (const refund of [...refunds].reverse()) {
+    if (refund.status === "failed" || refund.status === "canceled") continue;
+    suma += refund.amount;
+    if (suma === acumuladoCents) return refund.id;
+    if (suma > acumuladoCents) return null;
+  }
+  return null;
 }

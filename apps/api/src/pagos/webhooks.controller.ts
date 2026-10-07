@@ -385,9 +385,10 @@ export class PagosController {
      * con el pedido ya marcado como reembolsado. Tiene que quedar constancia.
      */
     /*
-     * La documentación de Bizum habla de `refund.failed`, pero ese evento no
-     * existe en la versión de API que usa esta cuenta (2024-06-20): aquí el
-     * fallo llega como `refund.updated` con el estado ya en «failed». Se
+     * La documentación de Bizum habla de `refund.failed`, pero aquí el fallo se
+     * escucha como `refund.updated` con el estado ya en «failed». ⚠️ La versión de
+     * los avisos NO es la del SDK (2024-06-20): el endpoint no fija ninguna y llegan
+     * con la de la cuenta, `2026-06-24.dahlia` (medido el 2026-10-07). Se
      * escuchan los dos nombres del mismo aviso —`charge.refund.updated` es el
      * heredado— y se filtra por estado, que es lo que de verdad importa.
      */
@@ -441,16 +442,25 @@ export class PagosController {
        *
        * ⚠️ La reentrega del mismo evento la sigue parando `eventoYaProcesado(event.id)`
        * de más arriba, que es independiente de esta llave. Y `payload_raw` guarda el
-       * evento entero, así que no se pierde nada de la traza: solo cambia la llave.
+       * cargo entero, así que no se pierde nada de la traza: solo cambia la llave.
        *
-       * `refunds.data[0]` es el refund más reciente del cargo en el instante de ESTE
-       * evento —Stripe los devuelve del más nuevo al más viejo y el `data` del evento
-       * es una foto de ese momento—, o sea el que lo disparó. Si no viniera la lista,
-       * se cae al id del evento: peor llave, pero mejor que no apuntar nada.
+       * ⚠️⚠️ EL ID SE PIDE A STRIPE, PORQUE EL EVENTO NO LO TRAE. Hasta el 2026-10-07
+       * se leía de `charge.refunds.data[0]`, y ese campo no existe desde la API
+       * 2022-11-15: 0 de 14 avisos reales lo llevaban. La llave caía SIEMPRE al
+       * `evt_…`, y como el panel ya no se compara por importe, cada devolución hecha
+       * desde el panel mandaba DOS correos — no en una carrera, todas. No se vio
+       * porque desde el arreglo no se había devuelto nada. El test pasaba porque su
+       * cargo de ejemplo traía una lista que Stripe no manda.
+       *
+       * Si no se puede averiguar, se cae al id del evento: peor llave, pero mejor que
+       * no apuntar nada.
        */
-      const refundQueLoDisparo = charge.refunds?.data?.[0]?.id;
-
       if (paymentIntentId) {
+        const refundQueLoDisparo = await this.stripeService.refundQueLoDisparo(
+          charge.id,
+          charge.amount_refunded ?? 0,
+        );
+
         await this.confirmacionPedido.procesarReembolso({
           proveedor: "stripe",
           eventoId: refundQueLoDisparo ?? event.id,
